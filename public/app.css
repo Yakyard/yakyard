@@ -1411,7 +1411,6 @@ code, pre, kbd, .composer .ce code, .composer .ce pre { font-family: var(--font-
 [data-theme="dark"] .rail-btn.active .rail-ico { background: var(--hover-solid); color: var(--ink); }
 [data-theme="yaky"] .rail-btn.active .rail-ico { background: var(--yak-yellow); color: var(--night); }
 .search-bar, .find { border-radius: var(--radius-pill); background: var(--surface); border: 1px solid var(--line); box-shadow: none; color: var(--ink-3); }
-[data-theme="dark"] .search-bar, [data-theme="dark"] .find { background: var(--surface); }
 [data-theme="yaky"] .search-bar, [data-theme="yaky"] .find { background: rgb(255 255 255 / .14); border-color: rgb(255 255 255 / .22); color: #fff; }
 [data-theme="yaky"] .search-bar:hover, [data-theme="yaky"] .find:hover { background: rgb(255 255 255 / .22); }
 .ws-name { font-family: var(--font-display); font-weight: 400; font-size: 20px; letter-spacing: 0; }

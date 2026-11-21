@@ -61,7 +61,7 @@ async function clientSecret(env) {
 const placeholderId = async (sid) => 'U' + (await sha1hex(sid)).slice(0, 16);
 
 // Move everything a placeholder owns to the real account, then fix DM keys and delete the placeholder.
-async function mergePlaceholder(env, sid, realId) {
+export async function mergePlaceholder(env, sid, realId) {
   const ph = await placeholderId(sid);
   if (ph === realId) return;
   const p = await env.DB.prepare('SELECT id FROM users WHERE id=? AND email=?').bind(ph, sid.toLowerCase() + '@bot.local').first();

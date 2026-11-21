@@ -9,7 +9,8 @@
     "deploy": "node scripts/deploy.mjs",
     "db:init": "wrangler d1 execute yakyard --remote --file=schema.sql",
     "db:init:local": "wrangler d1 execute yakyard --local --file=schema.sql",
-    "vapid": "node scripts/vapid.mjs"
+    "vapid": "node scripts/vapid.mjs",
+    "test": "node --test test/merge-placeholder.test.mjs"
   },
   "dependencies": {
     "@pushforge/builder": "2.0.5"

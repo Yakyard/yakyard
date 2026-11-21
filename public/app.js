@@ -185,7 +185,7 @@ function chanRow(ch) {
     // The badge bumps once when its number changes, never on a plain redraw.
     const seen = (S.badgeSeen ||= new Map()), was = seen.get(ch.id); seen.set(ch.id, ch.mentions);
     row.append(h('span', { class: 'badge' + (was != null && was !== ch.mentions ? ' bump' : '') }, ch.mentions, h('span', { class: 'sr' }, ch.mentions === 1 ? ' mention' : ' mentions')));
-  } else if (S.badgeSeen?.delete(ch.id), ch.kind === 'dm') row.append(h('span', { class: 'row-x', role: 'button', title: 'Close conversation', onclick: (e) => { e.stopPropagation(); closeDM(ch); } }, svg(I.close, 12)));
+  } else if (ch.kind === 'dm') row.append(h('span', { class: 'row-x', role: 'button', title: 'Close conversation', onclick: (e) => { e.stopPropagation(); closeDM(ch); } }, svg(I.close, 12)));
   return row;
 }
 function renderSidebar() {
@@ -2180,7 +2180,7 @@ async function start() {
   $('#search-label').textContent = 'Search ' + S.workspace.name;
   $('#btn-compose').onclick = composeDM;
   $('#btn-help').onclick = shortcuts;
-  $('#ws-menu').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); menu([['Create a channel', createChannel], ['Browse channels', browseChannels], ['Create a section', () => newSection()], ['Invite people', invitePeople], ...(isAdmin() ? [['Admin dashboard', () => openAdmin()]] : []), ['---'], ['Your profile', () => profile(S.me)], ['Status and notifications', () => (location.hash = '#/prefs')], ['Theme…', () => themeMenu($('#ws-menu'))], ['Import my Slack history', () => (location.hash = '#/import')], ['Pause notifications…', () => pauseMenu()], ['Keyboard shortcuts', shortcuts], ['Install the app', installApp], ['---'], ['Sign out', signOut]], r.left, r.bottom + 4); };
+  $('#ws-menu').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); menu([['Create a channel', createChannel], ['Browse channels', browseChannels], ['Create a section', () => newSection()], ['Invite people', invitePeople], ...(isAdmin() ? [['Admin dashboard', () => openAdmin()]] : []), ['---'], ['Your profile', () => profile(S.me)], ['Status and notifications', () => (location.hash = '#/prefs')], ['Import my Slack history', () => (location.hash = '#/import')], ['Pause notifications…', () => pauseMenu()], ['Keyboard shortcuts', shortcuts], ['Install the app', installApp], ['---'], ['Sign out', signOut]], r.left, r.bottom + 4); };
   $('#ws-icon').onclick = () => { S.view = 'home'; railActive('home'); renderSidebar(); };
   $('#btn-back').onclick = () => { if (S.thread && $('#app').classList.contains('view-thread')) closeThread(true); else if (history.length > 1 && S.cameFromList) history.back(); else { location.hash = '#/'; } };
   $$('.rail-btn').forEach((b) => (b.onclick = () => {
@@ -3036,10 +3036,6 @@ function setTheme(pick) {
 }
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (themePick() === 'system') applyTheme(); });
 applyTheme();
-function themeMenu(anchor) {
-  const r = anchor.getBoundingClientRect();
-  menu(THEMES.map(([v, l]) => [(themePick() === v ? '✓ ' : '') + l, () => setTheme(v)]), r.left, r.bottom + 4);
-}
 const THEMES = [['system', 'Match my device'], ['light', 'Light'], ['dark', 'Dark'], ['yaky', 'Yaky (bold color)']];
 function applyLook() {
   document.body.classList.toggle('bubbles', (localStorage.getItem('yy-look') || 'bubbles') === 'bubbles');
