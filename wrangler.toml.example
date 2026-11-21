@@ -1,0 +1,61 @@
+# Copy this file to wrangler.toml and fill in the values marked CHANGE.
+name = "yakyard"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[assets]
+directory = "public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "yakyard"
+database_id = "CHANGE: id printed by `npx wrangler d1 create yakyard`"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "yakyard-files"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]
+
+# Image resizing for photo previews (Cloudflare Images binding).
+[images]
+binding = "IMAGES"
+
+# Voice note transcripts (Whisper on Workers AI).
+[ai]
+binding = "AI"
+
+# Every minute: reminders, scheduled messages, voice transcripts that need a retry, Slack imports.
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+WORKSPACE_NAME = "CHANGE: your team or company name"
+APP_URL = "CHANGE: https://yakyard.<your-subdomain>.workers.dev"
+OWNER_EMAILS = "CHANGE: you@example.com"       # comma-separated; these people are owners
+ALLOWED_DOMAINS = ""                            # e.g. "example.com": anyone with that email can sign in with Google
+VAPID_PUBLIC = ""                               # phone notifications: see README, "Notifications"
+VAPID_SUBJECT = ""                              # mailto: address push services can contact
+VOICE_LANGUAGE = "en"                           # transcript language (ISO code)
+VOICE_HINT = ""                                 # names and words Whisper should spell right, e.g. "Acme, Zoe, SKU"
+GOOGLE_CLIENT_ID = ""                           # optional "Sign in with Google"
+GOOGLE_ENABLED = "0"
+SLACK_CLIENT_ID = ""                            # optional "Moving day" Slack import
+SLACK_TEAM_ID = ""                              # optional: only allow imports from this Slack workspace
+DEV_LOGIN = "0"
+
+# Secrets (set with `npx wrangler secret put NAME`, never put them in this file):
+#   VAPID_PRIVATE         phone notifications
+#   TOKEN_KEY             encrypts Slack tokens during import (any long random string)
+#   GOOGLE_CLIENT_SECRET  only with Google sign-in
+#   SLACK_CLIENT_SECRET   only with the Slack import
+#   TURN_KEY_ID, TURN_KEY_TOKEN   Cloudflare Realtime TURN, makes calls work behind strict networks

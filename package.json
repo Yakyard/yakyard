@@ -1,0 +1,19 @@
+{
+  "name": "yakyard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted team chat on Cloudflare: channels, threads, DMs, calls, voice notes with transcripts.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "./deploy.sh",
+    "db:init": "wrangler d1 execute yakyard --remote --file=schema.sql",
+    "vapid": "node scripts/vapid.mjs"
+  },
+  "dependencies": {
+    "@pushforge/builder": "^2.0.5"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
