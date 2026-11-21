@@ -209,3 +209,39 @@ test('backups copy real tables parent first, copy standalone search tables, rebu
   assert.ok(o.indexOf('users') < o.indexOf('credentials') && o.indexOf('channels') < o.indexOf('members'));
   assert.equal(q("it's"), "'it''s'"); assert.equal(q(null), 'NULL'); assert.equal(q(5), '5'); assert.equal(q([1, 255]), "X'01ff'");
 });
+
+test('the R2 cache serves fresh copies, drops expired ones, and keeps under its cap oldest first', async () => {
+  const { cacheGet, cachePut, cacheCleanup } = await import('../src/cache.js');
+  const store = new Map(); let clock = Date.now() - 10000;
+  const FILES = {
+    get: async (k) => { const o = store.get(k); return o && { ...o, body: { cancel: async () => {} } }; },
+    put: async (k, body, opt) => { store.set(k, { key: k, size: typeof body === 'string' ? body.length : body.byteLength, uploaded: new Date(clock), customMetadata: opt.customMetadata, httpMetadata: opt.httpMetadata }); },
+    list: async ({ prefix }) => ({ objects: [...store.values()].filter((o) => o.key.startsWith(prefix)), truncated: false }),
+    delete: async (keys) => keys.forEach((k) => store.delete(k)),
+  };
+  const env = { FILES, IMG_CACHE_MB: '1' };
+  await cachePut(env, 'img/a', new ArrayBuffer(600 * 1024), 60e3, 'image/png');
+  assert.ok(await cacheGet(env, 'img/a'), 'fresh copy served');
+  clock += 1000; await cachePut(env, 'img/b', new ArrayBuffer(600 * 1024), 3600e3, 'image/png');
+  clock += 1000; await cachePut(env, 'unfurl/c', '{}', 10, 'application/json');
+  assert.equal(await cacheGet(env, 'unfurl/c'), null, 'expired copy not served');
+  const gone = await cacheCleanup(env, Date.now());
+  assert.equal(gone, 2);   // the expired one, and the oldest picture to fit 1 MB
+  assert.deepEqual([...store.keys()], ['cache/img/b']);
+});
+
+test('the CPU check reads wrangler tail output however it is split, and flags anything over 10 ms', async () => {
+  const { jsonStream, eventName, report, checkConfig } = await import('../scripts/cpu-check.mjs');
+  const got = []; const feed = jsonStream((o) => got.push(o));
+  const a = { outcome: 'ok', cpuTime: 3.2, event: { request: { method: 'POST', url: 'https://x.dev/api/channels/C0123456789abcdef/messages' } } };
+  const b = { outcome: 'exceededCpu', cpuTime: 11, eventType: 'alarm', entrypoint: 'Job', event: { scheduledTime: 1 } };
+  const text = JSON.stringify(a, null, 2) + '\n' + JSON.stringify({ ...b, logs: ['a } in a string {'] });
+  feed(text.slice(0, 50)); feed(text.slice(50, 51)); feed(text.slice(51));
+  assert.equal(got.length, 2);
+  assert.equal(eventName(got[0]), 'POST /api/channels/:id/messages');
+  assert.equal(eventName(got[1]), 'alarm Job');
+  const r = report(got);
+  assert.deepEqual(r.bad, ['alarm Job']);
+  const cfg = JSON.parse(checkConfig(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')).replace(/^\/\/.*\n/, ''));
+  assert.equal(cfg.limits.cpu_ms, 10); assert.equal(cfg.name, 'yakyard-cpu-check'); assert.equal(cfg.d1_databases[0].database_name, 'yakyard-cpu-check');
+});

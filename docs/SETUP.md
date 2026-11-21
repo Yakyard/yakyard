@@ -166,6 +166,8 @@ npx wrangler rollback
 
 It asks which version to go back to. Pick the one just before. Database updates only add tables and columns, so the older version keeps working with them. You can also do this in the Cloudflare dashboard: **Workers & Pages**, your `yakyard` Worker, **Deployments**.
 
+One exception: Cloudflare can't roll back past an update that adds a new kind of Durable Object, and the update that brings background jobs adds one (`Job`). Going back past it fails with a message about Durable Object migrations. That is why the backup comes first: if that update misbehaves, keep it running, restore the backup if data went wrong, and report the problem.
+
 ## Backups
 
 Your messages live in a Cloudflare D1 database. Keep your own copy: once a month, and before every update.
@@ -174,27 +176,27 @@ Your messages live in a Cloudflare D1 database. Keep your own copy: once a month
 npm run backup
 ```
 
-It saves a file like `backups/yakyard-remote-2026-11-21-09-30.sql` in the Yakyard folder and says how many tables and rows it copied. Open it in a text editor: the first line starts with `-- Yakyard backup`. Keep the file somewhere safe, outside the computer too.
+It saves a file like `backups/yakyard-remote-2026-11-21-09-30.sql` in the Yakyard folder and says how many tables and rows it copied. Open it in a text editor: the first line starts with `-- Yakyard backup` and the last line lists the rows per table. Keep the file somewhere safe, outside the computer too. If it stops with an error about logging in, type `npx wrangler login` and run it again.
 
 Cloudflare's own `wrangler d1 export` doesn't work for this: Yakyard's search uses full-text search tables, and the export either stops on them or writes a file D1 can't load back. `npm run backup` copies every table itself.
 
-**To put a backup back:**
+To put a backup back:
 
 ```
 npm run restore -- backups/yakyard-remote-2026-11-21-09-30.sql
 ```
 
-It asks you to type `yes`, because it replaces everything in your live database with the backup. Then it loads the file, rebuilds the search for messages and voice notes, and recounts the storage in use. Sign in and open a channel to check.
+It asks you to type `yes`, because it replaces everything in your live database with the backup. Then it loads the file, rebuilds the search for messages and voice notes, and recounts the storage in use. It worked when the last line says `Restored`. Sign in, open a channel and search for a word you know is there. If it stops halfway (a lost connection, say), run the same command again: it clears the tables before loading, so a second run is safe.
 
-**Practice once.** Try a restore on the copy on your computer, so you know it works before you need it: `npm run backup`, then `npm run restore -- <that file> --local`, then `npm run dev` and look around.
+Practice once: try a restore on the copy on your computer, so you know it works before you need it: `npm run backup`, then `npm run restore -- <that file> --local`, then `npm run dev` and look around.
 
-**Going back a few hours or days.** Cloudflare also keeps a history of the database (7 days on the free plan), handy for undoing a mistake made today. Type the date and time in UTC:
+Cloudflare also keeps a history of the database (7 days on the free plan). It is the quick way to undo a mistake made today. Type the date and time in UTC, the latest moment that was still fine:
 
 ```
 npx wrangler d1 time-travel restore DB --timestamp=2026-11-20T09:00:00.000+00:00
 ```
 
-Messages and changes made after that moment disappear, so pick the latest time that was still fine. The command prints a bookmark: keep it, it brings them back if you picked the wrong time. More in Cloudflare's [Time Travel guide](https://developers.cloudflare.com/d1/reference/time-travel/).
+Messages and changes made after that moment disappear. The command prints a bookmark: keep it, it brings them back if you picked the wrong time. More in Cloudflare's [Time Travel guide](https://developers.cloudflare.com/d1/reference/time-travel/).
 
 Files and voice notes stay in R2 and are not in the backup. Cloudflare stores them on several machines, so a lost file is very unlikely.
 
@@ -231,7 +233,7 @@ npx wrangler secret bulk .cpu-check-secrets.json --config wrangler.cpu-check.jso
 node scripts/cpu-check.mjs run https://yakyard-cpu-check.YOUR-SUBDOMAIN.workers.dev
 ```
 
-It passes when the last line says `All ... invocations stayed under 10 ms`. Then remove the copy, its database and its file storage:
+It passes when the last line says `All ... invocations stayed under 10 ms`. If something went over, the list above it names the page or job and its CPU, and `cpu-check-report.json` has the details. Either way, remove the copy, its database and its file storage afterwards:
 
 ```
 npx wrangler delete --config wrangler.cpu-check.jsonc

@@ -399,6 +399,29 @@ with sync_playwright() as p:
     check('L2 guest does not see people they share nothing with', gpres and lon_id not in gpres[-1]['online'] and me in gpres[-1]['online'], gpres[-1:] if gpres else None)
     br.close()
 
+# ---------------- background jobs run by themselves (each its own Durable Object alarm)
+due = int(time.time() * 1000) + 32000
+api(owner, 'POST', '/api/scheduled', {'channel_id': general, 'text': 'sent by its job', 'send_at': due})
+api(owner, 'POST', '/api/reminders', {'text': 'job reminder', 'due_at': int(time.time() * 1000) + 5000})
+time.sleep(max(0, due / 1000 - time.time()) + 8)
+check('jobs: a scheduled message is sent at its time, once', len(d1("SELECT id FROM messages WHERE text='sent by its job'")) == 1)
+check('jobs: a reminder arrives as a bot message', len(d1("SELECT id FROM messages WHERE text LIKE 'Reminder: job reminder%'")) == 1)
+
+# ---------------- backup and restore round trip (full-text search tables included)
+if PERSIST:
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    run = lambda *a: subprocess.run(['node', *a], cwd=ROOT, capture_output=True, text=True)
+    b1 = run('scripts/backup.mjs', '--local', *PERSIST, tmp + '/one.sql')
+    r = run('scripts/restore.mjs', tmp + '/one.sql', '--local', '--persist-to=' + tmp + '/db')
+    b2 = run('scripts/backup.mjs', '--local', '--persist-to=' + tmp + '/db', tmp + '/two.sql')
+    body = lambda f: open(f).read().split('\n', 1)[1]
+    check('backup, restore into a new database, backup again: identical', b1.returncode == 0 and r.returncode == 0 and b2.returncode == 0 and body(tmp + '/one.sql') == body(tmp + '/two.sql'), (b1.stderr[-300:], r.stderr[-300:]))
+    out = subprocess.run(['npx', 'wrangler', 'd1', 'execute', 'DB', '--local', '--persist-to=' + tmp + '/db', '--config', 'wrangler.jsonc', '--json', '--command',
+                          "SELECT (SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'parent') m, (SELECT COUNT(*) FROM sqlite_master WHERE type='trigger') t"], cwd=ROOT, capture_output=True, text=True).stdout
+    res = json.loads(out)[0]['results'][0]
+    check('restored database: message search works and triggers are back', res['m'] >= 1 and res['t'] >= 6, res)
+
 # ---------------- KDF salt endpoint limit (last: it uses up this address's allowance)
 codes = [requests.post(B + '/auth/salt', json={'email': ('owner@example.com', 'ghost@example.com')[i % 2]}).status_code for i in range(110)]
 check('KDF salt endpoint is limited per address (100 in 15 minutes)', 429 in codes and codes[-1] == 429 and codes[-2] == 429, codes[-12:])

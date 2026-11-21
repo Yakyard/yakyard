@@ -22,7 +22,8 @@ export function plan(master) {
   const shadow = new Set(virtual.flatMap((v) => master.filter((m) => m.type === 'table' && m.name.startsWith(v.name + '_')).map((m) => m.name)));
   const skip = (n) => /^(sqlite_|_cf_|d1_)/.test(n) || shadow.has(n);
   return {
-    tables: master.filter((m) => m.type === 'table' && !virtual.includes(m) && !skip(m.name)).map((m) => m.name),
+    // Sorted, so two backups of the same data are the same file whatever order the tables were made in.
+    tables: master.filter((m) => m.type === 'table' && !virtual.includes(m) && !skip(m.name)).map((m) => m.name).sort(),
     // FTS tables that keep their own text are copied row by row; ones that index another table (content=...) are rebuilt.
     ftsCopy: virtual.filter((v) => !/content\s*=/i.test(v.sql)).map((v) => v.name),
     ftsRebuild: virtual.filter((v) => /content\s*=\s*'[^']+'/i.test(v.sql)).map((v) => v.name),
@@ -70,7 +71,7 @@ export function backup(where, extra, log = console.log) {
     pending = next;
   }
   for (const t of Object.keys(sel)) for (const r of rows[t]) {
-    const cols = Object.keys(r).filter((c) => c !== '_rowid');
+    const cols = Object.keys(r).filter((c) => c !== '_rowid').sort();   // column order differs between old and new databases
     out.push(`INSERT INTO ${t} (rowid, ${cols.join(', ')}) VALUES (${[r._rowid, ...cols.map((c) => r[c])].map(q).join(', ')});`);
   }
   out.push(...p.ftsRebuild.map((t) => `INSERT INTO ${t}(${t}) VALUES('rebuild');`));

@@ -52,7 +52,9 @@ export async function pushOne(env, sub, payload) {
     subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
     message: { payload, adminContact: env.VAPID_SUBJECT || env.APP_URL || 'mailto:admin@example.com', options: { ttl: 3600, urgency: 'high', topic: String(payload.tag || '').slice(0, 32).replace(/[^\w-]/g, '') || undefined } },
   });
-  const r = await fetch(endpoint, { method: 'POST', headers, body });
+  // Only for tests: PUSH_TEST_URL (localhost only) receives what would go to the push service.
+  const test = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(env.PUSH_TEST_URL || '') ? env.PUSH_TEST_URL + encodeURIComponent(new URL(endpoint).pathname) : '';
+  const r = await fetch(test || endpoint, { method: 'POST', headers, body });
   if (r.status === 404 || r.status === 410) await env.DB.prepare('DELETE FROM push_subs WHERE endpoint=?').bind(sub.endpoint).run();
   return r.ok ? 1 : 0;
 }
@@ -70,7 +72,8 @@ export async function pushToUsers(env, userIds, payload) {
   return subs.length;
 }
 export async function pushBatch(env, { subs, payload }) {
-  await Promise.allSettled(subs.map((s) => pushOne(env, s, payload)));
+  const res = await Promise.allSettled(subs.map((s) => pushOne(env, s, payload)));
+  for (const r of res) if (r.status === 'rejected') console.log('push failed', String(r.reason));
   return null;
 }
 

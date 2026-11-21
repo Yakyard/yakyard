@@ -12,7 +12,7 @@
 
 - **Running it for your team?** [Set up Yakyard, free](docs/SETUP.md): a step-by-step guide, no coding needed. About 30 minutes.
 - **Using it?** [Using Yakyard](docs/GUIDE.md): channels, threads, voice notes, search, notifications and more, with pictures.
-- **Know Cloudflare already?** [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard) The button copies Yakyard to your GitHub, creates the database, file storage and background jobs, and deploys. It asks for one secret, `SETUP_TOKEN`.
+- **Know Cloudflare already?** [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard) The button copies Yakyard to your GitHub, creates the database, file storage and background jobs, and deploys. It asks for one secret, `SETUP_TOKEN`. Turn on R2 in your Cloudflare account first (step 2 of the setup guide).
 
 Runs on Cloudflare's free plan for a team of up to about 50 people. The math is in [Free plan](#free-plan).
 
@@ -84,7 +84,7 @@ Yakyard is built to fit Cloudflare's free plan with zero paid features turned on
 
 Calls (Pop in) go browser to browser. The server only relays the short setup messages.
 
-**Background jobs.** Scheduled messages, reminders, transcripts, Slack imports and phone notifications each run as their own job: a small Durable Object woken by its own alarm. Every job is its own run with its own 10 ms, so nothing waits behind anything else, and a scheduled message goes out within seconds of its time. A check every 5 minutes (the cron) only re-wakes anything that is overdue. Cloudflare Queues are on the free plan too, but their 10,000 operations a day are shared by the whole account, and one Slack import plus a day of notifications can use them up; Durable Objects allow 100,000 requests a day.
+**Background jobs.** Scheduled messages, reminders, transcripts, Slack imports and phone notifications each run as their own job: a small Durable Object woken by its own alarm. Every job is its own run with its own 10 ms, so nothing waits behind anything else, and a scheduled message goes out within seconds of its time. A check every 5 minutes (the cron) only re-wakes anything that is overdue. Cloudflare Queues are on the free plan too, but their 10,000 operations a day are shared by the whole account, and one Slack import plus a day of notifications can use them up. Durable Objects allow 100,000 requests a day.
 
 **How many people.** Rough daily numbers for one active person: 40 messages sent, 150 conversations opened, 5 app opens.
 
@@ -204,6 +204,7 @@ Settings marked `vars` go in `wrangler.jsonc`, under `"vars"`. Secrets are set w
 | `IMG_CACHE_MB` | `vars` | no | Room in R2 for copies of outside pictures, link previews and weather. Default 200. |
 | `SLACK_API` | `vars` | no | Tests only: point the Slack import at a mock server. |
 | `VOICE_AI_URL` | `vars` | no | Tests only: a local stand-in for Workers AI (localhost addresses only). |
+| `PUSH_TEST_URL` | `vars` | no | Tests only: a local stand-in for the push services (localhost addresses only). |
 
 ## Updating
 
@@ -216,7 +217,7 @@ npm run update     # gets the newest Yakyard and deploys it
 
 With the Deploy button, Cloudflare redeploys your GitHub copy on every push. To update it, sync your copy with the original on GitHub (Sync fork, or a pull request from the original).
 
-Open apps show "New version of Yakyard" and update in one tap. If the new version misbehaves, `npx wrangler rollback` puts the previous one back. The database changes only add, so it keeps working (details in [SETUP.md](docs/SETUP.md#updates)).
+Open apps show "New version of Yakyard" and update in one tap. If the new version misbehaves, `npx wrangler rollback` puts the previous one back. The database changes only add, so it keeps working. Cloudflare can't roll back past the update that adds background jobs, because it adds a Durable Object class: back up first (details in [SETUP.md](docs/SETUP.md#updates)).
 
 ## Backups
 
@@ -229,7 +230,7 @@ npm run restore -- backups/<file>    # puts it back (asks first); --local works 
 
 ## Old accounts
 
-Accounts made before Yakyard moved password stretching into the browser hold an older kind of password hash. Checking it would take about 18 ms of CPU, over the free plan's limit, and the server can't check that a new browser key matches the old password without the same cost. So instead of trusting a key it can't verify, Yakyard asks these people to set a new password once: they see "This account needs a new password, once" at sign-in. The owner sends them a new link (**Invite people** with their email). An owner who can't sign in makes their own link from the computer they deploy from:
+Accounts made before Yakyard moved password stretching into the browser hold an older kind of password hash. Checking it would take about 18 ms of CPU, over the free plan's limit, and the server can't check that a new browser key matches the old password without the same cost. So these people set a new password once, from a link: they see "This account needs a new password, once" at sign-in. The owner sends them a new link (**Invite people** with their email). An owner who can't sign in makes their own link from the computer they deploy from:
 
 ```bash
 npm run signin-link -- you@example.com

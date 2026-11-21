@@ -1636,3 +1636,4 @@ button { touch-action: manipulation; }
 
 /* Light theme: the yak shows up in the active rail item too, as it does in Yaky. */
 [data-theme="light"] .rail-btn.active .rail-ico { background: var(--yak-yellow); color: var(--night); }
+.modal-error { margin: 0 24px 4px; }
