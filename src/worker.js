@@ -3,7 +3,7 @@ import { unfurl, safeFetchUrl, safeFetch } from './unfurl.js';
 import { slackRoutes, slackApi, importJob } from './slackimport.js';
 import { sendPushes, featureApi, hydrateExtras, openDm, v6, arm, routes, runRoutes, jobArm, jobAlarm, sweep, housekeeping, sendScheduled, sendReminder, pushBatch, PUSHES_PER_JOB, dbQuotaError, QUOTA_MSG } from './features.js';
 import { parseVoiceMeta, transcribe, patchMessage, voiceJob, fmtDur, VOICE_MAX } from './voice.js';
-import { DurableObject } from 'cloudflare:workers';
+import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { cacheGet, cachePut, cacheCleanup } from './cache.js';
 
 const SESSION_DAYS = 30;
@@ -148,12 +148,14 @@ async function ensureDefaultSections(env, userId) {
   }
 }
 
+// The session row, and a note that this account has signed in at least once (used by invite resets).
+const sessionStmts = (env, userId, hid) => [
+  env.DB.prepare('INSERT INTO sessions (id,user_id,created_at,expires_at) VALUES (?,?,?,?)').bind(hid, userId, now(), now() + SESSION_DAYS * 864e5),
+  env.DB.prepare('INSERT OR IGNORE INTO signins (user_id,first_at) VALUES (?,?)').bind(userId, now()),
+];
 async function createSession(env, userId) {
   const sid = uid('sess_') + uid();
-  await env.DB.prepare('INSERT INTO sessions (id,user_id,created_at,expires_at) VALUES (?,?,?,?)')
-    .bind(await sha256hex(sid), userId, now(), now() + SESSION_DAYS * 864e5).run();
-  // Remember that this account has signed in at least once (used by invite resets).
-  await env.DB.prepare('INSERT OR IGNORE INTO signins (user_id,first_at) VALUES (?,?)').bind(userId, now()).run().catch(() => {});
+  await env.DB.batch(sessionStmts(env, userId, await sha256hex(sid)));
   return sid;
 }
 
@@ -360,17 +362,21 @@ ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return form('Enter a full email address, like name@company.com.', email);
   if ((env.OWNER_EMAILS || '').trim() && !ownerEmail(email, env)) return form('That email is not in OWNER_EMAILS.', email);
   if (!name || !nk) return form(`Add your name and a password of at least ${MIN_PW} characters.`, email);
-  // settings.key is the primary key, so only one request can ever win this insert.
-  const claimed = await env.DB.prepare("INSERT INTO settings (key,value) VALUES ('setup_done',?)").bind(String(now())).run().then(() => true, () => false);
-  if (!claimed) return done();
-  const u = await findOrCreateUser(env, { email, name, setup: true }).catch(() => null);
-  if (!u) {
-    await env.DB.prepare("DELETE FROM settings WHERE key='setup_done'").run();
-    return form('Could not create the account.', email);
-  }
-  await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('app_url',?)").bind(new URL(req.url).origin).run();
-  await env.DB.prepare('INSERT INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(u.id, await keyHash(nk.key, nk.salt), nk.salt, now()).run();
-  return signedIn(req, await createSession(env, u.id));
+  // Everything in one batch, which D1 runs as one transaction: the claim (settings.key is the primary key, so only
+  // one request can ever win it), the owner, the two starting channels, the password and the session.
+  // If any part fails, none of it stays. One round trip also keeps the very first request after a deploy small.
+  const id = uid('U'), sid = uid('sess_') + uid(), t = now();
+  const ok = await env.DB.batch([
+    env.DB.prepare("INSERT INTO settings (key,value) VALUES ('setup_done',?)").bind(String(t)),
+    env.DB.prepare("INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,'','',?,'owner',1,?)").bind(id, email, name, colorFor(email), t),
+    env.DB.prepare("INSERT OR IGNORE INTO channels (id,kind,name,topic,private,archived,created_by,created_at,last_ts) VALUES (?,'channel','general','Announcements for everyone',0,0,?,?,?), (?,'channel','random','Anything not about work',0,0,?,?,?)").bind(uid('C'), id, t, t, uid('C'), id, t, t),
+    env.DB.prepare("INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) SELECT id,?,?,? FROM channels WHERE kind='channel' AND name IN ('general','random')").bind(id, t, t),
+    env.DB.prepare('INSERT INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(id, await keyHash(nk.key, nk.salt), nk.salt, t),
+    env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('app_url',?)").bind(new URL(req.url).origin),
+    ...sessionStmts(env, id, await sha256hex(sid)),
+  ]).then(() => true, () => false);
+  if (!ok) return (await env.DB.prepare("SELECT 1 FROM settings WHERE key='setup_done'").first()) ? done() : form('Could not create the account.', email);
+  return signedIn(req, sid);
 }
 function joinForm(env, inv, error = '') {
   const isNew = inv.name === inv.email.split('@')[0];
@@ -448,38 +454,45 @@ function mentionedIds(text) {
 // One place that posts a message: the composer, scheduled sends and reminders all use it.
 async function postMessage(env, ctx, user, ch, body) {
   // Every caller goes through here, so this is the one membership check that can't be skipped.
-  if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
-  // A message in an old, archived conversation brings it back.
-  if (ch.archived && ch.kind === 'dm') await env.DB.prepare('UPDATE channels SET archived=0 WHERE id=?').bind(ch.id).run();
-  if (ch.kind === 'dm') await env.DB.prepare('UPDATE members SET hidden=0 WHERE channel_id=? AND hidden=1').bind(ch.id).run();
-  else if (ch.archived) return err(403, 'This channel is archived. Nobody can post here.');
+  // Few database round trips on purpose: each one costs CPU in the Worker, and a send must stay well under 10 ms.
+  if (!ch) return err(403, "You're not in this channel.");
+  const members = await channelMembers(env, ch.id);
+  if (!members.includes(user.id)) return err(403, "You're not in this channel.");
+  if (ch.kind !== 'dm' && ch.archived) return err(403, 'This channel is archived. Nobody can post here.');
   const text = String(body.text || '').slice(0, 40000);
-  const asked = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
-  const files = [];
+  const asked = (Array.isArray(body.files) ? body.files.slice(0, 10) : []).filter((f) => f && typeof f.key === 'string');
+  const threadId = body.thread_id || null;
+  const [recs, parentRow, fol] = await Promise.all([
+    asked.length ? env.DB.prepare(`SELECT key, uploader, channel_id, voice, transcript, t_status FROM files WHERE key IN (${asked.map(() => '?').join(',')})`).bind(...asked.map((f) => f.key)).all().then((r) => r.results) : [],
+    threadId ? env.DB.prepare('SELECT * FROM messages WHERE id=? AND channel_id=? AND thread_id IS NULL').bind(threadId, ch.id).first() : null,
+    threadId ? env.DB.prepare('SELECT DISTINCT user_id FROM messages WHERE thread_id=? UNION SELECT user_id FROM messages WHERE id=?').bind(threadId, threadId).all() : null,
+  ]);
+  const files = [], stmts = [];
   for (const f of asked) {
-    const rec = f && typeof f.key === 'string' ? await env.DB.prepare('SELECT uploader, channel_id, voice, transcript, t_status FROM files WHERE key=?').bind(f.key).first() : null;
+    const rec = recs.find((r) => r.key === f.key);
     if (!rec || rec.uploader !== user.id || (rec.channel_id && rec.channel_id !== ch.id)) continue;
     const item = { key: f.key, name: String(f.name || 'file').slice(0, 200), size: +f.size || 0, type: String(f.type || 'application/octet-stream').slice(0, 100) };
     if (rec.voice) { try { item.voice = JSON.parse(rec.voice); } catch { item.voice = { dur: 0, wave: [] }; } item.t = rec.t_status === 'done' ? 'done' : rec.t_status === 'failed' ? 'failed' : 'pending'; item.transcript = rec.transcript || ''; }
     files.push(item);
-    await env.DB.prepare('UPDATE files SET channel_id=? WHERE key=?').bind(ch.id, f.key).run();
+    stmts.push(env.DB.prepare('UPDATE files SET channel_id=? WHERE key=?').bind(ch.id, f.key));
   }
   if (!text.trim() && !files.length) return err(400, 'Write something first.');
-  const threadId = body.thread_id || null;
   const also = threadId && body.also_channel ? 1 : 0;
-  let parent = null;
-  if (threadId) {
-    parent = await env.DB.prepare('SELECT * FROM messages WHERE id=? AND channel_id=? AND thread_id IS NULL').bind(threadId, ch.id).first();
-    if (!parent) return err(404, 'Thread not found');
+  const parent = parentRow;
+  if (threadId && !parent) return err(404, 'Thread not found');
+  // A message in an old, archived conversation brings it back.
+  if (ch.kind === 'dm') {
+    if (ch.archived) stmts.push(env.DB.prepare('UPDATE channels SET archived=0 WHERE id=?').bind(ch.id));
+    stmts.push(env.DB.prepare('UPDATE members SET hidden=0 WHERE channel_id=? AND hidden=1').bind(ch.id));
   }
   const msg = {
     id: uid('M'), channel_id: ch.id, user_id: user.id, ts: now(), thread_id: threadId, text,
     files: JSON.stringify(files), reply_count: 0, last_reply_ts: 0, reply_users: '[]', edited_ts: null, deleted: 0, source: 'app', also_channel: also,
   };
-  const stmts = [
+  stmts.push(
     env.DB.prepare('INSERT INTO messages (id,channel_id,user_id,ts,thread_id,text,files,also_channel) VALUES (?,?,?,?,?,?,?,?)')
       .bind(msg.id, ch.id, user.id, msg.ts, threadId, text, msg.files, also),
-  ];
+  );
   if (!threadId || also) stmts.push(
     env.DB.prepare('UPDATE channels SET last_ts=? WHERE id=?').bind(msg.ts, ch.id),
     env.DB.prepare('UPDATE members SET last_read=MAX(last_read,?) WHERE channel_id=? AND user_id=?').bind(msg.ts, ch.id, user.id),
@@ -491,7 +504,6 @@ async function postMessage(env, ctx, user, ch, body) {
       .bind(msg.ts, JSON.stringify(ru.slice(0, 5)), parent.id));
     parent.reply_count += 1; parent.last_reply_ts = msg.ts; parent.reply_users = JSON.stringify(ru.slice(0, 5));
   }
-  const members = await channelMembers(env, ch.id);
   let mentioned = mentionedIds(text).filter((u) => members.includes(u));
   if (/<!(channel|here|everyone)>/.test(text)) mentioned = members.filter((u) => u !== user.id);
   if (ch.kind === 'dm') mentioned = members.filter((u) => u !== user.id);
@@ -511,20 +523,18 @@ async function postMessage(env, ctx, user, ch, body) {
     if (fresh) msg.files = fresh.files;
   }
   } catch (e) { console.log('voice index', e); }
-  const [full] = await hydrateMessages(env, [msg]);
+  // A new message has no reactions or pins yet, so it needs no lookups to show.
+  const full = { ...msg, files: JSON.parse(msg.files || '[]'), reply_users: [], reactions: [], pinned_by: null };
   const event = { type: 'message', message: full, channel: { id: ch.id, kind: ch.kind, name: ch.name }, mentioned };
   if (parent) {
     event.parent = (await hydrateMessages(env, [parent]))[0];
-    // Everyone in the thread hears about new replies, like Slack.
-    const fol = await env.DB.prepare('SELECT DISTINCT user_id FROM messages WHERE thread_id=? UNION SELECT user_id FROM messages WHERE id=?').bind(parent.id, parent.id).all();
-    // Only people still in the conversation. Someone who left or was removed gets nothing.
+    // Everyone in the thread hears about new replies, like Slack. Only people still in the conversation.
     const memberSet = new Set(members);
     event.followers = fol.results.map((r) => r.user_id).filter((u) => u !== user.id && memberSet.has(u));
   }
-  await broadcast(env, event, members);
   // Phone notifications are worked out and sent by background jobs, so the send itself stays small.
-  await arm(env, 'fanout', msg.id, now(), { ch: { id: ch.id, kind: ch.kind, name: ch.name }, sender: { id: user.id, name: user.name }, members,
-    direct: mentionedIds(text).filter((u) => members.includes(u)), wide: /<!(channel|here|everyone)>/.test(text), followers: event.followers || [], at: msg.ts });
+  await Promise.all([broadcast(env, event, members), arm(env, 'fanout', msg.id, now(), { ch: { id: ch.id, kind: ch.kind, name: ch.name }, sender: { id: user.id, name: user.name }, members,
+    direct: mentionedIds(text).filter((u) => members.includes(u)), wide: /<!(channel|here|everyone)>/.test(text), followers: event.followers || [], at: msg.ts })]);
   return json(full);
 
 }
@@ -1567,9 +1577,15 @@ export class Hub extends DurableObject {
 // ---------------------------------------------------------------- Job Durable Object
 // One object per background job, named "<kind>:<id>" (see arm in features.js). Its alarm runs the job in its own
 // invocation, with its own CPU budget, and sets the next alarm when the job wants to run again.
+// The alarm itself only keeps time: the work runs as a separate call to this Worker (JobRunner, through the
+// automatic ctx.exports loopback), so it gets its own CPU budget and usually an isolate that is already warm from
+// serving the app, instead of compiling everything again in the Durable Object's own isolate.
 export class Job extends DurableObject {
   arm(job, at) { return jobArm(this.ctx.storage, job, at); }
-  alarm() { return jobAlarm(this.ctx.storage, (job) => runJob(this.env, this.ctx, job)); }
+  alarm() { return jobAlarm(this.ctx.storage, (job) => (this.ctx.exports?.JobRunner ? this.ctx.exports.JobRunner.run(job) : runJob(this.env, this.ctx, job))); }
+}
+export class JobRunner extends WorkerEntrypoint {
+  run(job) { console.log(`run ${job.kind}${job.data?.subs ? ' devices=' + job.data.subs.length : job.data?.members ? ' members=' + job.data.members.length : ''}`); return runJob(this.env, this.ctx, job); }
 }
 const voiceDeps = { hydrateMessages, broadcast, channelMembers };
 // Who gets a phone buzz for a new message, then one push job per device (sendPushes). A voice note without text

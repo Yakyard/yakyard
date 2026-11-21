@@ -15,7 +15,7 @@ function d1() {
     all: async () => ({ results: db.prepare(sql).all(...args) }),
     run: async () => db.prepare(sql).run(...args),
   });
-  return { db, DB: { prepare: (sql) => stmt(sql), batch: async (list) => { for (const s of list) await s.run(); } } };
+  return { db, DB: { prepare: (sql) => stmt(sql), batch: async (list) => { const out = []; for (const s of list) out.push(await s.all()); return out; } } };
 }
 const sha = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s)))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
@@ -242,6 +242,8 @@ test('the CPU check reads wrangler tail output however it is split, and flags an
   assert.equal(eventName(got[1]), 'alarm Job');
   const r = report(got);
   assert.deepEqual(r.bad, ['alarm Job']);
+  assert.equal(eventName({ event: { scheduledTime: 1 }, logs: [{ message: ['job push'] }] }), 'alarm Job (push)');
+  assert.equal(eventName({ event: { rpcMethod: 'run' }, entrypoint: 'JobRunner', logs: [{ message: ['run fanout members=3'] }] }), 'job fanout (JobRunner)');
   const cfg = JSON.parse(checkConfig(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')).replace(/^\/\/.*\n/, ''));
   assert.equal(cfg.limits.cpu_ms, 10); assert.equal(cfg.name, 'yakyard-cpu-check'); assert.equal(cfg.d1_databases[0].database_name, 'yakyard-cpu-check');
 });

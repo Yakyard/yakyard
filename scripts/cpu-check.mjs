@@ -59,7 +59,12 @@ export function jsonStream(onObject) {
   };
 }
 // One name per kind of invocation, ids taken out, so the report groups them.
+// The Job alarm logs "job <kind>" and the JobRunner call logs "run <kind> ...", so each is grouped by kind.
+const firstLog = (e) => (e.logs || []).map((l) => [].concat(l.message)[0]).find((m) => typeof m === 'string' && /^(job|run) /.test(m)) || '';
 export function eventName(e) {
+  const tag = firstLog(e);
+  if (tag.startsWith('job ')) return `alarm Job (${tag.slice(4).split(' ')[0]})`;
+  if (tag.startsWith('run ')) return `job ${tag.slice(4).split(' ')[0]} (JobRunner)`;
   const req = e.event?.request;
   if (req) {
     const u = new URL(req.url);

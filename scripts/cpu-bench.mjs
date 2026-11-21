@@ -19,8 +19,8 @@ const BUDGET = +(process.env.CPU_BUDGET || 7);
 
 // ---------------------------------------------------------------- the stand-ins for Cloudflare
 function d1(db) {
-  let dbMs = 0;
-  const timed = (f) => { const t = process.cpuUsage(); try { return f(); } finally { const d = process.cpuUsage(t); dbMs += (d.user + d.system) / 1000; } };
+  let dbMs = 0, trips = 0, inBatch = false;
+  const timed = (f) => { if (!inBatch) trips++; const t = process.cpuUsage(); try { return f(); } finally { const d = process.cpuUsage(t); dbMs += (d.user + d.system) / 1000; } };
   const stmt = (sql, args = []) => ({
     bind: (...a) => stmt(sql, a),
     first: async (col) => { const r = timed(() => db.prepare(sql).get(...args)) ?? null; return col && r ? r[col] : r; },
@@ -28,7 +28,8 @@ function d1(db) {
     run: async () => { const r = timed(() => db.prepare(sql).run(...args)); return { meta: { changes: Number(r.changes) } }; },
     raw: async () => timed(() => db.prepare(sql).all(...args).map((r) => Object.values(r))),
   });
-  return { DB: { prepare: (sql) => stmt(sql), batch: async (list) => { const out = []; for (const s of list) out.push(await s.run()); return out; } }, dbMs: () => dbMs };
+  const batch = async (list) => { trips++; inBatch = true; try { const out = []; for (const s of list) out.push(await s.all()); return out; } finally { inBatch = false; } };
+  return { DB: { prepare: (sql) => stmt(sql), batch }, dbMs: () => dbMs, trips: () => trips };
 }
 function r2() {
   const m = new Map();
@@ -146,14 +147,14 @@ async function one(name) {
   const payload = { title: 'Owner in #general', body: 'Hello there, this is the push text', tag: 'C1', data: { url: '/#/c/C1', id: 'M1' } };
   const runOnce = async () => {
     const ctx = ctxStub();
-    const db0 = shim.dbMs(); const t0 = process.cpuUsage();
+    const db0 = shim.dbMs(), n0 = shim.trips(); const t0 = process.cpuUsage();
     if (p.job || p.cron) {
       const storage = new Map(); let alarm = 0;
       const st = { get: async (k) => storage.get(k), put: async (k, v) => storage.set(k, v), deleteAll: async () => storage.clear(), setAlarm: async (a) => (alarm = a) };
       if (p.cron) await w.scheduled({ scheduledTime: Date.UTC(2026, 10, 21, 10, 2), cron: '*/5 * * * *' }, env, ctx);
       else {
         const job = new mod.Job({ storage: st, waitUntil: ctx.waitUntil }, env);
-        await job.arm({ ...p.job, data: p.push ? { subs, payload } : p.fanout ? fanoutData : undefined }, 0);
+        await job.arm({ ...p.job, data: p.push ? { subs, payload, vapid: 'vapid t=e30.e30.sig, k=key' } : p.fanout ? fanoutData : undefined }, 0);
         await job.alarm();
       }
     } else {
@@ -161,12 +162,13 @@ async function one(name) {
     }
     await Promise.all(ctx.waits);
     const dd = process.cpuUsage(t0);
+    runOnce.trips = shim.trips() - n0;
     return (dd.user + dd.system) / 1000 - (shim.dbMs() - db0);
   };
   if (process.env.BENCH_PREWARM) { const q = PATHS[process.env.BENCH_PREWARM]; const c = ctxStub(); const r = await q.run(w, env, s, c); await r.arrayBuffer(); await Promise.all(c.waits); }
   let sess;
   if (process.env.BENCH_PROFILE) { const { Session } = await import('node:inspector/promises'); sess = new Session(); sess.connect(); await sess.post('Profiler.enable'); await sess.post('Profiler.setSamplingInterval', { interval: 20 }); await sess.post('Profiler.start'); }
-  const cold = await runOnce();
+  const cold = await runOnce(); const coldTrips = runOnce.trips;
   if (sess) { const { profile } = await sess.post('Profiler.stop'); writeFileSync(process.env.BENCH_PROFILE, JSON.stringify(profile)); }
   const warm = [];
   for (let i = 0; i < 5; i++) {
@@ -174,18 +176,18 @@ async function one(name) {
     if (p.setup && name === 'POST /setup') { db.exec('DELETE FROM credentials; DELETE FROM sessions; DELETE FROM members; DELETE FROM users; DELETE FROM channels; DELETE FROM sections'); db.exec("DELETE FROM settings WHERE key='setup_done'"); }
     warm.push(await runOnce());
   }
-  return { name, initMs, cold, warm: Math.max(...warm), median: warm.sort((a, b) => a - b)[2] };
+  return { name, initMs, cold, trips: coldTrips, warm: Math.max(...warm), median: warm.sort((a, b) => a - b)[2] };
 }
 
 // ---------------------------------------------------------------- orchestration
 if (process.argv[2] === '--one') {
   const r = await one(process.argv[3]);
-  process.stdout.write(JSON.stringify(r));
+  process.stdout.write('\nRESULT ' + JSON.stringify(r));
 } else {
   mkdirSync(OUT, { recursive: true });
   execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['wrangler', 'deploy', '--dry-run', '--config', 'wrangler.jsonc', '--outdir', OUT], { cwd: root, stdio: 'ignore', shell: process.platform === 'win32' });
   // The bundle imports the Workers runtime for DurableObject; a two-line stand-in is enough here.
-  const src = readFileSync(join(OUT, 'worker.js'), 'utf8').replace(/import\s*\{\s*DurableObject\s*\}\s*from\s*"cloudflare:workers";/, 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }');
+  const src = readFileSync(join(OUT, 'worker.js'), 'utf8').replace(/import\s*\{[^}]*\}\s*from\s*"cloudflare:workers";/, 'class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }');
   writeFileSync(join(OUT, 'worker.mjs'), src);
   const only = process.argv.slice(2).filter((a) => !a.startsWith('--'));
   const rows = [];
@@ -194,14 +196,16 @@ if (process.argv[2] === '--one') {
     for (let i = 0; i < 5; i++) {   // five fresh processes; the median cold start is reported
       const r = spawnSync(process.execPath, ['--no-warnings', fileURLToPath(import.meta.url), '--one', name], { cwd: root, encoding: 'utf8' });
       if (r.status !== 0) { console.error(name, r.stderr.slice(-800)); process.exit(1); }
-      runs.push(JSON.parse(r.stdout));
+      runs.push(JSON.parse(r.stdout.split('\nRESULT ').pop()));
     }
     runs.sort((a, b) => a.cold - b.cold);
     rows.push({ ...runs[2], coldMax: runs[4].cold });
   }
   console.log(`CPU per request, this computer, database time excluded (budget ${BUDGET} ms cold):\n`);
-  console.log('  cold   cold max   warm max   path');
-  for (const r of rows) console.log(`${r.cold.toFixed(1).padStart(6)}  ${r.coldMax.toFixed(1).padStart(9)}  ${r.warm.toFixed(1).padStart(9)}   ${r.name}${r.cold > BUDGET ? '   <-- over' : ''}`);
+  // Each database round trip also costs some CPU on Cloudflare (the binding encodes the query and decodes the
+  // answer), which this computer can't measure, so the count is shown: fewer is better.
+  console.log('  cold   cold max   warm max   db trips   path');
+  for (const r of rows) console.log(`${r.cold.toFixed(1).padStart(6)}  ${r.coldMax.toFixed(1).padStart(9)}  ${r.warm.toFixed(1).padStart(9)}  ${String(r.trips).padStart(9)}   ${r.name}${r.cold > BUDGET ? '   <-- over' : ''}`);
   console.log(`\nModule load (isolate start, not request CPU on Cloudflare): ${rows[0].initMs.toFixed(1)} ms`);
   const over = rows.filter((r) => r.cold > BUDGET);
   writeFileSync(join(OUT, 'report.json'), JSON.stringify(rows, null, 2));

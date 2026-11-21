@@ -1,6 +1,6 @@
 // Yakyard features: phone push, status, do-not-disturb, saved, pins, reminders,
 // scheduled sends, full-text search, files browser, and the once-a-minute clock.
-import { pushRequest } from './webpush.js';
+import { pushRequest, vapidHeader } from './webpush.js';
 
 const now = () => Date.now();
 const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
@@ -45,11 +45,11 @@ async function activeUsers(env) {
   try { return new Set(await (await env.HUB.get(env.HUB.idFromName('workspace')).fetch('https://hub/active')).json()); } catch { return new Set(); }
 }
 
-export async function pushOne(env, sub, payload) {
+export async function pushOne(env, sub, payload, authorization) {
   if (!env.VAPID_PRIVATE) return 0;
   const { endpoint, headers, body } = await pushRequest({
     privateJwk: env.VAPID_PRIVATE, subject: env.VAPID_SUBJECT || env.APP_URL || 'mailto:admin@example.com',
-    subscription: sub, payload, topic: String(payload.tag || '').slice(0, 32).replace(/[^\w-]/g, '') || undefined,
+    subscription: sub, payload, topic: String(payload.tag || '').slice(0, 32).replace(/[^\w-]/g, '') || undefined, authorization,
   });
   // Only for tests: PUSH_TEST_URL (localhost only) receives what would go to the push service.
   const test = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(env.PUSH_TEST_URL || '') ? env.PUSH_TEST_URL + encodeURIComponent(new URL(endpoint).pathname) : '';
@@ -65,13 +65,26 @@ export async function pushToUsers(env, userIds, payload) {
   if (!userIds.length) return 0;
   const want = new Set(userIds);
   const subs = (await env.DB.prepare('SELECT * FROM push_subs').all()).results.filter((x) => want.has(x.user_id));
+  // The signed VAPID token is made here, once per push service, so the push jobs only encrypt.
+  const auth = {};
+  if (env.VAPID_PRIVATE) for (const o of new Set(subs.map((x) => new URL(x.endpoint).origin))) auth[o] = await vapidFor(env, o);
   const batches = [];
   for (let i = 0; i < subs.length; i += PUSHES_PER_JOB) batches.push(subs.slice(i, i + PUSHES_PER_JOB));
-  await Promise.all(batches.map((b) => arm(env, 'push', uid('P'), now(), { subs: b, payload })));
+  await Promise.all(batches.map((b) => arm(env, 'push', uid('P'), now(), { subs: b.map(({ endpoint, p256dh, auth: a }) => ({ endpoint, p256dh, auth: a })), payload, vapid: auth[new URL(b[0].endpoint).origin] })));
   return subs.length;
 }
-export async function pushBatch(env, { subs, payload }) {
-  const res = await Promise.allSettled(subs.map((s) => pushOne(env, s, payload)));
+// A VAPID token per push service origin, kept in the database for 11 hours, so a fresh isolate rarely signs one.
+async function vapidFor(env, origin) {
+  // Keyed by the server key too, so a new VAPID key never reuses a token signed with the old one.
+  const key = `vapid:${origin}:${String(JSON.parse(env.VAPID_PRIVATE).x).slice(0, 12)}`, t = now();
+  const row = await env.DB.prepare('SELECT value FROM settings WHERE key=?').bind(key).first();
+  try { const v = row && JSON.parse(row.value); if (v && v.until > t + 60e3) return v.value; } catch {}
+  const value = await vapidHeader(env.VAPID_PRIVATE, origin, env.VAPID_SUBJECT || env.APP_URL || 'mailto:admin@example.com', t);
+  await env.DB.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').bind(key, JSON.stringify({ value, until: t + 11 * 3600e3 })).run();
+  return value;
+}
+export async function pushBatch(env, { subs, payload, vapid }) {
+  const res = await Promise.allSettled(subs.map((s) => pushOne(env, s, payload, vapid)));
   for (const r of res) if (r.status === 'rejected') console.log('push failed', String(r.reason));
   return null;
 }
@@ -188,24 +201,23 @@ async function search(env, user, q, hydrate) {
 
 // ---------------------------------------------------------------- reminders / scheduled
 // The Yakyard bot: sends reminders as a DM. Created on first use.
-async function botUserId(env) {
-  let b = await env.DB.prepare("SELECT id FROM users WHERE email='yakyard@bot.local'").first();
-  if (b) return b.id;
-  const id = uid('U');
-  await env.DB.prepare("INSERT INTO users (id,email,name,role,active,created_at,color) VALUES (?,?,?,?,1,?,?)").bind(id, 'yakyard@bot.local', 'Yakyard', 'member', now(), '#2b1bd6').run();
-  return id;
+async function botUser(env) {
+  const b = await env.DB.prepare("SELECT * FROM users WHERE email='yakyard@bot.local'").first();
+  if (b) return b;
+  await env.DB.prepare("INSERT OR IGNORE INTO users (id,email,name,role,active,created_at,color) VALUES (?,?,?,?,1,?,?)").bind(uid('U'), 'yakyard@bot.local', 'Yakyard', 'member', now(), '#2b1bd6').run();
+  return env.DB.prepare("SELECT * FROM users WHERE email='yakyard@bot.local'").first();
 }
 // The one way to open a DM or group DM. INSERT OR IGNORE on the unique dm_key, so two people opening it at once both get it.
 export async function openDm(env, ids, by, lastTs = now()) {
   ids = [...new Set(ids)].sort(); const key = ids.join(',');
-  await env.DB.prepare("INSERT OR IGNORE INTO channels (id,kind,name,dm_key,private,created_by,created_at,last_ts) VALUES (?,'dm','',?,1,?,?,?)").bind(uid('D'), key, by, now(), lastTs).run();
-  const ch = await env.DB.prepare('SELECT * FROM channels WHERE dm_key=?').bind(key).first();
-  await env.DB.batch([
-    ...ids.map((u) => env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(ch.id, u, now(), now())),
-    env.DB.prepare('UPDATE channels SET archived=0 WHERE id=? AND archived=1').bind(ch.id),
+  // One round trip: make the DM if it's new, add everyone, bring it back if archived, then read it.
+  const out = await env.DB.batch([
+    env.DB.prepare("INSERT OR IGNORE INTO channels (id,kind,name,dm_key,private,created_by,created_at,last_ts) VALUES (?,'dm','',?,1,?,?,?)").bind(uid('D'), key, by, now(), lastTs),
+    ...ids.map((u) => env.DB.prepare("INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) SELECT id,?,?,? FROM channels WHERE dm_key=?").bind(u, now(), now(), key)),
+    env.DB.prepare('UPDATE channels SET archived=0 WHERE dm_key=? AND archived=1').bind(key),
+    env.DB.prepare('SELECT * FROM channels WHERE dm_key=?').bind(key),
   ]);
-  ch.archived = 0;
-  return ch;
+  return out[out.length - 1].results[0];
 }
 
 // ---------------------------------------------------------------- background jobs
@@ -228,6 +240,7 @@ export const JOB_TRIES = 6;
 export async function jobAlarm(storage, run) {
   const job = await storage.get('job');
   if (!job) return;
+  console.log(`job ${job.kind}`);   // lets the CPU check group alarm runs by kind
   let next = null;
   try { next = await run(job); job.tries = 0; } catch (e) {
     console.log('job failed', job.kind, job.id, String(e));
@@ -243,8 +256,8 @@ export async function jobAlarm(storage, run) {
 export async function sendScheduled(env, ctx, id, postMessage) {
   const s = await env.DB.prepare('DELETE FROM scheduled WHERE id=? AND send_at<=? RETURNING *').bind(id, now() + 1000).first();
   if (!s) return (await env.DB.prepare('SELECT send_at FROM scheduled WHERE id=?').bind(id).first())?.send_at || null;
-  const user = await env.DB.prepare('SELECT * FROM users WHERE id=? AND active=1').bind(s.user_id).first();
-  const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
+  const [u, c] = await env.DB.batch([env.DB.prepare('SELECT * FROM users WHERE id=? AND active=1').bind(s.user_id), env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id)]);
+  const user = u.results[0], ch = c.results[0];
   if (!user || !ch) return null;
   const r = await postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel });
   if (r && r.status >= 400) console.log('scheduled send refused', id, r.status);   // left the channel since: nothing to send
@@ -254,10 +267,9 @@ export async function sendScheduled(env, ctx, id, postMessage) {
 export async function sendReminder(env, ctx, id, postMessage) {
   const r = await env.DB.prepare('UPDATE reminders SET done=1 WHERE id=? AND done=0 AND due_at<=? RETURNING *').bind(id, now() + 1000).first();
   if (!r) return (await env.DB.prepare('SELECT due_at FROM reminders WHERE id=? AND done=0').bind(id).first())?.due_at || null;
-  const botId = await botUserId(env);
-  const bot = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(botId).first();
-  const ch = await openDm(env, [botId, r.user_id], botId);
-  const base = env.APP_URL || (await env.DB.prepare("SELECT value FROM settings WHERE key='app_url'").first())?.value || '';
+  const bot = await botUser(env);
+  const ch = await openDm(env, [bot.id, r.user_id], bot.id);
+  const base = r.message_id ? env.APP_URL || (await env.DB.prepare("SELECT value FROM settings WHERE key='app_url'").first())?.value || '' : '';
   const link = r.message_id ? ` <${base}/#/m/${r.message_id}|View message>` : '';
   await postMessage(env, ctx, bot, ch, { text: `Reminder: ${r.text || 'this message'}${link}` });
   return null;

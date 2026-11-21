@@ -77,14 +77,14 @@ Yakyard is built to fit Cloudflare's free plan with zero paid features turned on
 | Sign-in of an account made before browser-side stretching | 0.05 ms | The server never runs the old 18 ms hash. The person is asked to set a new password once, from a sign-in link (see [Old accounts](#old-accounts)). |
 | Unknown email at sign-in | 0.05 ms | Same work as a real account, so the reply doesn't reveal who has one. |
 | Opening a conversation (50 messages) | 0.05 ms | Database time doesn't count as CPU. |
-| One phone notification | about 1 ms | Encryption (Web Push, written out in `src/webpush.js`, no library), with the signed VAPID token reused for 12 hours. Sending a message only starts a background job; that job works out who gets a buzz and starts one more job per device. |
+| One phone notification | about 1 ms | Encryption only (Web Push, written out in `src/webpush.js`, no library). The signed VAPID token is made by the fan-out job and kept in the database for 11 hours. Sending a message only starts a background job; that job works out who gets a buzz and starts one more job per device. |
 | Slack import, one page of 50 messages | 2 ms | Each import is a chain of background jobs: 3 pages (150 messages) per job, the next job 4 seconds later. |
 | Voice note to transcript, per minute of audio | under 1 ms | Native base64. Each note gets its own background job, which retries if Workers AI is busy and waits for tomorrow if today's free time is used up. |
 | Link previews and outside pictures | small | Page parsing is native (HTMLRewriter), capped at 512 KB. Pictures are streamed, 5 MB max. |
 
 Calls (Pop in) go browser to browser. The server only relays the short setup messages.
 
-**Background jobs.** Scheduled messages, reminders, transcripts, Slack imports and phone notifications each run as their own job: a small Durable Object woken by its own alarm. Every job is its own run with its own 10 ms, so nothing waits behind anything else, and a scheduled message goes out within seconds of its time. A check every 5 minutes (the cron) only re-wakes anything that is overdue. Cloudflare Queues are on the free plan too, but their 10,000 operations a day are shared by the whole account, and one Slack import plus a day of notifications can use them up. Durable Objects allow 100,000 requests a day.
+**Background jobs.** Scheduled messages, reminders, transcripts, Slack imports and phone notifications each run as their own job: a small Durable Object woken by its own alarm. The alarm only keeps time; the work runs as a separate call to the Worker itself (`JobRunner`, through Cloudflare's automatic `ctx.exports` loopback), usually on an isolate that is already warm. Every job is its own run with its own 10 ms, so nothing waits behind anything else, and a scheduled message goes out within seconds of its time. A check every 5 minutes (the cron) only re-wakes anything that is overdue. Cloudflare Queues are on the free plan too, but their 10,000 operations a day are shared by the whole account, and one Slack import plus a day of notifications can use them up. Durable Objects allow 100,000 requests a day.
 
 **How many people.** Rough daily numbers for one active person: 40 messages sent, 150 conversations opened, 5 app opens.
 
@@ -259,7 +259,7 @@ No framework and no build step. Plain JavaScript in `public/app.js`, a Cloudflar
 | API, sign-in, files | `src/worker.js` |
 | Live updates, presence, calls signaling | `Hub` Durable Object in `src/worker.js` |
 | Push, status, search, reminders, scheduled send | `src/features.js` |
-| Background jobs (one Durable Object per job) | `Job` in `src/worker.js`, `arm`, `jobAlarm` and the job runners in `src/features.js` |
+| Background jobs (one Durable Object per job, work done by `JobRunner`) | `Job`, `JobRunner` and `runJob` in `src/worker.js`, `arm`, `jobAlarm` and the job runners in `src/features.js` |
 | 5-minute safety check and hourly tidy-up | `scheduled()` in `src/worker.js`, `sweep` and `housekeeping` in `src/features.js` |
 | Voice notes and transcripts | `src/voice.js` |
 | Slack import | `src/slackimport.js` |

@@ -47,10 +47,10 @@ export async function vapidHeader(privateJwk, audience, subject, now = Date.now(
 }
 
 // Everything needed to send one push: the address, the headers and the encrypted body.
-export async function pushRequest({ privateJwk, subject, subscription, payload, ttl = 3600, urgency = 'high', topic }) {
+export async function pushRequest({ privateJwk, subject, subscription, payload, ttl = 3600, urgency = 'high', topic, authorization }) {
   const body = await encrypt(subscription.p256dh, subscription.auth, typeof payload === 'string' ? payload : JSON.stringify(payload));
   const headers = { 'content-encoding': 'aes128gcm', 'content-type': 'application/octet-stream', ttl: String(ttl), urgency,
-    authorization: await vapidHeader(privateJwk, new URL(subscription.endpoint).origin, subject) };
+    authorization: authorization || await vapidHeader(privateJwk, new URL(subscription.endpoint).origin, subject) };
   if (topic) headers.topic = topic;
   return { endpoint: subscription.endpoint, headers, body };
 }
