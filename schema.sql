@@ -132,7 +132,7 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL DEFAULT 'member',      -- owner | admin | member | guest
   active INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
-, deactivated INTEGER NOT NULL DEFAULT 0, slack_id TEXT, city TEXT, region TEXT, country TEXT, tz TEXT, lat REAL, lon REAL, loc_at INTEGER, status_emoji TEXT DEFAULT '', status_text TEXT DEFAULT '', status_until INTEGER DEFAULT 0, dnd_until INTEGER DEFAULT 0, dnd_start TEXT DEFAULT '', dnd_end TEXT DEFAULT '', notify_level TEXT DEFAULT 'mentions', vips TEXT DEFAULT '[]', away INTEGER DEFAULT 0);
+, deactivated INTEGER NOT NULL DEFAULT 0, slack_id TEXT, city TEXT, region TEXT, country TEXT, tz TEXT, lat REAL, lon REAL, loc_at INTEGER, status_emoji TEXT DEFAULT '', status_text TEXT DEFAULT '', status_until INTEGER DEFAULT 0, dnd_until INTEGER DEFAULT 0, dnd_start TEXT DEFAULT '', dnd_end TEXT DEFAULT '', notify_level TEXT DEFAULT 'mentions', vips TEXT DEFAULT '[]', away INTEGER DEFAULT 0, share_location INTEGER NOT NULL DEFAULT 0);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS voice_fts USING fts5(text, message_id UNINDEXED, file_key UNINDEXED, tokenize='unicode61 remove_diacritics 2');
 

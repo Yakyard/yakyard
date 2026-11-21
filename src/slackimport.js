@@ -1,11 +1,16 @@
 // "Bring my Slack history": each person connects their own Slack account (read only)
 // and Yakyard copies their DMs, group DMs and private channels in the background.
-// Message ids use the same scheme as the earlier imports, so nothing is ever doubled.
+// Message ids are a hash of channel + Slack ts, so re-running an import never duplicates messages.
+//
+// People: each Slack user is matched to a Yakyard account by Slack id, then by the email on their
+// Slack profile. Anyone with no Yakyard account yet gets a hidden placeholder (`<slack id>@bot.local`).
+// When that person later connects their own Slack, the placeholder is merged into their account,
+// so both halves of a DM end up in one conversation.
 
 // The Slack workspace people may import from (SLACK_TEAM_ID). Required: without it anyone could
 // import from a Slack workspace they made themselves.
 const teamOf = (env) => env.SLACK_TEAM_ID || '';
-const SCOPES = 'im:history,im:read,mpim:history,mpim:read,groups:history,groups:read,channels:read,users:read,files:read,reactions:read';
+const SCOPES = 'im:history,im:read,mpim:history,mpim:read,groups:history,groups:read,channels:read,users:read,users:read.email,files:read,reactions:read';
 const now = () => Date.now();
 const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (s, m) => json({ error: m }, s);
@@ -53,6 +58,42 @@ async function clientSecret(env) {
   return r ? open(env, r.value).catch(() => '') : '';
 }
 
+const placeholderId = async (sid) => 'U' + (await sha1hex(sid)).slice(0, 16);
+
+// Move everything a placeholder owns to the real account, then fix DM keys and delete the placeholder.
+async function mergePlaceholder(env, sid, realId) {
+  const ph = await placeholderId(sid);
+  if (ph === realId) return;
+  const p = await env.DB.prepare('SELECT id FROM users WHERE id=? AND email=?').bind(ph, sid.toLowerCase() + '@bot.local').first();
+  if (!p) return;
+  const q = (sql, ...a) => env.DB.prepare(sql).bind(...a);
+  const dms = (await q("SELECT c.id FROM channels c JOIN members m ON m.channel_id=c.id WHERE m.user_id=? AND c.kind='dm'", ph).all()).results.map((r) => r.id);
+  await env.DB.batch([
+    q('UPDATE messages SET user_id=? WHERE user_id=?', realId, ph),
+    q("UPDATE messages SET text=REPLACE(text, ?, ?) WHERE text LIKE ?", `<@${ph}>`, `<@${realId}>`, `%<@${ph}>%`),
+    q('UPDATE OR IGNORE reactions SET user_id=? WHERE user_id=?', realId, ph), q('DELETE FROM reactions WHERE user_id=?', ph),
+    q('UPDATE OR IGNORE mentions SET user_id=? WHERE user_id=?', realId, ph), q('DELETE FROM mentions WHERE user_id=?', ph),
+    q('UPDATE OR IGNORE members SET user_id=? WHERE user_id=?', realId, ph), q('DELETE FROM members WHERE user_id=?', ph),
+    q('UPDATE OR IGNORE pending_members SET user_id=? WHERE user_id=?', realId, ph), q('DELETE FROM pending_members WHERE user_id=?', ph),
+  ]);
+  for (const cid of dms) {
+    const ids = (await q('SELECT user_id FROM members WHERE channel_id=?', cid).all()).results.map((r) => r.user_id).sort();
+    const key = [...new Set(ids)].join(',');
+    const twin = await q("SELECT id FROM channels WHERE dm_key=? AND id<>?", key, cid).first();
+    if (twin) {
+      // The real person already had this conversation: put both halves in one place.
+      await env.DB.batch([
+        q('UPDATE messages SET channel_id=? WHERE channel_id=?', twin.id, cid),
+        q('UPDATE OR IGNORE pins SET channel_id=? WHERE channel_id=?', twin.id, cid),
+        q('UPDATE files SET channel_id=? WHERE channel_id=?', twin.id, cid),
+        q('UPDATE channels SET last_ts=MAX(last_ts,(SELECT last_ts FROM channels WHERE id=?)) WHERE id=?', cid, twin.id),
+        q('DELETE FROM members WHERE channel_id=?', cid), q('DELETE FROM pins WHERE channel_id=?', cid), q('DELETE FROM channels WHERE id=?', cid),
+      ]);
+    } else await q('UPDATE channels SET dm_key=? WHERE id=?', key, cid).run();
+  }
+  await q('DELETE FROM users WHERE id=?', ph).run();
+}
+
 // ---------------------------------------------------------------- web routes
 export async function slackRoutes(req, env, user, ctx) {
   const url = new URL(req.url);
@@ -90,12 +131,14 @@ export async function slackRoutes(req, env, user, ctx) {
       if (user.slack_id && user.slack_id !== au.id) return back('other');
       await env.DB.prepare('UPDATE users SET slack_id=? WHERE id=?').bind(au.id, user.id).run();
     }
+    // Someone else's import may have made a placeholder for this person: fold it into their account.
+    await mergePlaceholder(env, au.id, user.id).catch((e) => console.error('[import] merge', e));
     let tok;
     try { tok = await seal(env, au.access_token); } catch (e) { await revoke(au.access_token); return back('setup'); }
     // Reconnecting: revoke the token from the earlier run before replacing it.
     const old = await env.DB.prepare("SELECT token_enc FROM slack_imports WHERE user_id=? AND token_enc<>''").bind(user.id).first();
     if (old) { const t = await open(env, old.token_enc).catch(() => ''); if (t && t !== au.access_token) await revoke(t); }
-    const fresh = JSON.stringify({ phase: 'users', cursor: '', convs: [], i: 0, threads: [], files: [], touched: [] });
+    const fresh = JSON.stringify({ phase: 'list', cursor: '', convs: [], i: 0, threads: [], files: [], touched: [] });
     await env.DB.prepare(`INSERT INTO slack_imports (user_id,status,token_enc,slack_user,state,msgs,files,convs_total,convs_done,error,started_at,updated_at,finished_at,lock_until)
       VALUES (?,?,?,?,?,0,0,0,0,'',?,?,0,0)
       ON CONFLICT(user_id) DO UPDATE SET status='running', token_enc=excluded.token_enc, slack_user=excluded.slack_user, state=excluded.state, msgs=0, files=0, convs_total=0, convs_done=0, error='', started_at=excluded.started_at, updated_at=excluded.updated_at, finished_at=0, lock_until=0`)
@@ -183,21 +226,32 @@ async function slack(ctx, method, params = {}) {
   return j;
 }
 
-// Slack user id -> Yakyard user id. Unknown people (outside contacts, apps) get the same placeholders as before.
+// Slack user id -> Yakyard user id: by Slack id, then by profile email, else a placeholder user (`<slack id>@bot.local`).
 async function mapUser(ctx, sid, hint = {}) {
   if (!sid) return ctx.user.id;
   if (ctx.userMap.has(sid)) return ctx.userMap.get(sid);
   const { env } = ctx;
   let u = await env.DB.prepare('SELECT id FROM users WHERE slack_id=?').bind(sid).first();
   if (!u) u = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(sid.toLowerCase() + '@bot.local').first();
-  if (!u) {
-    let name = hint.name || '';
-    if (!name && /^U/.test(sid) && ctx.calls < FETCH_BUDGET) {
-      try { const x = await slack(ctx, 'users.info', { user: sid }); name = x.user?.real_name || x.user?.profile?.real_name || x.user?.name || ''; } catch {}
+  let name = hint.name || '';
+  if (!u && /^[UW]/.test(sid)) {
+    let email = '';
+    try {
+      const x = await slack(ctx, 'users.info', { user: sid });
+      name = name || x.user?.real_name || x.user?.profile?.real_name || x.user?.name || '';
+      email = x.user?.is_bot ? '' : String(x.user?.profile?.email || '').toLowerCase();
+    } catch {}
+    // Same email as a Yakyard account: that's them. Remember the Slack id so the next lookup is direct.
+    const real = email && !email.endsWith('@bot.local') ? await env.DB.prepare('SELECT id, slack_id FROM users WHERE email=?').bind(email).first() : null;
+    if (real) {
+      if (!real.slack_id) await env.DB.prepare('UPDATE users SET slack_id=? WHERE id=? AND slack_id IS NULL').bind(sid, real.id).run();
+      u = { id: real.id };
     }
-    const id = 'U' + (await sha1hex(sid)).slice(0, 16);
+  }
+  if (!u) {
+    const id = await placeholderId(sid);
     await env.DB.prepare("INSERT OR IGNORE INTO users (id,email,name,role,active,created_at,color,slack_id) VALUES (?,?,?,'member',1,?,?,NULL)")
-      .bind(id, sid.toLowerCase() + '@bot.local', name || 'Slack user', now(), '#dde6e1').run();
+      .bind(id, sid.toLowerCase() + '@bot.local', name || 'Slack user', now(), '#5b5670').run();
     u = { id };
   }
   ctx.userMap.set(sid, u.id);
@@ -206,11 +260,6 @@ async function mapUser(ctx, sid, hint = {}) {
 
 async function step(ctx) {
   const { env, S } = ctx;
-  if (S.phase === 'users') {
-    // Known Slack people are matched by slack_id; this pass only fills names for outside contacts.
-    S.phase = 'list'; S.cursor = '';
-    return true;
-  }
   if (S.phase === 'list') {
     const j = await slack(ctx, 'conversations.list', { types: 'im,mpim,private_channel', limit: '200', exclude_archived: 'false', ...(S.cursor ? { cursor: S.cursor } : {}) });
     for (const c of j.channels || []) S.convs.push({ id: c.id, im: !!c.is_im, mpim: !!c.is_mpim, user: c.user || '', name: c.name || '', archived: !!c.is_archived });
@@ -394,7 +443,7 @@ async function finish(ctx) {
     await env.DB.prepare('UPDATE channels SET last_ts=MAX(last_ts,?) WHERE id=?').bind(last, cid).run();
     // Nothing shows as unread for the person importing.
     await env.DB.prepare('UPDATE members SET last_read=MAX(last_read,?) WHERE channel_id=? AND user_id=?').bind(last, cid, user.id).run();
-    // Same rule as the first import: conversations quiet for 180+ days are archived (DMs come back when someone writes).
+    // Conversations quiet for 180+ days are archived (DMs come back when someone writes).
     if (last && last < now() - 180 * 864e5) await env.DB.prepare("UPDATE channels SET archived=1 WHERE id=? AND kind='dm'").bind(cid).run();
   }
 }

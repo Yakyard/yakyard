@@ -6,8 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "./deploy.sh",
+    "deploy": "node scripts/deploy.mjs",
     "db:init": "wrangler d1 execute yakyard --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute yakyard --local --file=schema.sql",
     "vapid": "node scripts/vapid.mjs"
   },
   "dependencies": {

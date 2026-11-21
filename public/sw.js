@@ -35,7 +35,7 @@ self.addEventListener('push', (e) => {
   try { self.navigator.setAppBadge && self.navigator.setAppBadge(); } catch (e) {}
   // iPhone requires every push to show a notification, so we always show one.
   e.waitUntil(self.registration.showNotification(d.title || 'Yakyard', {
-    body: d.body || '', icon: d.icon || '/brand/icon-192.png', badge: d.badge || '/brand/favicon-64.png',
+    body: d.body || '', icon: d.icon || '/brand/app-icon-192.png', badge: d.badge || '/brand/favicon-64.png',
     tag: d.tag || undefined, renotify: !!d.tag, data: d.data || { url: '/' },
   }));
 });

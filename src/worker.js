@@ -1,11 +1,12 @@
+// Yakyard: Cloudflare Worker (API + auth + files) and the Hub Durable Object (live updates).
 import { unfurl, safeFetchUrl } from './unfurl.js';
 import { slackRoutes, slackApi, runImports } from './slackimport.js';
-import { sendPushes, cronTick, featureApi, hydrateExtras, PUSH_EMPTY } from './features.js';
+import { sendPushes, cronTick, featureApi, hydrateExtras } from './features.js';
 import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceCron, fmtDur, VOICE_MAX } from './voice.js';
-// Yakyard: Cloudflare Worker (API + auth + files) and the Hub Durable Object (live updates).
 import { DurableObject } from 'cloudflare:workers';
 
 const SESSION_DAYS = 30;
+const SESSION_COOKIE = 'yy_session', STATE_COOKIE = 'yy_state';
 const PAGE = 50;
 const MIN_PW = 10; // shortest password allowed for new passwords
 const now = () => Date.now();
@@ -43,7 +44,7 @@ async function nonGuestIds(env) {
 
 // ---------------------------------------------------------------- auth
 async function currentUser(req, env) {
-  const sid = cookie(req, 'pwc_session');
+  const sid = cookie(req, SESSION_COOKIE);
   if (!sid) return null;
   const q = `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = ? AND s.expires_at > ? AND u.active = 1`;
@@ -64,7 +65,13 @@ function allowedEmail(email, env) {
   return domains.includes(domain);
 }
 
-const PALETTE = ['#e8912d', '#2bac76', '#1264a3', '#e01e5a', '#7c3085', '#36c5f0', '#4a154b', '#c56a00', '#0b7a5c', '#9b1f5c'];
+// Avatar colors: all keep white initials at AA contrast.
+const PALETTE = ['#2b1bd6', '#c8280f', '#1f7a4d', '#a24a06', '#6b2fb3', '#0f6e8c', '#b0204e', '#5b5670', '#2d6a0f', '#8a3b12'];
+const locationOn = (env) => env.TEAM_LOCATION === '1';
+const weatherOn = (env) => env.WEATHER === '1';
+// What the browser gets about the signed-in person (no coordinates, no Slack id).
+const ME_KEYS = ['id', 'email', 'name', 'title', 'avatar', 'color', 'role', 'tz', 'city', 'country', 'status_emoji', 'status_text', 'status_until', 'dnd_until', 'dnd_start', 'dnd_end', 'notify_level', 'vips', 'away', 'share_location'];
+const pickMe = (u) => Object.fromEntries(ME_KEYS.map((k) => [k, u[k]]));
 const colorFor = (s) => PALETTE[[...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % PALETTE.length];
 
 async function findOrCreateUser(env, { email, name, picture }) {
@@ -96,7 +103,7 @@ async function findOrCreateUser(env, { email, name, picture }) {
     'INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,?,?,?,?,?,?)'
   ).bind(user.id, user.email, user.name, '', user.avatar, user.color, user.role, 1, user.created_at).run();
   if (count.n === 0) {
-    for (const [name, topic] of [['general', 'Company-wide announcements and work-based matters'], ['random', 'Non-work banter and water cooler conversation']]) {
+    for (const [name, topic] of [['general', 'Announcements for everyone'], ['random', 'Anything not about work']]) {
       await env.DB.prepare('INSERT OR IGNORE INTO channels (id,kind,name,topic,private,archived,created_by,created_at,last_ts) VALUES (?,?,?,?,0,0,?,?,?)')
         .bind(uid('C'), 'channel', name, topic, user.id, now(), now()).run();
     }
@@ -158,7 +165,7 @@ async function googleStart(req, env) {
   });
   return new Response(null, {
     status: 302,
-    headers: { location: 'https://accounts.google.com/o/oauth2/v2/auth?' + p, 'set-cookie': setCookie('pwc_state', state, 600, isSecure(req)) },
+    headers: { location: 'https://accounts.google.com/o/oauth2/v2/auth?' + p, 'set-cookie': setCookie(STATE_COOKIE, state, 600, isSecure(req)) },
   });
 }
 
@@ -166,7 +173,7 @@ async function googleCallback(req, env) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
-  if (!code || !state || state !== cookie(req, 'pwc_state')) return loginPage('Sign-in expired. Please try again.');
+  if (!code || !state || state !== cookie(req, STATE_COOKIE)) return loginPage('Sign-in timed out. Try again.');
   const tok = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -175,10 +182,10 @@ async function googleCallback(req, env) {
       redirect_uri: url.origin + '/auth/callback', grant_type: 'authorization_code',
     }),
   }).then((r) => r.json());
-  if (!tok.id_token) return loginPage('Google sign-in failed. Please try again.');
+  if (!tok.id_token) return loginPage("Google sign-in didn't work. Try again.");
   // The id_token comes straight from Google over TLS in exchange for our secret, so its claims can be trusted.
   const claims = JSON.parse(atob(tok.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-  if (claims.aud !== env.GOOGLE_CLIENT_ID || !claims.email_verified) return loginPage('Google sign-in failed.');
+  if (claims.aud !== env.GOOGLE_CLIENT_ID || !claims.email_verified) return loginPage("Google sign-in didn't work. Try again.");
   // Joining through ALLOWED_DOMAINS needs a real work account of that domain, not a personal Google account on that address.
   const dom = String(claims.email).split('@')[1]?.toLowerCase();
   const known = await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(String(claims.email).toLowerCase()).first();
@@ -187,8 +194,8 @@ async function googleCallback(req, env) {
   if (!user) return loginPage(`${claims.email} doesn't have access. Ask your workspace admin for an invite.`);
   const sid = await createSession(env, user.id);
   const headers = new Headers({ location: '/' });
-  headers.append('set-cookie', setCookie('pwc_session', sid, SESSION_DAYS * 86400, isSecure(req)));
-  headers.append('set-cookie', setCookie('pwc_state', '', 0, isSecure(req)));
+  headers.append('set-cookie', setCookie(SESSION_COOKIE, sid, SESSION_DAYS * 86400, isSecure(req)));
+  headers.append('set-cookie', setCookie(STATE_COOKIE, '', 0, isSecure(req)));
   return new Response(null, { status: 302, headers });
 }
 
@@ -218,7 +225,7 @@ async function inviteFor(env, token) {
     .bind(token, now()).first();
 }
 function signedIn(req, sid) {
-  return new Response(null, { status: 303, headers: { location: '/', 'set-cookie': setCookie('pwc_session', sid, SESSION_DAYS * 86400, isSecure(req)) } });
+  return new Response(null, { status: 303, headers: { location: '/', 'set-cookie': setCookie(SESSION_COOKIE, sid, SESSION_DAYS * 86400, isSecure(req)) } });
 }
 async function passwordLogin(req, env) {
   const f = await req.formData();
@@ -239,7 +246,7 @@ async function passwordLogin(req, env) {
   return signedIn(req, await createSession(env, row.id));
 }
 const page = (title, inner) => new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#eef0f3"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard"><p class="login-brands">${escH(globalThis.__wsName || 'Yakyard')}</p>${inner}</main></body></html>`,
+<title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#fff8e6"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"><script src="/theme.js"></script></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard" width="64" height="64"><p class="login-brands">${escH(globalThis.__wsName || 'Yakyard')}</p>${inner}</main></body></html>`,
   { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SEC } });
 const escH = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -257,7 +264,7 @@ async function joinPage(req, env, token) {
       env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(name, inv.id),
       env.DB.prepare('DELETE FROM invites WHERE user_id=?').bind(inv.id),
       env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(inv.id),
-      // Give back the channels they were in on Slack.
+      // Add them to the private channels they were in on Slack (queued by an import).
       env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) SELECT channel_id, user_id, ?, ? FROM pending_members WHERE user_id=?').bind(now(), now(), inv.id),
       env.DB.prepare('DELETE FROM pending_members WHERE user_id=?').bind(inv.id),
     ]);
@@ -313,7 +320,7 @@ ${error ? `<p class="login-error">${escH(error)}</p>` : ''}
 <button class="login-btn primary" type="submit">Continue</button></form>`);
 }
 
-function loginPage(message = '', email = '', env) {
+function loginPage(message = '', email = '') {
   const google = globalThis.__googleOn ? `<div class="login-or"><span>or</span></div>
 <a class="login-btn" href="/auth/google"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Continue with Google</a>` : '';
   return page('Sign in to Yakyard', `<h1>Sign in to Yakyard</h1>
@@ -379,11 +386,11 @@ function mentionedIds(text) {
 // One place that posts a message: the composer, scheduled sends and reminders all use it.
 async function postMessage(env, ctx, user, ch, body) {
   // Every caller goes through here, so this is the one membership check that can't be skipped.
-  if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, 'Not a member');
+  if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
   // A message in an old, archived conversation brings it back.
   if (ch.archived && ch.kind === 'dm') await env.DB.prepare('UPDATE channels SET archived=0 WHERE id=?').bind(ch.id).run();
   if (ch.kind === 'dm') await env.DB.prepare('UPDATE members SET hidden=0 WHERE channel_id=? AND hidden=1').bind(ch.id).run();
-  else if (ch.archived) return err(403, 'This channel is archived');
+  else if (ch.archived) return err(403, 'This channel is archived. Nobody can post here.');
   const text = String(body.text || '').slice(0, 40000);
   const asked = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
   const files = [];
@@ -395,7 +402,7 @@ async function postMessage(env, ctx, user, ch, body) {
     files.push(item);
     await env.DB.prepare('UPDATE files SET channel_id=? WHERE key=?').bind(ch.id, f.key).run();
   }
-  if (!text.trim() && !files.length) return err(400, 'Empty message');
+  if (!text.trim() && !files.length) return err(400, 'Write something first.');
   const threadId = body.thread_id || null;
   const also = threadId && body.also_channel ? 1 : 0;
   let parent = null;
@@ -480,14 +487,24 @@ async function api(req, env, user, path, ctx) {
 
   // ----- bootstrap: everything the sidebar needs
   if (path === '/api/bootstrap' && method === 'GET') {
-    // Where people are: Cloudflare already knows the city and time zone of each connection.
+    // Team clocks are opt-in: the workspace turns them on (TEAM_LOCATION) and each person chooses to share.
+    // Only then is the city and time zone of the connection stored. Coordinates are kept, rounded to
+    // about 10 km, only when weather is on (WEATHER), because the weather lookup needs them.
     const cf = req.cf || {};
-    if (cf.timezone && (cf.timezone !== user.tz || cf.city !== user.city)) {
+    if (locationOn(env) && user.share_location && cf.timezone && (cf.timezone !== user.tz || cf.city !== user.city)) {
+      const r1 = (v) => (weatherOn(env) && v != null && v !== '' ? Math.round(+v * 10) / 10 : null);
       await env.DB.prepare('UPDATE users SET city=?, region=?, country=?, tz=?, lat=?, lon=?, loc_at=? WHERE id=?')
-        .bind(cf.city || '', cf.region || '', cf.country || '', cf.timezone, +cf.latitude || null, +cf.longitude || null, now(), user.id).run();
+        .bind(cf.city || '', cf.region || '', cf.country || '', cf.timezone, r1(cf.latitude), r1(cf.longitude), now(), user.id).run();
       Object.assign(user, { city: cf.city || '', country: cf.country || '', tz: cf.timezone });
+    } else {
+      // The browser's own time zone, kept private, so do-not-disturb hours work for everyone.
+      const btz = new URL(req.url).searchParams.get('tz') || '';
+      let valid = false;
+      try { valid = /^[\w+\-\/]{1,64}$/.test(btz) && !!new Intl.DateTimeFormat('en', { timeZone: btz }); } catch {}
+      if (valid && btz !== user.tz) { await env.DB.prepare('UPDATE users SET tz=? WHERE id=?').bind(btz, user.id).run(); user.tz = btz; }
     }
-    const ucols = 'u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,u.city,u.country,u.tz,u.status_emoji,u.status_text,u.status_until,u.dnd_until,u.dnd_start,u.dnd_end,u.away';
+    const loc = (c) => (locationOn(env) ? `CASE WHEN u.share_location=1 THEN u.${c} ELSE '' END AS ${c}` : `'' AS ${c}`);
+    const ucols = `u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,${loc('city')},${loc('country')},${loc('tz')},u.status_emoji,u.status_text,u.status_until,u.dnd_until,u.dnd_start,u.dnd_end,u.away`;
     const [usersR, savedR, pushR, chans, dmR, sections, ceR] = await env.DB.batch([
       user.role === 'guest'
         ? env.DB.prepare(`SELECT DISTINCT ${ucols} FROM users u WHERE u.id=? OR u.role='owner' OR u.id IN (SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?)`).bind(user.id, user.id)
@@ -510,8 +527,8 @@ async function api(req, env, user, path, ctx) {
     const ce = ceR.results[0];
     return json({
       emoji: ce ? JSON.parse(ce.value) : {},
-      me: (({ ...x }) => x)(user),
-      workspace: { name: env.WORKSPACE_NAME || 'Yakyard' },
+      me: pickMe(user),
+      workspace: { name: env.WORKSPACE_NAME || 'Yakyard', location: locationOn(env), weather: locationOn(env) && weatherOn(env) },
       users: users.results,
       channels: chans.results.map((c) => ({ ...c, members: dmMembers[c.id] })),
       sections: sections.results,
@@ -532,10 +549,10 @@ async function api(req, env, user, path, ctx) {
 
   // ----- create channel
   if (path === '/api/channels' && method === 'POST') {
-    if (user.role === 'guest') return err(403, 'Guests cannot create channels');
+    if (user.role === 'guest') return err(403, "Guests can't create channels.");
     const name = String(body.name || '').toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-    if (!name) return err(400, 'Name required');
-    if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first()) return err(409, 'That name is taken');
+    if (!name) return err(400, 'Add a name first.');
+    if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first()) return err(409, 'That name is taken. Pick another one.');
     const id = uid('C');
     await env.DB.prepare('INSERT INTO channels (id,kind,name,topic,private,created_by,created_at,last_ts) VALUES (?,?,?,?,?,?,?,?)')
       .bind(id, 'channel', name, String(body.topic || '').slice(0, 250), body.private ? 1 : 0, user.id, now(), now()).run();
@@ -578,7 +595,7 @@ async function api(req, env, user, path, ctx) {
     const cid = m[1];
     const sub = m[2] || '';
     const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(cid).first();
-    if (!ch) return err(404, 'Channel not found');
+    if (!ch) return err(404, "That channel isn't here anymore.");
     const member = await isMember(env, cid, user.id);
     const priv = ch.private || ch.kind === 'dm';
 
@@ -590,7 +607,7 @@ async function api(req, env, user, path, ctx) {
       await broadcast(env, { type: 'member_joined', channel_id: cid, user_id: user.id }, await channelMembers(env, cid));
       return json({ ...ch, last_read: 0, section_id: body.section_id || null, unread: 0, mentions: 0 });
     }
-    if (!member && !(sub === '/messages' && method === 'GET' && !priv && user.role !== 'guest')) return err(403, 'Not a member');
+    if (!member && !(sub === '/messages' && method === 'GET' && !priv && user.role !== 'guest')) return err(403, "You're not in this channel.");
 
     if (sub === '/leave' && method === 'POST') {
       await env.DB.prepare('DELETE FROM members WHERE channel_id=? AND user_id=?').bind(cid, user.id).run();
@@ -599,7 +616,7 @@ async function api(req, env, user, path, ctx) {
     if (sub === '/members' && method === 'GET') return json(await channelMembers(env, cid));
     if (sub === '/members' && method === 'POST') {
       if (ch.kind === 'dm') return err(403, 'Start a new group message instead');
-      if (user.role === 'guest') return err(403, 'Guests cannot add people');
+      if (user.role === 'guest') return err(403, "Guests can't add people.");
       const ids = [...new Set((body.user_ids || []).map(String))].slice(0, 50);
       const ok = ids.length ? (await env.DB.prepare(`SELECT id FROM users WHERE active=1 AND id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results.map((r) => r.id) : [];
       if (ok.length) await env.DB.batch(ok.map((u) => env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(cid, u, 0, now())));
@@ -653,10 +670,10 @@ async function api(req, env, user, path, ctx) {
     const mid = m[1];
     const sub = m[2] || '';
     const msg = await env.DB.prepare('SELECT * FROM messages WHERE id=?').bind(mid).first();
-    if (!msg) return err(404, 'Message not found');
+    if (!msg) return err(404, "That message isn't here anymore.");
     if (!(await isMember(env, msg.channel_id, user.id))) {
       const ch = await env.DB.prepare('SELECT private, kind FROM channels WHERE id=?').bind(msg.channel_id).first();
-      if (!ch || ch.private || ch.kind === 'dm' || user.role === 'guest' || method !== 'GET') return err(403, 'Not a member');
+      if (!ch || ch.private || ch.kind === 'dm' || user.role === 'guest' || method !== 'GET') return err(403, "You're not in this channel.");
     }
     const members = () => channelMembers(env, msg.channel_id);
 
@@ -676,7 +693,7 @@ async function api(req, env, user, path, ctx) {
     }
     if (sub === '' && method === 'PATCH') {
       if (msg.deleted) return err(400, 'Deleted');
-      if (msg.user_id !== user.id) return err(403, 'Only the author can edit');
+      if (msg.user_id !== user.id) return err(403, 'Only the person who wrote it can edit it.');
       const text = String(body.text || '').slice(0, 40000);
       await env.DB.prepare('UPDATE messages SET text=?, edited_ts=? WHERE id=?').bind(text, now(), mid).run();
       const [full] = await hydrateMessages(env, [{ ...msg, text, edited_ts: now() }]);
@@ -778,25 +795,34 @@ async function api(req, env, user, path, ctx) {
       notify_level: pick('notify_level', (v) => (['all', 'mentions', 'none'].includes(v) ? v : 'mentions')),
       away: pick('away', (v) => (v ? 1 : 0)),
       vips: pick('vips', (v) => JSON.stringify((Array.isArray(v) ? v : []).map(String).slice(0, 30))),
+      share_location: pick('share_location', (v) => (v ? 1 : 0)),
     };
-    await env.DB.prepare('UPDATE users SET name=?, title=?, status_emoji=?, status_text=?, status_until=?, dnd_until=?, dnd_start=?, dnd_end=?, notify_level=?, vips=?, away=? WHERE id=?')
-      .bind(upd.name, upd.title, upd.status_emoji, upd.status_text, upd.status_until, upd.dnd_until, upd.dnd_start, upd.dnd_end, upd.notify_level, upd.vips || '[]', upd.away || 0, user.id).run();
+    if ('share_location' in body && !upd.share_location) {
+      // Stop sharing: forget the stored place right away.
+      await env.DB.prepare("UPDATE users SET city='', region='', country='', lat=NULL, lon=NULL, loc_at=NULL WHERE id=?").bind(user.id).run();
+      await broadcast(env, { type: 'user_updated', user: { id: user.id, city: '', country: '', tz: '' } }, null);
+    }
+    await env.DB.prepare('UPDATE users SET name=?, title=?, status_emoji=?, status_text=?, status_until=?, dnd_until=?, dnd_start=?, dnd_end=?, notify_level=?, vips=?, away=?, share_location=? WHERE id=?')
+      .bind(upd.name, upd.title, upd.status_emoji, upd.status_text, upd.status_until, upd.dnd_until, upd.dnd_start, upd.dnd_end, upd.notify_level, upd.vips || '[]', upd.away || 0, upd.share_location || 0, user.id).run();
     const pub = { id: user.id, name, title, status_emoji: upd.status_emoji, status_text: upd.status_text, status_until: upd.status_until, dnd_until: upd.dnd_until, dnd_start: upd.dnd_start, dnd_end: upd.dnd_end, away: upd.away };
     await broadcast(env, { type: 'user_updated', user: pub });
     return json({ ok: true });
   }
 
-  // ----- invites (owner/admin): pre-create a guest or teammate account
+  // ----- team places: only people who chose to share, and only if the workspace allows it
   if (path === '/api/team/places' && method === 'GET') {
+    if (!locationOn(env)) return json([]);
     const r = await env.DB.prepare(`SELECT id, city, region, country, tz, lat, lon FROM users
-      WHERE active=1 AND tz IS NOT NULL AND tz<>'' AND lat IS NOT NULL`).all();
+      WHERE active=1 AND share_location=1 AND tz IS NOT NULL AND tz<>''`).all();
     const places = {};
     for (const u of r.results) {
       const k = `${u.city}|${u.country}|${u.tz}`;
       (places[k] ||= { city: u.city, region: u.region, country: u.country, tz: u.tz, lat: u.lat, lon: u.lon, people: [] }).people.push(u.id);
     }
     const list = Object.values(places);
-    if (list.length) {
+    const withPos = list.filter((p) => p.lat != null && p.lon != null);
+    if (weatherOn(env) && withPos.length) {
+      const list = withPos;
       const key = new Request('https://weather.cache/' + list.map((p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`).join(';'));
       let wx = await caches.default.match(key).then((x) => x && x.json()).catch(() => null);
       if (!wx) {
@@ -842,7 +868,7 @@ async function api(req, env, user, path, ctx) {
 
   // ---------------- admin dashboard (owner + admins)
   if (path.startsWith('/api/admin/')) {
-    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Admins only');
+    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can do this.');
     if (path === '/api/admin/people' && method === 'GET') {
       const r = await env.DB.prepare(`SELECT u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,u.deactivated,u.created_at,
           EXISTS(SELECT 1 FROM credentials c WHERE c.user_id=u.id) has_password,
@@ -930,9 +956,9 @@ async function api(req, env, user, path, ctx) {
   }
 
   if (path === '/api/invite' && method === 'POST') {
-    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can invite');
+    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can invite people.');
     const email = String(body.email || '').toLowerCase().trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, 'Valid email required');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, 'Enter a full email address, like name@company.com.');
     const exists = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
     if (exists) {
       if (exists.role === 'owner' && user.role !== 'owner') return err(403, 'Not allowed');
@@ -951,6 +977,7 @@ async function api(req, env, user, path, ctx) {
       return json({ ...exists, link: await makeInviteLink(env, new URL(req.url).origin, exists.id), existing: true });
     }
     const role = body.guest ? 'guest' : 'member';
+    if (role === 'guest' && !(Array.isArray(body.channel_ids) && body.channel_ids.length)) return err(400, 'Pick at least one channel for a guest.');
     const id = uid('U');
     await env.DB.prepare('INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,?,?,?,?,1,?)')
       .bind(id, email, String(body.name || email.split('@')[0]), '', '', colorFor(email), role, now()).run();
@@ -974,9 +1001,9 @@ async function uploadFile(req, env, user) {
   const form = await req.formData();
   const file = form.get('file');
   if (!file || typeof file === 'string') return err(400, 'No file');
-  if (file.size > 100 * 1024 * 1024) return err(413, 'Max 100 MB per file');
+  if (file.size > 100 * 1024 * 1024) return err(413, 'Files can be up to 100 MB here. Try a smaller one.');
   // Voice notes are transcribed in memory, so keep them small and audio only.
-  if (form.get('voice') === '1' && (file.size > VOICE_MAX || !/^(audio\/|video\/(webm|mp4))/i.test(file.type || ''))) return err(413, 'Voice notes must be audio and under 25 MB');
+  if (form.get('voice') === '1' && (file.size > VOICE_MAX || !/^(audio\/|video\/(webm|mp4))/i.test(file.type || ''))) return err(413, 'Voice notes must be audio and under 25 MB.');
   const key = `${new Date().toISOString().slice(0, 7)}/${uid('F')}/${file.name.replace(/[^\w.\- ]+/g, '_')}`;
   await env.FILES.put(key, file.stream(), {
     httpMetadata: { contentType: file.type || 'application/octet-stream' },
@@ -996,7 +1023,7 @@ async function bigUpload(req, env, user, path, url) {
   if (path === '/api/upload/start' && req.method === 'POST') {
     const b = await req.json().catch(() => ({}));
     const name = String(b.name || 'file').slice(0, 200), size = +b.size || 0, type = String(b.type || 'application/octet-stream').slice(0, 120);
-    if (size > BIG_MAX) return err(413, 'Max 1 GB per file');
+    if (size > BIG_MAX) return err(413, 'Files can be up to 1 GB. Try a smaller one.');
     const key = `${new Date().toISOString().slice(0, 7)}/${uid('F')}/${name.replace(/[^\w.\- ]+/g, '_')}`;
     const up = await env.FILES.createMultipartUpload(key, { httpMetadata: { contentType: type }, customMetadata: { uploader: user.id, name } });
     await env.DB.prepare('INSERT OR REPLACE INTO files (key,uploader,channel_id,created_at) VALUES (?,?,NULL,?)').bind(key, user.id, now()).run();
@@ -1017,7 +1044,7 @@ async function bigUpload(req, env, user, path, url) {
     const up = env.FILES.resumeMultipartUpload(b.key, b.upload_id);
     if (b.cancel) { try { await up.abort(); } catch {} await env.DB.prepare('DELETE FROM files WHERE key=?').bind(b.key).run(); return json({ ok: true }); }
     const obj = await up.complete(b.parts.map((x) => ({ partNumber: +x.partNumber, etag: String(x.etag) })));
-    if (obj.size > BIG_MAX) { await env.FILES.delete(b.key); return err(413, 'Max 1 GB per file'); }
+    if (obj.size > BIG_MAX) { await env.FILES.delete(b.key); return err(413, 'Files can be up to 1 GB. Try a smaller one.'); }
     return json({ key: b.key, name: String(b.name || b.key.split('/').pop()), size: obj.size, type: obj.httpMetadata?.contentType || 'application/octet-stream' });
   }
   return err(404, 'Not found');
@@ -1081,10 +1108,7 @@ export default {
     ctx.waitUntil(cronTick(env, ctx, postMessage, runImports));
     ctx.waitUntil(voiceCron(env, { hydrateMessages, broadcast, channelMembers }).catch((e) => console.log('voice cron', e)));
   },
-  async fetch(req, env, ctx) {
-    const res = await handle(req, env, ctx);
-    return res;
-  },
+  fetch: (req, env, ctx) => handle(req, env, ctx),
 };
 async function handle(req, env0, ctx) {
     const url = new URL(req.url);
@@ -1123,20 +1147,20 @@ async function route(req, env, ctx, url, path) {
     if (path === '/auth/dev' && env.DEV_LOGIN === '1' && ['127.0.0.1', 'localhost'].includes(url.hostname)) {
       const u = await findOrCreateUser(env, { email: url.searchParams.get('email') || '', name: url.searchParams.get('name') || '' });
       if (!u) return loginPage('No access');
-      return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': setCookie('pwc_session', await createSession(env, u.id), SESSION_DAYS * 86400, false) } });
+      return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': setCookie(SESSION_COOKIE, await createSession(env, u.id), SESSION_DAYS * 86400, false) } });
     }
     if (path === '/auth/logout') {
       // Sign-out is a same-origin POST, so another site can't sign people out with a link or image.
       if (req.method !== 'POST') return page('Sign out of Yakyard', `<h1>Sign out</h1><form method="post" action="/auth/logout" class="login-form"><button class="login-btn primary" type="submit">Sign out</button></form><p class="login-note"><a href="/">Back to Yakyard</a></p>`);
       const o = req.headers.get('origin');
       if (o && o !== url.origin) return err(403, 'Bad origin');
-      const sid = cookie(req, 'pwc_session');
+      const sid = cookie(req, SESSION_COOKIE);
       if (sid) {
         const u = await currentUser(req, env);
         await env.DB.prepare('DELETE FROM sessions WHERE id=? OR id=?').bind(await sha256hex(sid), sid).run();
         if (u) await kick(env, u.id); // close open live connections too
       }
-      return new Response(null, { status: 303, headers: { location: '/', 'set-cookie': setCookie('pwc_session', '', 0, isSecure(req)) } });
+      return new Response(null, { status: 303, headers: { location: '/', 'set-cookie': setCookie(SESSION_COOKIE, '', 0, isSecure(req)) } });
     }
 
     const isStatic = !path.startsWith('/files/') && /\.(css|js|woff2|png|svg|ico|webmanifest|json)$/.test(path);
@@ -1187,7 +1211,7 @@ async function route(req, env, ctx, url, path) {
         return await api(req, env, user, path, ctx);
       } catch (e) {
         console.error(e);
-        return err(500, 'Something went wrong');
+        return err(500, "That didn't go through. Try again.");
       }
     }
     // The app shell
@@ -1370,5 +1394,5 @@ export class Hub extends DurableObject {
     }
   }
   async webSocketClose(ws) { const was = this.att(ws).huddle; ws.serializeAttachment({}); this.broadcastPresence(); if (was) { this.broadcastHuddles(); await this.afterLeave(was); } }
-  async webSocketError(ws) { const was = this.att(ws).huddle; ws.serializeAttachment({}); this.broadcastPresence(); if (was) { this.broadcastHuddles(); await this.afterLeave(was); } }
+  async webSocketError(ws) { return this.webSocketClose(ws); }
 }

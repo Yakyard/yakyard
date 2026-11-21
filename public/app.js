@@ -1,6 +1,16 @@
 // Yakyard client. Plain JS, no build step.
 const APP_VERSION = document.querySelector('meta[name="yakyard-version"]')?.content || 'dev';
 
+// Settings saved in this browser use the "yy-" prefix. Early builds used "pw-": move them over once.
+try {
+  for (const k of Object.keys(localStorage)) {
+    if (!k.startsWith('pw-')) continue;
+    const nk = 'yy-' + k.slice(3);
+    if (localStorage.getItem(nk) == null) localStorage.setItem(nk, localStorage.getItem(k));
+    localStorage.removeItem(k);
+  }
+} catch {}
+
 // ------------------------------------------------------------------ state
 const S = {
   me: null, workspace: { name: '' },
@@ -64,9 +74,9 @@ async function api(path, opts = {}) {
     credentials: 'same-origin',
   });
   const bm = res.headers.get('x-d1-bookmark'); if (bm) api.bm = bm;
-  if (res.status === 401) { try { localStorage.removeItem('pw-boot'); await caches?.delete('yakyard-shell'); } catch {} location.href = '/'; throw new Error('signed out'); }
+  if (res.status === 401) { try { localStorage.removeItem('yy-boot'); await caches?.delete('yakyard-shell'); } catch {} location.href = '/'; throw new Error('signed out'); }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) throw new Error(data.error || "That didn't go through. Try again.");
   return data;
 }
 function toast(msg) {
@@ -75,15 +85,15 @@ function toast(msg) {
 }
 
 // ------------------------------------------------------------------ people
-const user = (id) => S.users.get(id) || { id, name: 'Unknown', color: '#8a898a' };
+const user = (id) => S.users.get(id) || { id, name: 'Unknown', color: 'var(--ink-3)' };
 function avatar(u, cls = 'av', size) {
   const el = h('span', { class: `avatar ${cls}`, title: u.name });
   if (u.avatar) el.style.backgroundImage = `url("${(u.avatar.startsWith('/files/') ? u.avatar + '?w=96' : u.avatar).replace(/"/g, '')}")`;
-  else { el.style.background = avatarColor(u); el.style.color = '#3c4049'; el.textContent = (u.name || '?').trim()[0] || '?'; if (size) el.style.fontSize = size; }
+  else { el.style.background = avatarColor(u); el.style.color = '#ffffff'; el.textContent = (u.name || '?').trim()[0] || '?'; if (size) el.style.fontSize = size; }
   return el;
 }
-// Soft tones with dark letters: calm, still easy to tell people apart.
-const PALETTE = ['#dde6e1', '#e9e0d6', '#dce3ec', '#ebdfe3', '#e3e0ec', '#e2e8d6', '#ece3d3', '#d8e6e7'];
+// Deep tones with white letters (all pass AA), easy to tell people apart in every theme.
+const PALETTE = ['#2b1bd6', '#c8280f', '#1f7a4d', '#a24a06', '#6b2fb3', '#0f6e8c', '#b0204e', '#5b5670'];
 function avatarColor(u) { let h = 0; for (const c of String(u.id || u.name || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; }
 function dmOthers(ch) { return (ch.members || []).filter((u) => u !== S.me.id); }
 function chanLabel(ch) {
@@ -111,7 +121,7 @@ function fmt(text) {
   out = out.replace(/&lt;@(U[a-z0-9]+)&gt;/gi, (_, id) => `<span class="mention${id === S.me.id ? ' me' : ''}" data-user="${esc(id)}">@${esc(user(id).name)}</span>`);
   out = out.replace(/&lt;!(channel|here|everyone)&gt;/g, '<span class="mention me">@$1</span>');
   out = out.replace(/&lt;#(C[a-z0-9]+)(?:\|([^&]*))?&gt;/gi, (_, id, n) => `<a href="#/c/${esc(id)}">#${esc(S.channels.get(id)?.name || n || 'channel')}</a>`);
-  // Bold / italic / strike, forgiving like Slack: "*Whats *up" and "*Whats*up" both bold "Whats".
+  // Bold / italic / strike, forgiving: "*Whats *up" and "*Whats*up" both bold "Whats".
   const mark = (ch, tag) => { const e = ch === '*' ? '\\*' : ch; out = out.replace(new RegExp(`(^|[^\\w${e}])${e}(?=\\S)([^${e}\\n]*?\\S)(\\s*)${e}(?!${e})(?=\\w|[^\\w]|$)`, 'g'), `$1<${tag}>$2</${tag}>$3`); };
   out = out.replace(/\*\*(?=\S)([^*\n]*?\S)\s*\*\*/g, '<b>$1</b>');
   mark('*', 'b'); mark('_', 'i'); mark('~', 's');
@@ -123,7 +133,6 @@ function fmt(text) {
 }
 
 // ------------------------------------------------------------------ time
-const pad = (n) => String(n).padStart(2, '0');
 const timeStr = (ts) => new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 function dayStr(ts) {
   const d = new Date(ts), t = new Date();
@@ -172,8 +181,11 @@ function chanRow(ch) {
   }
   if (S.huddles?.[ch.id]?.length) row.append(h('span', { class: 'huddle-dot', title: 'Pop-in happening now' }, wave()));
   if (ch.id !== S.current && (S.drafts.get(ch.id) || '').trim() && !(ch.mentions > 0)) row.append(h('span', { class: 'draft-ico', title: 'Draft' }, svg(I.edit, 12)));
-  if (ch.mentions > 0 && ch.id !== S.current) row.append(h('span', { class: 'badge' }, ch.mentions));
-  else if (ch.kind === 'dm') row.append(h('span', { class: 'row-x', role: 'button', title: 'Close conversation', onclick: (e) => { e.stopPropagation(); closeDM(ch); } }, svg(I.close, 12)));
+  if (ch.mentions > 0 && ch.id !== S.current) {
+    // The badge bumps once when its number changes, never on a plain redraw.
+    const seen = (S.badgeSeen ||= new Map()), was = seen.get(ch.id); seen.set(ch.id, ch.mentions);
+    row.append(h('span', { class: 'badge' + (was != null && was !== ch.mentions ? ' bump' : '') }, ch.mentions, h('span', { class: 'sr' }, ch.mentions === 1 ? ' mention' : ' mentions')));
+  } else if (S.badgeSeen?.delete(ch.id), ch.kind === 'dm') row.append(h('span', { class: 'row-x', role: 'button', title: 'Close conversation', onclick: (e) => { e.stopPropagation(); closeDM(ch); } }, svg(I.close, 12)));
   return row;
 }
 function renderSidebar() {
@@ -201,7 +213,7 @@ function renderSidebar() {
     }
     const inSection = new Set(S.sections.map((s) => s.id));
     const looseChannels = all.filter((c) => c.kind === 'channel' && !c.starred && !inSection.has(c.section_id));
-    list.append(sectionBlock({ id: '__channels', name: 'Channels' }, sortedChannels(looseChannels), addRow('Add channels', (e) => addChannelMenu(e))));
+    list.append(sectionBlock({ id: '__channels', name: 'Channels' }, sortedChannels(looseChannels), (S.me.role === 'guest' ? '' : addRow('Add channels', (e) => addChannelMenu(e)))));
   }
   const inSection = new Set(S.sections.map((s) => s.id));
   const dms = all.filter((c) => c.kind === 'dm' && !c.starred && (!c.hidden || c.id === S.current || c.unread) && (dmView || !inSection.has(c.section_id)))
@@ -217,7 +229,7 @@ function renderSidebar() {
     const recentDms = dms.filter((c, i) => i < 10 || c.unread || c.id === S.current);
     list.append(sectionBlock({ id: '__dms', name: 'Direct messages' }, recentDms, addRow('Add colleagues', () => composeDM())));
   }
-  if (!isStandalone() && !localStorage.getItem('pw-installed') && !platform().phone)
+  if (!isStandalone() && !localStorage.getItem('yy-installed') && !platform().phone)
     list.append(h('button', { class: 'get-app', onclick: () => (installEvt ? installEvt.prompt() : installApp()) }, svg('M10 3v8.2l3-3 1 1L10 13.9 6 9.2l1-1 3 3V3h0zM4 15h12v1.5H4z', 16), 'Get the desktop app'));
   list.scrollTop = scroll;
   updateTitle();
@@ -249,7 +261,7 @@ function updateTitle() {
   document.title = (unreadDMs ? `(${unreadDMs}) ` : '') + (ch ? (ch.kind === 'dm' ? chanLabel(ch) : '#' + ch.name) + ' - ' : '') + 'Yakyard';
   const badge = $('#activity-badge');
   badge.hidden = !unreadDMs; badge.textContent = unreadDMs;
-  const tb = $('#tab-badge'); if (tb) { tb.hidden = !unreadDMs; tb.textContent = unreadDMs; }
+  const tb = $('#tab-badge'); if (tb) { if (unreadDMs && String(unreadDMs) !== tb.textContent && !tb.hidden) { tb.classList.remove('bump'); void tb.offsetWidth; tb.classList.add('bump'); } tb.hidden = !unreadDMs; tb.textContent = unreadDMs; }
   iconBadge(unreadDMs);
 }
 
@@ -260,7 +272,7 @@ function go(id, threadId) {
 async function route() {
   railActive(location.hash.startsWith('#/admin') ? 'admin' : location.hash.startsWith('#/team') ? 'team' : location.hash.startsWith('#/activity') ? 'activity' : S.view === 'dms' ? 'dms' : 'home');
   const lm = location.hash.match(/^#\/m\/([\w]+)/);
-  if (lm) { try { const r = await api(`/api/messages/${lm[1]}/thread`); jumpTo(r.parent); } catch { toast('That message is not available'); } return; }
+  if (lm) { try { const r = await api(`/api/messages/${lm[1]}/thread`); jumpTo(r.parent); } catch { toast("That message isn't here anymore."); } return; }
   if (location.hash.startsWith('#/admin')) return openAdmin();
   if (location.hash.startsWith('#/team')) return openTeam();
   if (location.hash.startsWith('#/activity')) return openActivity();
@@ -275,7 +287,7 @@ async function route() {
     // Phone: no conversation in the address means "show the list", the one you came from (Home or DMs).
     if (window.innerWidth <= 760) { showList(); return; }
     // Computer: reopen the last conversation, not #general.
-    const last = localStorage.getItem('pw-last');
+    const last = localStorage.getItem('yy-last');
     const first = (last && S.channels.get(last)) || [...S.channels.values()].find((c) => c.name === 'general') || [...S.channels.values()][0];
     if (first) history.replaceState(null, '', `#/c/${first.id}`), route(); else renderEmpty();
     return;
@@ -290,7 +302,7 @@ async function route() {
     try {
       const list = await api('/api/channels');
       const c = list.find((x) => x.id === id);
-      if (!c) return toast('Channel not found');
+      if (!c) return toast("That channel isn't here anymore.");
       S.preview = { ...c, kind: 'channel', unread: 0, mentions: 0 };
     } catch { return; }
   } else S.preview = null;
@@ -310,7 +322,7 @@ function renderEmpty() { $('#main').replaceChildren($('#empty-main') || h('div',
 
 async function openChannel(id) {
   saveDraft(); if (S.holdRead && S.holdRead !== id) S.holdRead = null;
-  S.current = id; try { localStorage.setItem('pw-last', id); } catch {}
+  S.current = id; try { localStorage.setItem('yy-last', id); } catch {}
   const oc = S.channels.get(id); if (oc && window.innerWidth <= 760) S.view = oc.kind === 'dm' ? (S.view === 'dms' ? 'dms' : S.view) : S.view;
   const ch = S.channels.get(id) || S.preview;
   const lastRead = ch.last_read || 0;
@@ -361,7 +373,7 @@ function channelHeader(ch) {
     title.append(h('span', { class: 'name' }, chanLabel(ch)));
     const o = others.length === 1 && user(others[0]);
     if (o && o.tz) {
-      const p = clockPlaces.find((x) => x.people.includes(o.id)), unit = localStorage.getItem('pw-unit') || 'C';
+      const p = clockPlaces.find((x) => x.people.includes(o.id)), unit = localStorage.getItem('yy-unit') || 'C';
       const t = p && p.temp != null ? (unit === 'F' ? Math.round(p.temp * 9 / 5 + 32) : Math.round(p.temp)) + '°' : '';
       title.append(h('span', { class: 'local-t', title: o.city || '' }, [`${localTime(o.tz)} local`, o.city, t].filter(Boolean).join(' · ')));
     }
@@ -390,7 +402,7 @@ async function loadMembers(id) {
 }
 function joinBar(ch) {
   return h('div', { class: 'composer-wrap' },
-    h('div', { style: { textAlign: 'center', padding: '16px', background: '#f8f8f8', borderRadius: '8px', border: '1px solid #e2e2e2' } },
+    h('div', { style: { textAlign: 'center', padding: '16px', background: 'var(--hover-solid)', borderRadius: '8px', border: '1px solid #e2e2e2' } },
       h('div', { style: { fontWeight: 900, marginBottom: '8px' } }, `#${ch.name}`),
       h('button', { class: 'btn primary', onclick: async () => {
         const c = await api(`/api/channels/${ch.id}/join`, { method: 'POST', body: {} });
@@ -399,13 +411,13 @@ function joinBar(ch) {
 }
 
 // Last 40 messages of recent conversations, kept on the device so they open instantly.
-function msgCacheGet(id) { try { return JSON.parse(localStorage.getItem('pw-m-' + id) || 'null'); } catch { return null; } }
+function msgCacheGet(id) { try { return JSON.parse(localStorage.getItem('yy-m-' + id) || 'null'); } catch { return null; } }
 function msgCachePut(id, list) {
   try {
-    localStorage.setItem('pw-m-' + id, JSON.stringify(list.slice(-40)));
-    const idx = JSON.parse(localStorage.getItem('pw-m-idx') || '[]').filter((x) => x !== id); idx.unshift(id);
-    idx.slice(25).forEach((x) => localStorage.removeItem('pw-m-' + x));
-    localStorage.setItem('pw-m-idx', JSON.stringify(idx.slice(0, 25)));
+    localStorage.setItem('yy-m-' + id, JSON.stringify(list.slice(-40)));
+    const idx = JSON.parse(localStorage.getItem('yy-m-idx') || '[]').filter((x) => x !== id); idx.unshift(id);
+    idx.slice(25).forEach((x) => localStorage.removeItem('yy-m-' + x));
+    localStorage.setItem('yy-m-idx', JSON.stringify(idx.slice(0, 25)));
   } catch {}
 }
 addEventListener('visibilitychange', () => { if (document.hidden) for (const [id, st] of S.msgs) if (st.loaded && !st.hasNewer && st.list.length) msgCachePut(id, st.list); });
@@ -453,8 +465,20 @@ function channelIntro(ch) {
     return h('div', { class: 'chan-intro' }, h('h2', {}, chanLabel(ch)),
       h('p', {}, others.length ? `This is the very beginning of your direct message history with ${chanLabel(ch)}.` : 'This is your space. Draft messages, list your to-dos, or keep links and files handy.'));
   }
-  return h('div', { class: 'chan-intro' }, h('h2', {}, (ch.private ? '' : '# ') + ch.name),
-    h('p', {}, `This is the very beginning of #${ch.name}.`), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '');
+  return h('div', { class: 'chan-intro' }, h('img', { class: 'intro-mark yak-bob', src: '/brand/mark.svg', alt: '', width: 64, height: 58 }),
+    h('h2', {}, (ch.private ? '' : '# ') + ch.name),
+    h('p', {}, `This is the very beginning of #${ch.name}.`), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '', firstRun());
+}
+// First run: the owner is alone in a new workspace. A short list of what to do next.
+function firstRun() {
+  if (!isAdmin() || [...S.users.values()].filter((u) => !String(u.email || '').endsWith('@bot.local')).length > 1) return '';
+  const step = (title, sub, label, fn) => h('li', {}, h('div', { class: 'grow' }, h('b', {}, title), h('small', {}, sub)), h('button', { class: 'btn sm', onclick: fn }, label));
+  return h('div', { class: 'first-run' }, h('h3', {}, 'Get your yard ready'),
+    h('ol', {},
+      step('Bring your people in', "They'll get a link to join.", 'Invite people', invitePeople),
+      step('Make a channel', 'One per project or team works well.', 'Create a channel', createChannel),
+      S.pushKey ? step('Turn on notifications', 'So you hear when someone writes.', 'Turn on', enablePush)
+        : h('li', {}, h('div', { class: 'grow' }, h('b', {}, 'Phone notifications are off'), h('small', {}, 'Add VAPID keys to the server to turn them on. See the README, Notifications.')))));
 }
 async function loadNewer() {
   const id = S.current, st = S.msgs.get(id);
@@ -619,7 +643,7 @@ function makePlayer(f) {
       if (nf.t === 'done' && nf.transcript) {
         const txt = h('div', { class: 'vn-text clamp' }, nf.transcript);
         const more = h('button', { class: 'vn-link', hidden: true, onclick: () => { const c = txt.classList.toggle('clamp'); more.textContent = c ? 'Show more' : 'Show less'; } }, 'Show more');
-        const copy = h('button', { class: 'vn-link', onclick: () => navigator.clipboard?.writeText(nf.transcript).then(() => toast('Transcript copied'), () => toast('Could not copy')) }, 'Copy');
+        const copy = h('button', { class: 'vn-link', onclick: () => navigator.clipboard?.writeText(nf.transcript).then(() => toast('Transcript copied'), () => toast("Couldn't copy. Select the text and copy it yourself.")) }, 'Copy');
         tBox.replaceChildren(h('div', { class: 'vn-label' }, 'Transcript'), txt, h('div', { class: 'vn-acts' }, more, copy));
         requestAnimationFrame(() => { more.hidden = txt.scrollHeight <= txt.clientHeight + 2; });
       } else if (nf.t === 'done') {
@@ -635,7 +659,7 @@ function makePlayer(f) {
   return p;
 }
 
-// Recorder: one at a time. English transcript happens on the server after upload.
+// Recorder: one at a time. Transcript happens on the server after upload.
 const REC_MAX = 15 * 60;
 function pickMime() {
   for (const t of ['audio/webm;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus']) if (window.MediaRecorder?.isTypeSupported?.(t)) return t;
@@ -643,7 +667,7 @@ function pickMime() {
 }
 async function startRecorder(onTick) {
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) throw new Error('This browser cannot record audio');
-  const mic = localStorage.getItem('pw-mic');
+  const mic = localStorage.getItem('yy-mic');
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, ...(mic ? { deviceId: { ideal: mic } } : {}) } });
   const mime = pickMime();
   const rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 32000 });
@@ -697,7 +721,7 @@ function filesEl(files) {
     if (/^image\//.test(f.type)) {
       const thumb = !f.url && /\.(png|jpe?g|webp|heic|heif)$/i.test(f.key || '') ? url + '?w=880' : url;
       box.append(h('img', { class: 'file-img', src: thumb, alt: f.name, loading: 'lazy', decoding: 'async', onclick: () => lightbox(url),
-        onerror: (e) => e.target.replaceWith(h('div', { class: 'file-card gone' }, h('span', { class: 'file-ico', style: { background: '#c4c8d0' } }, 'IMG'), h('div', {}, h('div', { class: 'fname' }, f.name), h('div', { class: 'fmeta' }, 'No longer available')))) }));
+        onerror: (e) => e.target.replaceWith(h('div', { class: 'file-card gone' }, h('span', { class: 'file-ico', style: { background: 'var(--line-2)' } }, 'IMG'), h('div', {}, h('div', { class: 'fname' }, f.name), h('div', { class: 'fmeta' }, 'No longer available')))) }));
     } else if (/^video\/(mp4|quicktime|webm)/.test(f.type)) {
       box.append(h('video', { class: 'file-video', src: url, controls: true, preload: 'metadata', playsinline: true }));
     } else {
@@ -723,7 +747,7 @@ function reactionsEl(m) {
       class: 'react' + (mine ? ' mine' : '') + (popping ? ' pop' : ''), 'aria-label': r.users.map((u) => user(u).name).join(', ') + ' reacted with ' + emojiName(r.emoji),
       onclick: () => { hideReactTip(); react(m, r.emoji); },
       onmouseenter: (e) => showReactTip(e.currentTarget, r), onmouseleave: hideReactTip,
-    }, h('span', { class: 'e' }, emojiNode(r.emoji)), r.users.length);
+    }, h('span', { class: 'e' }, emojiNode(r.emoji)), h('span', { class: 'n' }, r.users.length));
     longPress(b, () => { showReactTip(b, r); setTimeout(hideReactTip, 2600); });
     box.append(b);
   }
@@ -736,8 +760,8 @@ function emojiNode(e) {
   if (S.emoji?.[n]) return h('img', { class: 'cemoji', src: S.emoji[n], alt: e, title: ':' + n + ':' });
   return e;
 }
-// Enter key: send (computer default, like Slack) or new line (phone default). Changeable in settings.
-function enterSends() { const v = localStorage.getItem('pw-enter'); return v ? v === 'send' : !matchMedia('(pointer: coarse)').matches; }
+// Enter key: send (computer default) or new line (phone default). Changeable in settings.
+function enterSends() { const v = localStorage.getItem('yy-enter'); return v ? v === 'send' : !matchMedia('(pointer: coarse)').matches; }
 function shortWhen(ts) {
   const d = new Date(ts), now = new Date(), t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   if (d.toDateString() === now.toDateString()) return 'Today ' + t;
@@ -762,7 +786,7 @@ function hoverBar(m, inThread) {
   bar.append(h('button', { title: 'More actions', onclick: (ev) => msgMenu(m, ev.currentTarget) }, svg(I.dots, 18)));
   return bar;
 }
-// Phones: press and hold a message for actions, like Slack mobile.
+// Phones: press and hold a message for actions.
 function longPress(el, fn) {
   let t = null, x = 0, y = 0;
   el.addEventListener('touchstart', (e) => { if (e._lp) return; e._lp = true; x = e.touches[0].clientX; y = e.touches[0].clientY; el.classList.add('pressing'); t = setTimeout(() => { t = null; el.classList.remove('pressing'); navigator.vibrate?.(8); fn(); }, 430); }, { passive: true });
@@ -779,8 +803,8 @@ function msgSheet(m, inThread) {
   acts.push(act(S.saved?.has(m.id) ? 'Remove from Later' : 'Save for later', I.bookmark, () => toggleSave(m)));
   acts.push(act('Remind me', I.clock, () => remindMenu(m)));
   if (S.me.role !== 'guest') acts.push(act(m.pinned_by ? 'Unpin from channel' : 'Pin to channel', I.pin, () => togglePin(m)));
-  acts.push(act('Copy text', I.copy || I.edit, () => { navigator.clipboard?.writeText(m.text).then(() => toast('Copied'), () => toast('Could not copy')); }));
-  acts.push(act('Copy link', I.attach || I.at, () => { navigator.clipboard?.writeText(`${location.origin}/#/c/${m.channel_id}${m.thread_id ? '/t/' + m.thread_id : ''}`).then(() => toast('Link copied'), () => toast('Could not copy')); }));
+  acts.push(act('Copy text', I.copy || I.edit, () => { navigator.clipboard?.writeText(m.text).then(() => toast('Copied'), () => toast("Couldn't copy. Select the text and copy it yourself.")); }));
+  acts.push(act('Copy link', I.attach || I.at, () => { navigator.clipboard?.writeText(`${location.origin}/#/c/${m.channel_id}${m.thread_id ? '/t/' + m.thread_id : ''}`).then(() => toast('Link copied'), () => toast("Couldn't copy. Select the text and copy it yourself.")); }));
   if (m.user_id === S.me.id) acts.push(act('Edit message', I.edit, () => editMessage(m)));
   if (m.user_id === S.me.id || isAdmin()) acts.push(act('Delete message', I.close, () => deleteMessage(m), 'danger'));
   const sheet = h('div', { class: 'sheet-wrap', onclick: (e) => { if (e.target.classList.contains('sheet-wrap')) close(); } },
@@ -797,15 +821,15 @@ async function react(m, emoji) {
 }
 function msgMenu(m, anchor) {
   const r = anchor.getBoundingClientRect();
-  const items = [['Copy link', () => { navigator.clipboard?.writeText(`${location.origin}/#/m/${m.id}`).then(() => toast('Link copied'), () => toast('Could not copy')); }],
-    ['Copy text', () => { navigator.clipboard?.writeText(m.text).then(() => toast('Copied'), () => toast('Could not copy')); }],
+  const items = [['Copy link', () => { navigator.clipboard?.writeText(`${location.origin}/#/m/${m.id}`).then(() => toast('Link copied'), () => toast("Couldn't copy. Select the text and copy it yourself.")); }],
+    ['Copy text', () => { navigator.clipboard?.writeText(m.text).then(() => toast('Copied'), () => toast("Couldn't copy. Select the text and copy it yourself.")); }],
     [S.saved?.has(m.id) ? 'Remove from Later' : 'Save for later', () => toggleSave(m)],
     ['Remind me about this…', () => remindMenu(m, r)],
     ...(S.me.role !== 'guest' ? [[m.pinned_by ? 'Unpin from channel' : 'Pin to channel', () => togglePin(m)]] : []),
-    ['—'],
+    ['---'],
     ['Mark unread', async () => { S.holdRead = m.channel_id; await api(`/api/channels/${m.channel_id}/read`, { method: 'POST', body: { ts: m.ts - 1, force: true } }); const c = S.channels.get(m.channel_id); if (c) { c.last_read = m.ts - 1; c.unread = Math.max(1, c.unread || 0); } renderSidebar(); toast('Marked unread'); }]];
-  if (m.user_id === S.me.id) items.push(['—'], ['Edit message', () => editMessage(m)], ['Delete message…', () => deleteMessage(m), 'danger']);
-  else if (['owner', 'admin'].includes(S.me.role)) items.push(['—'], ['Delete message…', () => deleteMessage(m), 'danger']);
+  if (m.user_id === S.me.id) items.push(['---'], ['Edit message', () => editMessage(m)], ['Delete message…', () => deleteMessage(m), 'danger']);
+  else if (['owner', 'admin'].includes(S.me.role)) items.push(['---'], ['Delete message…', () => deleteMessage(m), 'danger']);
   menu(items, r.right - 230, r.bottom + 4, r.top); anchor.closest('.msg')?.classList.add('menu-open');
 }
 function editMessage(m) {
@@ -840,8 +864,8 @@ function editMessage(m) {
   const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); const sl = getSelection(); sl.removeAllRanges(); sl.addRange(r);
 }
 function deleteMessage(m) {
-  modal('Delete message', h('p', {}, 'Are you sure you want to delete this message? This cannot be undone.'), [
-    ['Cancel'], ['Delete', async () => { applyMessage(await api(`/api/messages/${m.id}`, { method: 'DELETE' })); }, 'danger'],
+  modal('Delete message', h('p', {}, "Delete this message? It's gone for everyone, you included. No undo."), [
+    ['Keep it'], ['Delete', async () => { applyMessage(await api(`/api/messages/${m.id}`, { method: 'DELETE' })); }, 'danger'],
   ]);
 }
 
@@ -1138,7 +1162,7 @@ function composer({ channelId, threadId }) {
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Enter' && mod) { e.preventDefault(); submit(); return; }
     if (e.key === 'Enter' && inList && !e.isComposing) {
-      // like Slack: Enter adds the next bullet; Enter on an empty bullet ends the list
+      // Enter adds the next bullet; Enter on an empty bullet ends the list
       if (!inList.textContent.replace(/[\u200b\s]/g, '')) { e.preventDefault(); cmd(inList.parentNode.nodeName === 'OL' ? 'insertOrderedList' : 'insertUnorderedList'); }
       return;
     }
@@ -1164,7 +1188,7 @@ function composer({ channelId, threadId }) {
     else document.execCommand('insertText', false, txt);
     sync();
   });
-  root.addEventListener('dragover', (e) => { e.preventDefault(); box.style.borderColor = '#9aa3ad'; });
+  root.addEventListener('dragover', (e) => { e.preventDefault(); box.style.borderColor = 'var(--accent)'; });
   root.addEventListener('dragleave', () => (box.style.borderColor = ''));
   root.addEventListener('drop', (e) => { e.preventDefault(); box.style.borderColor = ''; addFiles([...e.dataTransfer.files]); });
   setTimeout(sync);
@@ -1214,8 +1238,8 @@ function mdToHtml(md) {
   x = x.replace(/(^|[^\w~])~(?=\S)([^~\n]*?\S)~(?!~)/g, '$1<s>$2</s>');
   return x.replace(/\n/g, '<br>');
 }
-function saveDraft() { try { localStorage.setItem('pw-drafts', JSON.stringify([...S.drafts].filter(([, v]) => v && v.trim()))); } catch {} }
-try { for (const [k, v] of JSON.parse(localStorage.getItem('pw-drafts') || '[]')) S.drafts.set(k, v); } catch {}
+function saveDraft() { try { localStorage.setItem('yy-drafts', JSON.stringify([...S.drafts].filter(([, v]) => v && v.trim()))); } catch {} }
+try { for (const [k, v] of JSON.parse(localStorage.getItem('yy-drafts') || '[]')) S.drafts.set(k, v); } catch {}
 
 const lastTyping = new Map();
 function sendTyping(channelId, threadId) {
@@ -1360,7 +1384,7 @@ function handleEvent(ev) {
     return;
   }
   if (ev.type === 'message_changed') { applyMessage(ev.message); return; }
-  if (ev.type === 'import_done') { toast('Moving day is done. Your Slack is in Yakyard.'); pollImport(); bootstrap().then(() => { renderSidebar(); if (location.hash.startsWith('#/import')) openImport(); }); return; }
+  if (ev.type === 'import_done') { toast('Your Slack import is done.'); pollImport(); bootstrap().then(() => { renderSidebar(); if (location.hash.startsWith('#/import')) openImport(); }); return; }
   if (ev.type === 'channel_removed') { S.channels.delete(ev.channel_id); S.msgs.delete(ev.channel_id); if (S.current === ev.channel_id) { S.current = null; closeThread(false); location.hash = '#/'; } renderSidebar(); return; }
   if (ev.type === 'read') { const c = S.channels.get(ev.channel_id); if (c) { c.last_read = Math.max(c.last_read || 0, ev.ts); if (ev.channel_id !== S.current || !document.hasFocus()) { c.unread = 0; c.mentions = 0; } renderSidebar(); } return; }
   if (['channel_created', 'channel_added', 'member_joined', 'channel_updated', 'user_updated'].includes(ev.type)) {
@@ -1392,7 +1416,7 @@ function notify(m, ch) {
   const u = user(m.user_id);
   const n = new Notification(ch.kind === 'dm' ? u.name : `${u.name} in #${ch.name}`, {
     body: m.text.replace(/<@(U\w+)>/g, (_, id) => '@' + user(id).name).replace(/<[^>|]+\|([^>]+)>/g, '$1').slice(0, 180) || 'Sent a file',
-    tag: m.thread_id || ch.id, icon: u.avatar || '/brand/icon-192.png',
+    tag: m.thread_id || ch.id, icon: u.avatar || '/brand/app-icon-192.png',
   });
   n.onclick = () => { window.focus(); go(m.channel_id, m.thread_id || undefined); n.close(); };
 }
@@ -1405,7 +1429,7 @@ function menu(items, x, y, flipY) {
   closePopups();
   const m = h('div', { class: 'menu' });
   for (const [label, fn, cls] of items) {
-    if (label === '—') { m.append(h('hr')); continue; }
+    if (label === '---') { m.append(h('hr')); continue; }
     m.append(h('button', { class: cls || '', onclick: () => { closePopups(); fn(); } }, label));
   }
   m.style.left = '0px'; m.style.top = '0px';
@@ -1421,7 +1445,7 @@ function modal(title, body, buttons = [['Close']]) {
   buttons.forEach(([label, fn, kind], i) => {
     foot.append(h('button', {
       class: 'btn' + (kind === 'danger' ? ' danger' : fn && i === buttons.length - 1 ? ' primary' : ''),
-      onclick: async (e) => { if (!fn) return closeModal(); e.currentTarget.disabled = true; try { const keep = await fn(); if (!keep) closeModal(); } catch (err) { toast(err.message); e.currentTarget.disabled = false; } },
+      onclick: async (e) => { if (!fn) return closeModal(); const btn = e.currentTarget; btn.disabled = true; try { const keep = await fn(); if (!keep) closeModal(); else btn.disabled = false; } catch (err) { toast(err.message); btn.disabled = false; } },
     }, label));
   });
   modal.returnTo = document.activeElement;
@@ -1524,12 +1548,12 @@ function chanMenu(ch, x, y) {
   const items = [];
   items.push([ch.starred ? 'Unpin from top' : 'Pin to top', () => setPref(ch, { starred: !ch.starred })]);
   items.push([ch.muted ? 'Unmute' : 'Mute', () => setPref(ch, { muted: !ch.muted })]);
-  items.push(['—']);
+  items.push(['---']);
   for (const s of S.sections) if (s.id !== ch.section_id) items.push([`Move to ${s.name}`, () => setPref(ch, { section_id: s.id })]);
   if (ch.section_id) items.push(['Remove from section', () => setPref(ch, { section_id: null })]);
   items.push(['Move to a new section…', () => newSection(ch)]);
-  if (ch.kind === 'dm') items.push(['—'], ['Close conversation', () => closeDM(ch)]);
-  if (ch.kind === 'channel') items.push(['—'], ['Leave channel', async () => { await api(`/api/channels/${ch.id}/leave`, { method: 'POST' }); S.channels.delete(ch.id); if (S.current === ch.id) { S.current = null; location.hash = '#/'; } renderSidebar(); }, 'danger']);
+  if (ch.kind === 'dm') items.push(['---'], ['Close conversation', () => closeDM(ch)]);
+  if (ch.kind === 'channel') items.push(['---'], ['Leave channel', async () => { await api(`/api/channels/${ch.id}/leave`, { method: 'POST' }); S.channels.delete(ch.id); if (S.current === ch.id) { S.current = null; location.hash = '#/'; } renderSidebar(); }, 'danger']);
   menu(items, x, y);
 }
 async function closeDM(ch) {
@@ -1554,7 +1578,7 @@ function sectionMenu(s, x, y) {
       modal('Rename section', inp, [['Cancel'], ['Save', async () => { await api(`/api/sections/${s.id}`, { method: 'PATCH', body: { name: inp.value } }); s.name = inp.value; renderSidebar(); }]]);
     }],
     ['Move up', () => moveSection(s, -1)], ['Move down', () => moveSection(s, 1)],
-    ['—'], ['Delete section', async () => { await api(`/api/sections/${s.id}`, { method: 'DELETE' }); S.sections = S.sections.filter((x) => x.id !== s.id); for (const c of S.channels.values()) if (c.section_id === s.id) c.section_id = null; renderSidebar(); }, 'danger'],
+    ['---'], ['Delete section', async () => { await api(`/api/sections/${s.id}`, { method: 'DELETE' }); S.sections = S.sections.filter((x) => x.id !== s.id); for (const c of S.channels.values()) if (c.section_id === s.id) c.section_id = null; renderSidebar(); }, 'danger'],
   ], x, y);
 }
 async function moveSection(s, dir) {
@@ -1575,7 +1599,7 @@ function newSection(ch) {
 }
 function addChannelMenu(e) {
   const r = e.currentTarget.getBoundingClientRect();
-  menu([['Create a new channel', createChannel], ['Browse channels', browseChannels], ['—'], ['Create a section', () => newSection()]], r.left + 20, r.bottom);
+  menu([['Create a new channel', createChannel], ['Browse channels', browseChannels], ['---'], ['Create a section', () => newSection()]], r.left + 20, r.bottom);
 }
 function createChannel() {
   const name = h('input', { class: 'input', placeholder: 'e.g. plan-budget', maxlength: 80 });
@@ -1645,7 +1669,7 @@ function findConversationInner() {
   draw();
   modal('Find a conversation', h('div', {}, q, box), []);
 }
-// ------------------------------------------------------------------ full pages: Activity, Threads, Search (like Slack, not pop-ups)
+// ------------------------------------------------------------------ full pages: Activity, Threads, Search (full pages, not pop-ups)
 function pageShell(view, title, sub, ...tools) {
   saveDraft(); closeThread(false); S.current = null;
   history.replaceState(null, '', '#/' + view);
@@ -1660,7 +1684,7 @@ const where = (cid) => { const c = S.channels.get(cid); return c ? (c.kind === '
 function feedItem(m, extra) {
   const u = user(m.user_id);
   return h('button', { class: 'fitem', onclick: () => jumpTo(m) },
-    h('div', { class: 'fctx' }, extra?.badge || '', h('span', {}, where(m.channel_id)), h('span', { class: 'sep' }, '·'), h('span', {}, ago(m.ts))),
+    h('div', { class: 'fctx' }, extra?.badge || '', h('span', {}, where(m.channel_id)), h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), h('span', {}, ago(m.ts))),
     h('div', { class: 'frow' }, avatar(u, 'av', '13px'), h('div', { class: 'fbody' },
       h('b', {}, u.name), h('div', { class: 'text', html: fmt(m.text) || (m.files?.length ? '<i>Shared a file</i>' : '') }), extra?.after || '')));
 }
@@ -1701,7 +1725,7 @@ async function openThreadsView() {
     list.replaceChildren(...(res.length ? res.map((p) => {
       const u = user(p.user_id);
       return h('div', { class: 'tcard-thread' },
-        h('div', { class: 'fctx' }, h('span', {}, where(p.channel_id)), h('span', { class: 'sep' }, '·'), h('span', {}, `${p.reply_count} ${p.reply_count === 1 ? 'reply' : 'replies'}`)),
+        h('div', { class: 'fctx' }, h('span', {}, where(p.channel_id)), h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), h('span', {}, `${p.reply_count} ${p.reply_count === 1 ? 'reply' : 'replies'}`)),
         h('button', { class: 'frow plain', onclick: () => go(p.channel_id, p.id) }, avatar(u, 'av', '13px'), h('div', { class: 'fbody' }, h('b', {}, u.name, h('span', { class: 'ftime' }, dayStr(p.ts))), h('div', { class: 'text', html: fmt(p.text) }))),
         ...(p.latest || []).map((r) => h('button', { class: 'frow plain reply', onclick: () => { S.focus = { id: r.id }; go(p.channel_id, p.id); } }, avatar(user(r.user_id), 'av', '11px'), h('div', { class: 'fbody' }, h('b', {}, user(r.user_id).name, h('span', { class: 'ftime' }, ago(r.ts))), h('div', { class: 'text', html: fmt(r.text) })))),
         h('button', { class: 'btn sm open-thread', onclick: () => go(p.channel_id, p.id) }, 'Open thread'));
@@ -1723,11 +1747,10 @@ function searchMessages(initial = '') {
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 250); });
   setTimeout(() => q.focus()); if (initial) run();
 }
-function resultItem(m) { return feedItem(m); }
 function profile(u) {
   const body = h('div', {},
     h('div', { class: 'profile-card' }, avatar(u, 'av', '28px'), h('div', {}, h('div', { style: { fontSize: '22px', fontWeight: 900 } }, u.name),
-      h('div', { style: { color: '#616061' } }, u.title || ''), h('div', { style: { color: '#616061', fontSize: '13px' } }, presenceLabel(u) + ' · ' + (u.email || '')),
+      h('div', { style: { color: 'var(--ink-3)' } }, u.title || ''), h('div', { style: { color: 'var(--ink-3)', fontSize: '13px' } }, presenceLabel(u) + ' · ' + (u.email || '')),
       statusOf(u) ? h('div', { class: 'p-status' }, emojiNode(statusOf(u).emoji || '💬'), ' ', statusOf(u).text || '') : '',
       inDnd(u) ? h('div', { class: 'p-status' }, svg(I.moon, 13), ' Notifications paused') : '',
       u.tz ? h('div', { class: 'p-local' }, svg('M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM9.3 5.5h1.4v4.2l3 1.8-.7 1.2-3.7-2.2v-5z', 14), `${localTime(u.tz)} local time`, u.city ? ` · ${u.city}` : '') : '')),
@@ -1776,12 +1799,22 @@ function invitePeople() {
   const email = h('input', { class: 'input', type: 'email', placeholder: 'name@anything.com' });
   const name = h('input', { class: 'input', placeholder: 'Full name' });
   const guest = h('input', { type: 'checkbox' });
+  // Channels they start in. Members also join the default channels; guests only see what is ticked here.
+  const chans = [...S.channels.values()].filter((c) => c.kind === 'channel' && !c.archived).sort((a, b) => a.name.localeCompare(b.name));
+  const picks = chans.map((c) => h('input', { type: 'checkbox', value: c.id, checked: S.current === c.id }));
+  const pickBox = h('fieldset', { class: 'field chan-picks' }, h('legend', {}, 'Start them in'),
+    ...chans.map((c, i) => h('label', { class: 'check' }, picks[i], h('span', {}, (c.private ? '' : '# ') + c.name))),
+    h('small', {}, 'Guests need at least one channel. They only ever see the channels they are in.'));
   modal('Invite people to ' + S.workspace.name, h('div', {},
+    h('p', { class: 'pref-sub' }, "Bring your people in. They'll get a link."),
     h('label', { class: 'field' }, h('span', {}, 'Their email'), email, h('small', {}, 'Any email works. It becomes their sign-in.')),
     h('label', { class: 'field' }, h('span', {}, 'Name'), name),
-    h('label', { class: 'check' }, guest, h('span', {}, h('b', {}, 'Guest (partner)'), h('br'), h('small', {}, 'Only sees the channels you add them to.')))),
-  [['Cancel'], ['Send invite', async () => {
-    const u = await api('/api/invite', { method: 'POST', body: { email: email.value, name: name.value, guest: guest.checked } });
+    h('label', { class: 'check' }, guest, h('span', {}, h('b', {}, 'Guest (partner)'), h('br'), h('small', {}, 'Only sees the channels you pick.'))),
+    pickBox),
+  [['Cancel'], ['Create invite link', async () => {
+    const channel_ids = picks.filter((p) => p.checked).map((p) => p.value);
+    if (guest.checked && !channel_ids.length) throw new Error('Pick at least one channel for a guest.');
+    const u = await api('/api/invite', { method: 'POST', body: { email: email.value, name: name.value, guest: guest.checked, channel_ids } });
     const { link, existing, ...rest } = u;
     S.users.set(u.id, { ...(S.users.get(u.id) || {}), ...rest });
     showLink(u.name, link, existing);
@@ -1789,13 +1822,17 @@ function invitePeople() {
   }]]);
 }
 function showLink(name, link, existing) {
-  const inp = h('input', { class: 'input', value: link, readonly: true, onfocus: (e) => e.target.select() });
-  const msg = `Hi ${name.split(' ')[0]}, here's your access to Yakyard, our team chat: ${link}`;
-  modal(existing ? 'New sign-in link' : 'Invite ready', h('div', {},
-    h('p', {}, existing ? `${name} already has an account. This link lets them set a new password.` : `Send this link to ${name} (WhatsApp, email, anything). They open it, pick a password, and they're in.`),
-    h('div', { class: 'invite-link' }, inp, h('button', { class: 'btn primary', onclick: () => { navigator.clipboard?.writeText(msg); toast('Copied with a short message'); } }, 'Copy')),
-    h('p', { style: { color: '#616061', fontSize: '13px', marginTop: '10px' } }, 'Works once, expires in 14 days.')),
+  const inp = h('input', { class: 'input', value: link, readonly: true, 'aria-label': 'Invite link', onfocus: (e) => e.target.select() });
+  const msg = `Hi ${name.split(' ')[0]}, here's your link to join our team chat on Yakyard: ${link}`;
+  const copy = async (text, done) => { try { await navigator.clipboard.writeText(text); toast(done); } catch { inp.focus(); inp.select(); toast("Couldn't copy. The link is selected: copy it yourself."); } };
+  const m = modal(existing ? 'New sign-in link' : 'Invite link ready', h('div', {},
+    h('p', {}, existing ? `${name} already has an account. This link lets them set a new password.` : `Nothing was sent yet. Send this link to ${name} any way you like: email, WhatsApp, a text. They open it, pick a password, and they're in.`),
+    h('div', { class: 'invite-link' }, inp, h('button', { class: 'btn primary', onclick: () => copy(link, 'Link copied') }, 'Copy link')),
+    h('button', { class: 'btn ghost sm', onclick: () => copy(msg, 'Copied with a short message') }, 'Copy with a short message'),
+    h('p', { class: 'muted-note' }, 'Works once. Expires in 14 days.')),
   [['Done']]);
+  setTimeout(() => { inp.focus(); inp.select(); }, 30);
+  return m;
 }
 
 // ------------------------------------------------------------------ admin dashboard (owner + admins)
@@ -1810,7 +1847,7 @@ function relTime(ts) {
   return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
 async function openAdmin(tab) {
-  if (!isAdmin()) return toast('Admins only');
+  if (!isAdmin()) return toast('Only admins can do this.');
   if (tab) A.tab = tab;
   saveDraft(); closeThread(false);
   S.current = null; history.replaceState(null, '', '#/admin');
@@ -1832,7 +1869,7 @@ function renderAdmin() {
     h('div', { class: 'admin-actions' }, tabs, h('button', { class: 'btn primary', onclick: invitePeople }, svg(I.plus, 14), 'Invite people')));
   const st = A.stats || {};
   const kpis = h('div', { class: 'kpis' },
-    kpi(counts.active || 0, 'Signed in'), kpi((counts.invited || 0), 'Invites waiting'), kpi(counts.not_invited || 0, 'From Slack, not invited'),
+    kpi(counts.active || 0, 'Signed in'), kpi((counts.invited || 0), 'Invites waiting'), kpi(counts.not_invited || 0, 'Not invited yet'),
     kpi((st.messages || 0).toLocaleString(), 'Messages'), kpi((st.messages_7d || 0).toLocaleString(), 'Messages this week'));
   root.replaceChildren(head, kpis, A.tab === 'people' ? peopleTable(counts) : channelsTable());
 }
@@ -1869,12 +1906,12 @@ function personRow(p) {
     if (p.status !== 'active' && p.status !== 'deactivated') items.push([p.status === 'invited' ? 'New sign-in link' : 'Invite (get sign-in link)', () => sendLink(p)]);
     if (p.status === 'active') items.push(['Reset password (new link)', () => sendLink(p)]);
     items.push(['Channels…', () => personChannels(p)]);
-    if (!locked) items.push(['—'], p.status === 'deactivated' ? ['Reactivate', () => setPerson(p, { deactivated: false })] : ['Deactivate…', () => confirmDeactivate(p), 'danger']);
+    if (!locked) items.push(['---'], p.status === 'deactivated' ? ['Reactivate', () => setPerson(p, { deactivated: false })] : ['Deactivate…', () => confirmDeactivate(p), 'danger']);
     menu(items, r.right - 220, r.bottom + 4);
   } }, svg(I.dots, 16));
-  const ch = p.status === 'active' ? p.channels : p.pending_channels;
+  const ch = p.status === 'active' ? p.channels : p.channels + (p.pending_channels || 0);
   return h('div', { class: 'trow pgrid' + (p.status === 'deactivated' ? ' dim' : '') },
-    h('div', { class: 'who-cell' }, avatar(p, 'av', '13px'), h('div', {}, h('b', {}, p.name, p.id === S.me.id ? h('em', {}, ' you') : ''), h('small', {}, p.email.endsWith('@bot.local') ? 'App' : p.email.endsWith('@external.slack') ? 'Outside contact from Slack' : p.email))),
+    h('div', { class: 'who-cell' }, avatar(p, 'av', '13px'), h('div', {}, h('b', {}, p.name, p.id === S.me.id ? h('em', {}, ' you') : ''), h('small', {}, p.email.endsWith('@bot.local') ? 'App' : p.email))),
     h('div', {}, roleSel),
     h('div', {}, h('span', { class: 'pill s-' + p.status }, STATUS_LABEL[p.status])),
     h('div', { class: 'num' }, ch ? `${ch}${p.status === 'active' ? '' : ' on join'}` : '0'),
@@ -1921,7 +1958,7 @@ function channelsTable() {
       const r = e.currentTarget.getBoundingClientRect();
       menu([[c.private ? 'Make public' : 'Make private', () => setChannel(c, { private: !c.private })],
         ['Rename…', () => { const inp = h('input', { class: 'input', value: c.name }); modal('Rename channel', inp, [['Cancel'], ['Save', () => setChannel(c, { name: inp.value })]]); }],
-        ['—'], [c.archived ? 'Unarchive' : 'Archive', () => setChannel(c, { archived: !c.archived }), c.archived ? '' : 'danger'],
+        ['---'], [c.archived ? 'Unarchive' : 'Archive', () => setChannel(c, { archived: !c.archived }), c.archived ? '' : 'danger'],
         ['Delete for everyone…', () => deleteChannel(c), 'danger']], r.right - 200, r.bottom + 4);
     } }, svg(I.dots, 16))))));
   const who = h('select', { class: 'input sel-sm', onchange: async () => { await api('/api/settings', { method: 'POST', body: { create_channels: who.value } }); toast('Saved'); } },
@@ -1975,12 +2012,12 @@ async function openTeam() {
   $('#main').replaceChildren(root);
   let places = [];
   try { places = await api('/api/team/places'); } catch (e) { return toast(e.message); }
-  const unit = () => localStorage.getItem('pw-unit') || 'C';
+  const unit = () => localStorage.getItem('yy-unit') || 'C';
   const draw = () => {
     if (!document.body.contains(root)) { clearInterval(teamTimer); return; }
     const myOff = tzOffset(S.me.tz || Intl.DateTimeFormat().resolvedOptions().timeZone);
     const sorted = [...places].sort((a, b) => tzOffset(a.tz) - tzOffset(b.tz));
-    const unitBtn = h('div', { class: 'seg' }, ...['C', 'F'].map((u) => h('button', { class: unit() === u ? 'on' : '', onclick: () => { localStorage.setItem('pw-unit', u); draw(); } }, '°' + u)));
+    const unitBtn = h('div', { class: 'seg' }, ...['C', 'F'].map((u) => h('button', { class: unit() === u ? 'on' : '', onclick: () => { localStorage.setItem('yy-unit', u); draw(); } }, '°' + u)));
     const cards = sorted.map((p) => {
       const off = tzOffset(p.tz) - myOff;
       const rel = off === 0 ? 'Same time as you' : `${off > 0 ? '+' : '−'}${Math.abs(off / 60) % 1 ? Math.abs(off / 60).toFixed(1) : Math.abs(off / 60)}h from you`;
@@ -1992,12 +2029,14 @@ async function openTeam() {
         h('header', {}, h('div', {}, h('h3', {}, p.city || countryName(p.country)), h('small', {}, [p.region && p.region !== p.city ? p.region : '', countryName(p.country)].filter(Boolean).join(', '))),
           k ? h('div', { class: 'wx wx-' + k[0], title: k[1] }, svg(WX[k[0]], 22), t != null ? h('b', {}, t + '°') : '') : ''),
         h('div', { class: 'tclock' }, localTime(p.tz)),
-        h('div', { class: 'tmeta' }, h('span', { class: 'wsdot' }), wl, h('span', { class: 'sep' }, '·'), new Date().toLocaleDateString([], { weekday: 'short', timeZone: p.tz }), h('span', { class: 'sep' }, '·'), rel),
+        h('div', { class: 'tmeta' }, h('span', { class: 'wsdot' }), wl, h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), new Date().toLocaleDateString([], { weekday: 'short', timeZone: p.tz }), h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), rel),
         h('div', { class: 'tpeople' }, ...p.people.map((id) => { const u = user(id); return h('button', { class: 'tperson', onclick: () => profile(u) }, avatar(u, 'av', '10px'), u.id === S.me.id ? 'You' : u.name.split(' ')[0]); })));
     });
     root.replaceChildren(
-      h('header', { class: 'admin-head' }, h('div', {}, h('h1', {}, 'Team time'), h('p', {}, 'Where everyone is right now, from their last sign-in.')), h('div', { class: 'admin-actions' }, unitBtn)),
-      cards.length ? h('div', { class: 'tgrid' }, ...cards) : h('div', { class: 'card empty-row' }, 'Locations appear as people sign in.'),
+      h('header', { class: 'admin-head' }, h('div', {}, h('h1', {}, 'Team time'), h('p', {}, 'Local time for everyone who chose to share their city.')), h('div', { class: 'admin-actions' }, S.workspace.weather ? unitBtn : '')),
+      !S.workspace.location ? h('div', { class: 'card empty-row' }, 'Team clocks are off for this workspace. The admin can turn them on with TEAM_LOCATION (see the README).')
+        : cards.length ? h('div', { class: 'tgrid' }, ...cards) : h('div', { class: 'card empty-row' }, 'Nobody shares their city yet. Turn it on for yourself in Status and notifications.',
+          ' ', h('a', { href: '#/prefs' }, 'Open settings')),
       h('p', { class: 'tnote' }, 'Location comes from each person’s internet connection, so a VPN can show a different city.'));
   };
   draw(); clearInterval(teamTimer); teamTimer = setInterval(draw, 30000);
@@ -2008,7 +2047,8 @@ let clockPlaces = [];
 async function loadClocks() { try { clockPlaces = await api('/api/team/places'); drawClocks(); } catch {} }
 function drawClocks() {
   const box = $('#clocks'); if (!box || !S.me) return;
-  const unit = localStorage.getItem('pw-unit') || 'C';
+  if (!S.workspace.location) { box.replaceChildren(); return; }
+  const unit = localStorage.getItem('yy-unit') || 'C';
   const placeOf = (id) => clockPlaces.find((p) => p.people.includes(id));
   const ch = S.current && S.channels.get(S.current);
   // In a DM: the person (or people) you are talking to. Elsewhere: the rest of the team, never yourself.
@@ -2023,22 +2063,21 @@ function drawClocks() {
   };
   if (ids.length) {
     box.replaceChildren(...ids.slice(0, 3).map((id) => { const p = placeOf(id), u = user(id), first = u.name.split(' ')[0];
-      return p ? chip(p, first, `${u.name} · ${p.city}, ${countryName(p.country)}`)
-        : h('span', { class: 'clock off', title: `Time and weather show once ${first} opens Yakyard` }, h('span', { class: 'cname' }, first), h('span', { class: 'ccity' }, 'location shows once they sign in')); }));
+      return p ? chip(p, first, `${u.name}: ${p.city}, ${countryName(p.country)}`) : ''; }));
     return;
   }
   const list = clockPlaces.map((p) => ({ ...p, people: p.people.filter((id) => id !== S.me.id) })).filter((p) => p.people.length).sort((a, b) => tzOffset(a.tz) - tzOffset(b.tz));
-  if (!list.length) { box.replaceChildren(h('span', { class: 'clock off' }, h('span', { class: 'ccity' }, 'Team times show as people sign in'))); return; }
+  if (!list.length) { box.replaceChildren(); return; }
   box.replaceChildren(...list.slice(0, 4).map((p) => {
     const names = p.people.map((id) => user(id).name.split(' ')[0]);
     const label = names.length > 2 ? names.slice(0, 2).join(', ') + ' +' + (names.length - 2) : names.join(', ');
-    return chip(p, label, `${p.city}, ${countryName(p.country)} · ${names.join(', ')}`);
+    return chip(p, label, `${p.city}, ${countryName(p.country)}: ${names.join(', ')}`);
   }));
 }
 addEventListener('hashchange', () => setTimeout(drawClocks, 50));
 setInterval(drawClocks, 30000); setInterval(loadClocks, 15 * 60e3);
 
-// ------------------------------------------------------------------ phone: tab bar like Slack mobile, install as an app
+// ------------------------------------------------------------------ phone: tab bar, install as an app
 function setupTabbar() {
   const bar = $('#tabbar'); if (!bar) return;
   $('#tab-me').replaceChildren(avatar(S.me, '', '10px'));
@@ -2053,8 +2092,8 @@ function setupTabbar() {
   };
 }
 let installEvt = null;
-window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; localStorage.removeItem('pw-installed'); if (S.me) maybeInstallBanner(); });
-window.addEventListener('appinstalled', () => { $('.install')?.remove(); localStorage.setItem('pw-installed', '1'); $('.get-app')?.remove(); });
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; localStorage.removeItem('yy-installed'); if (S.me) maybeInstallBanner(); });
+window.addEventListener('appinstalled', () => { $('.install')?.remove(); localStorage.setItem('yy-installed', '1'); $('.get-app')?.remove(); });
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 
 function shortcuts() {
@@ -2106,12 +2145,12 @@ async function uploadBig(f, chip, p) {
   }
 }
 async function bootstrap() {
-  const b = await api('/api/bootstrap');
-  try { localStorage.setItem('pw-boot', JSON.stringify(b)); } catch {}
+  const b = await api('/api/bootstrap?tz=' + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || ''));
+  try { localStorage.setItem('yy-boot', JSON.stringify(b)); } catch {}
   return applyBoot(b);
 }
 // Start from the last copy instantly, then refresh from the server.
-function cachedBoot() { try { const b = JSON.parse(localStorage.getItem('pw-boot') || 'null'); return b && b.me && b.channels ? b : null; } catch { return null; } }
+function cachedBoot() { try { const b = JSON.parse(localStorage.getItem('yy-boot') || 'null'); return b && b.me && b.channels ? b : null; } catch { return null; } }
 function applyBoot(b) {
   S.me = b.me; S.workspace = b.workspace; S.emoji = b.emoji || {}; loadEmojiData()?.then(() => { if (S.current && typeof renderMessages === 'function') try { renderMessages(); } catch {} });
   S.users = new Map(b.users.map((u) => [u.id, u]));
@@ -2123,7 +2162,7 @@ function applyBoot(b) {
   return prev;
 }
 async function signOut() {
-  try { Object.keys(localStorage).filter((k) => k === 'pw-boot' || k.startsWith('pw-m-')).forEach((k) => localStorage.removeItem(k)); await caches?.delete('yakyard-shell'); } catch {}
+  try { Object.keys(localStorage).filter((k) => k === 'yy-boot' || k.startsWith('yy-m-')).forEach((k) => localStorage.removeItem(k)); await caches?.delete('yakyard-shell'); } catch {}
   // Sign-out is a POST (the server refuses cross-site sign-outs).
   const f = document.createElement('form'); f.method = 'post'; f.action = '/auth/logout';
   document.body.append(f); f.submit();
@@ -2141,7 +2180,7 @@ async function start() {
   $('#search-label').textContent = 'Search ' + S.workspace.name;
   $('#btn-compose').onclick = composeDM;
   $('#btn-help').onclick = shortcuts;
-  $('#ws-menu').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); menu([['Create a channel', createChannel], ['Browse channels', browseChannels], ['Create a section', () => newSection()], ['Invite people', invitePeople], ...(isAdmin() ? [['Admin dashboard', () => openAdmin()]] : []), ['—'], ['Your profile', () => profile(S.me)], ['Status and notifications', () => (location.hash = '#/prefs')], ['Moving day: bring my Slack over', () => (location.hash = '#/import')], ['Pause notifications…', () => pauseMenu()], ['Keyboard shortcuts', shortcuts], ['Install the app', installApp], ['—'], ['Sign out', signOut]], r.left, r.bottom + 4); };
+  $('#ws-menu').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); menu([['Create a channel', createChannel], ['Browse channels', browseChannels], ['Create a section', () => newSection()], ['Invite people', invitePeople], ...(isAdmin() ? [['Admin dashboard', () => openAdmin()]] : []), ['---'], ['Your profile', () => profile(S.me)], ['Status and notifications', () => (location.hash = '#/prefs')], ['Theme…', () => themeMenu($('#ws-menu'))], ['Import my Slack history', () => (location.hash = '#/import')], ['Pause notifications…', () => pauseMenu()], ['Keyboard shortcuts', shortcuts], ['Install the app', installApp], ['---'], ['Sign out', signOut]], r.left, r.bottom + 4); };
   $('#ws-icon').onclick = () => { S.view = 'home'; railActive('home'); renderSidebar(); };
   $('#btn-back').onclick = () => { if (S.thread && $('#app').classList.contains('view-thread')) closeThread(true); else if (history.length > 1 && S.cameFromList) history.back(); else { location.hash = '#/'; } };
   $$('.rail-btn').forEach((b) => (b.onclick = () => {
@@ -2173,7 +2212,7 @@ async function start() {
 function setupResizers() {
   const app = $('#app');
   const apply = (k, v) => app.style.setProperty(k, v + 'px');
-  const sw = +localStorage.getItem('pw-side-w'), tw = +localStorage.getItem('pw-thread-w');
+  const sw = +localStorage.getItem('yy-side-w'), tw = +localStorage.getItem('yy-thread-w');
   if (sw) apply('--side-w', sw); if (tw) apply('--thread-w', tw);
   const make = (host, varName, key, min, max, def, fromRight) => {
     const bar = h('div', { class: 'resizer' + (fromRight ? ' left' : ''), title: 'Drag to resize · double-click to reset', role: 'separator', 'aria-orientation': 'vertical' });
@@ -2187,14 +2226,14 @@ function setupResizers() {
     });
     host.append(bar); return bar;
   };
-  make($('#sidebar'), '--side-w', 'pw-side-w', 220, 460, 264, false);
-  const rw = +localStorage.getItem('pw-rail-w'); if (rw) apply('--rail-w', rw);
-  make($('.rail'), '--rail-w', 'pw-rail-w', 64, 120, 80, false);
-  const hideRail = (hide) => { app.classList.toggle('rail-hidden', hide); localStorage.setItem('pw-rail-hidden', hide ? '1' : ''); };
+  make($('#sidebar'), '--side-w', 'yy-side-w', 220, 460, 264, false);
+  const rw = +localStorage.getItem('yy-rail-w'); if (rw) apply('--rail-w', rw);
+  make($('.rail'), '--rail-w', 'yy-rail-w', 64, 120, 80, false);
+  const hideRail = (hide) => { app.classList.toggle('rail-hidden', hide); localStorage.setItem('yy-rail-hidden', hide ? '1' : ''); };
   $('.rail').append(h('button', { class: 'rail-hide', title: 'Hide this bar', onclick: () => hideRail(true) }, svg('M12.7 5.7 8.4 10l4.3 4.3-1.4 1.4L5.6 10l5.7-5.7 1.4 1.4z', 14)));
   $('.side-head').prepend(h('button', { class: 'icon-btn rail-show', title: 'Show the left bar', onclick: () => hideRail(false) }, svg('M7.3 14.3 11.6 10 7.3 5.7l1.4-1.4 5.7 5.7-5.7 5.7-1.4-1.4z', 14)));
-  hideRail(localStorage.getItem('pw-rail-hidden') === '1');
-  S.threadBar = make($('#thread'), '--thread-w', 'pw-thread-w', 320, 760, 420, true);
+  hideRail(localStorage.getItem('yy-rail-hidden') === '1');
+  S.threadBar = make($('#thread'), '--thread-w', 'yy-thread-w', 320, 760, 420, true);
 }
 function railActive(v) {
   $$('.rail-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
@@ -2303,7 +2342,7 @@ async function toggleVideo(kind) {
   try {
     const stream = kind === 'screen'
       ? await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false })
-      : await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, frameRate: 24, ...(localStorage.getItem('pw-cam') ? { deviceId: { ideal: localStorage.getItem('pw-cam') } } : {}) } });
+      : await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, frameRate: 24, ...(localStorage.getItem('yy-cam') ? { deviceId: { ideal: localStorage.getItem('yy-cam') } } : {}) } });
     const track = stream.getVideoTracks()[0];
     track.onended = () => { if (H.video === track) setVideo(null, null); };
     setVideo(track, kind);
@@ -2396,7 +2435,7 @@ function onHuddleEvent(ev) {
   if (ev.type === 'huddles') {
     const before = S.huddles;
     S.huddles = ev.huddles || {};
-    // A huddle just started in a DM with me: ring, like Slack.
+    // A huddle just started in a DM with me: ring.
     for (const [cid, list] of Object.entries(S.huddles)) {
       const ch = S.channels.get(cid);
       if (!ch || ch.kind !== 'dm' || H.channel === cid || before[cid]?.length || H.dismissed.has(cid + list[0]?.since)) continue;
@@ -2575,11 +2614,11 @@ function huddleCardEl(m) {
     live && !inHuddleHere(m.channel_id) && S.channels.has(m.channel_id) ? h('button', { class: 'btn join', onclick: () => startHuddle(m.channel_id) }, 'Pop in') : '');
 }
 
-start().catch((e) => { console.error(e); if (e.message !== 'signed out') toast('Could not load. Refresh the page.'); });
+start().catch((e) => { console.error(e); if (e.message !== 'signed out') toast("Couldn't load. Refresh the page."); });
 
 if (location.hostname === '127.0.0.1') window.__H = H;
 
-// ================================================================== Nov 20: later, pins, status, notifications, install, updates
+// ================================================================== Later, pins, status, notifications, install, updates
 const DAY = 864e5;
 function statusOf(u) {
   if (!u || !(u.status_emoji || u.status_text)) return null;
@@ -2616,7 +2655,7 @@ function pickDateTime(title, onPick) {
 }
 function scheduleMenu(anchor, onPick) {
   const [x, y] = anchorXY(anchor);
-  menu([['Tomorrow at 9:00 AM', () => onPick(at9(1))], ['Monday at 9:00 AM', () => onPick(at9(0, 1))], ['—'], ['Custom time…', () => pickDateTime('Schedule message', (t) => onPick(t))]], x, y - 150);
+  menu([['Tomorrow at 9:00 AM', () => onPick(at9(1))], ['Monday at 9:00 AM', () => onPick(at9(0, 1))], ['---'], ['Custom time…', () => pickDateTime('Schedule message', (t) => onPick(t))]], x, y - 150);
 }
 async function toggleSave(m) {
   try {
@@ -2633,18 +2672,13 @@ function remindMenu(m, anchor) {
   const set = async (t) => { await api('/api/reminders', { method: 'POST', body: { message_id: m.id, text: (m.text || '').replace(/<[^>]+>/g, '').slice(0, 140), due_at: t } }); toast(`I'll remind you ${whenStr(t)}`); };
   const [x, y] = anchorXY(anchor);
   menu([['In 20 minutes', () => set(Date.now() + 20 * 60e3)], ['In 1 hour', () => set(Date.now() + 3600e3)], ['In 3 hours', () => set(Date.now() + 3 * 3600e3)],
-    ['Tomorrow at 9:00 AM', () => set(at9(1))], ['Next week (Mon 9:00 AM)', () => set(at9(0, 1))], ['—'], ['Custom…', () => pickDateTime('Remind me', set)]], x, y);
+    ['Tomorrow at 9:00 AM', () => set(at9(1))], ['Next week (Mon 9:00 AM)', () => set(at9(0, 1))], ['---'], ['Custom…', () => pickDateTime('Remind me', set)]], x, y);
 }
 function pauseMenu(anchor) {
   const set = async (until) => { await api('/api/me', { method: 'PATCH', body: { dnd_until: until } }); S.me.dnd_until = until; S.users.set(S.me.id, { ...S.users.get(S.me.id), dnd_until: until }); renderSidebar(); toast(until ? `Notifications paused until ${whenStr(until)}` : 'Notifications back on'); };
   const items = [['30 minutes', () => set(Date.now() + 30 * 60e3)], ['1 hour', () => set(Date.now() + 3600e3)], ['2 hours', () => set(Date.now() + 2 * 3600e3)], ['Until tomorrow 9:00 AM', () => set(at9(1))], ['Until next week', () => set(at9(0, 1))]];
-  if (S.me.dnd_until > Date.now()) items.unshift(['Resume notifications', () => set(0)], ['—']);
+  if (S.me.dnd_until > Date.now()) items.unshift(['Resume notifications', () => set(0)], ['---']);
   const r = (anchor || $('#ws-menu')).getBoundingClientRect(); menu(items, r.left, r.bottom + 4);
-}
-function youMenu(b) {
-  const r = b.getBoundingClientRect();
-  menu([['Your profile', () => profile(S.me)], ['Status and notifications', () => (location.hash = '#/prefs')], ['Pause notifications…', () => pauseMenu(b)], ['—'],
-    ['Later', () => openLater()], ['Files', () => openFiles()], ['Install the app', installApp], ['—'], ['Sign out', signOut]], r.left - 160, r.top - 330);
 }
 
 // ---------- pinned messages in the channel header
@@ -2831,7 +2865,7 @@ async function openPrefs() {
     section('This device', devMsg,
       h('div', { class: 'pref-btns' },
         devState === 'off' ? h('button', { class: 'btn primary sm', onclick: async () => { await enablePush(); openPrefs(); } }, 'Turn on notifications') : '',
-        devState === 'on' ? h('button', { class: 'btn sm', onclick: async () => { const r = await api('/api/push/test', { method: 'POST', body: {} }); toast(r.sent ? 'Test sent. Lock your phone or switch apps to see it.' : 'Could not reach this device'); } }, 'Send a test') : '',
+        devState === 'on' ? h('button', { class: 'btn sm', onclick: async () => { const r = await api('/api/push/test', { method: 'POST', body: {} }); toast(r.sent ? 'Test sent. Lock your phone or switch apps to see it.' : "Couldn't reach this device. Turn notifications off and on again."); } }, 'Send a test') : '',
         devState === 'on' ? h('button', { class: 'btn sm ghost', onclick: async () => { await disablePush(); openPrefs(); } }, 'Turn off on this device') : '',
         devState === 'ios-install' ? h('button', { class: 'btn primary sm', onclick: installApp }, 'Show me how') : ''),
       h('p', { class: 'pref-sub' }, `${(pr.devices || []).length} device${(pr.devices || []).length === 1 ? '' : 's'} getting notifications. While Yakyard is open on screen, your phone stays quiet.`)),
@@ -2839,15 +2873,25 @@ async function openPrefs() {
       h('label', { class: 'check' }, dndOn, 'Every day from', from, 'to', to),
       h('div', { class: 'pref-btns' }, h('button', { class: 'btn sm', onclick: (e) => pauseMenu(e.currentTarget) }, paused ? 'Change or resume' : 'Pause notifications…'))),
     section('VIPs', 'Direct messages from these people still reach you while notifications are paused.', vipBox),
+    section('Theme', 'Colors on this device. Yaky is the loud one.',
+      h('div', { class: 'theme-picks', role: 'radiogroup', 'aria-label': 'Theme' }, ...THEMES.map(([v, l]) =>
+        h('label', { class: 'theme-pick t-' + v }, h('input', { type: 'radio', name: 'theme', value: v, checked: themePick() === v, onchange: () => setTheme(v) }),
+          h('span', { class: 'tp-swatch', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), h('span', {}, l))))),
+    S.workspace.location ? section('Team clocks', S.me.share_location ? 'Your teammates see your city and local time' + (S.workspace.weather ? ', with the weather there.' : '.') : 'Off. Nobody sees where you are.',
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!S.me.share_location, onchange: async (e) => {
+        await api('/api/me', { method: 'PATCH', body: { share_location: e.target.checked ? 1 : 0 } }); S.me.share_location = e.target.checked ? 1 : 0;
+        toast(e.target.checked ? 'Sharing your city from your next visit.' : 'Stopped. Your city was removed.'); await bootstrap(); loadClocks(); openPrefs(); } }),
+        'Share my city and local time with the team'),
+      h('p', { class: 'pref-sub' }, 'Your city comes from your internet connection. Turn this off and it is deleted right away.')) : '',
     section('Look', 'How messages appear on this device.',
-      h('div', { class: 'radio-list' }, ...[['bubbles', 'Bubbles, like text messages'], ['classic', 'Classic list, like Slack']].map(([v, l]) =>
-        h('label', { class: 'radio' }, h('input', { type: 'radio', name: 'look', value: v, checked: (localStorage.getItem('pw-look') || 'bubbles') === v, onchange: () => { localStorage.setItem('pw-look', v); applyLook(); } }), l)))),
+      h('div', { class: 'radio-list' }, ...[['bubbles', 'Bubbles, like text messages'], ['classic', 'Classic list']].map(([v, l]) =>
+        h('label', { class: 'radio' }, h('input', { type: 'radio', name: 'look', value: v, checked: (localStorage.getItem('yy-look') || 'bubbles') === v, onchange: () => { localStorage.setItem('yy-look', v); applyLook(); } }), l)))),
     section('Enter key', 'What Enter does while you write a message on this device.',
       h('div', { class: 'radio-list' }, ...[['send', 'Enter sends the message (Shift + Enter for a new line)'], ['newline', 'Enter starts a new line (Ctrl + Enter or the arrow sends)']].map(([v, l]) =>
-        h('label', { class: 'radio' }, h('input', { type: 'radio', name: 'enterk', value: v, checked: (enterSends() ? 'send' : 'newline') === v, onchange: () => localStorage.setItem('pw-enter', v) }), l)))),
+        h('label', { class: 'radio' }, h('input', { type: 'radio', name: 'enterk', value: v, checked: (enterSends() ? 'send' : 'newline') === v, onchange: () => localStorage.setItem('yy-enter', v) }), l)))),
     section('Text size', 'Make Yakyard easier to read on this device.',
       h('div', { class: 'radio-list' }, ...[['m', 'Standard'], ['l', 'Large (default)'], ['xl', 'Extra large']].map(([v, l]) =>
-        h('label', { class: 'radio' }, h('input', { type: 'radio', name: 'tsize', value: v, checked: (localStorage.getItem('pw-text') || 'l') === v, onchange: () => { localStorage.setItem('pw-text', v); applyLook(); } }), l)))),
+        h('label', { class: 'radio' }, h('input', { type: 'radio', name: 'tsize', value: v, checked: (localStorage.getItem('yy-text') || 'l') === v, onchange: () => { localStorage.setItem('yy-text', v); applyLook(); } }), l)))),
     section('The app', isStandalone() ? 'You are using the installed app.' : 'Install Yakyard so it opens like a normal app, with its own icon.',
       isStandalone() ? '' : h('button', { class: 'btn sm', onclick: installApp }, 'Install Yakyard')),
   );
@@ -2867,14 +2911,14 @@ function pickPerson(anchor, onPick) {
 const b64u = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const raw = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...raw].map((c) => c.charCodeAt(0))); };
 async function currentSub() { try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch { return null; } }
 async function enablePush() {
-  if (!S.pushKey) return toast('Notifications are not set up yet');
+  if (!S.pushKey) return toast("Notifications aren't set up on this server yet. Ask your admin.");
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') { toast('Notifications were not allowed'); return false; }
   const reg = await navigator.serviceWorker.ready;
   let sub = await reg.pushManager.getSubscription();
   if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(S.pushKey) });
   await api('/api/push/subscribe', { method: 'POST', body: sub.toJSON() });
-  S.pushDevices = (S.pushDevices || 0) + 1; localStorage.removeItem('pw-notif-snooze');
+  S.pushDevices = (S.pushDevices || 0) + 1; localStorage.removeItem('yy-notif-snooze');
   toast('Notifications on for this device'); renderSidebar();
   return true;
 }
@@ -2893,11 +2937,11 @@ async function syncPush() {
 function notifBanner() {
   if (!('PushManager' in window) || !('Notification' in window) || !S.pushKey || Notification.permission !== 'default') return null;
   if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !isStandalone()) return null;
-  if (+localStorage.getItem('pw-notif-snooze') > Date.now()) return null;
+  if (+localStorage.getItem('yy-notif-snooze') > Date.now()) return null;
   return h('div', { class: 'notif-card' }, h('span', { class: 'nc-ico' }, svg(I.bell, 16)),
     h('div', { class: 'grow' }, h('b', {}, 'Turn on notifications'), h('small', {}, 'So you never miss a DM or a mention.')),
     h('button', { class: 'btn primary sm', onclick: () => enablePush() }, 'Turn on'),
-    h('button', { class: 'icon-btn', title: 'Not now', onclick: () => { localStorage.setItem('pw-notif-snooze', Date.now() + 3 * DAY); renderSidebar(); } }, svg(I.close, 12)));
+    h('button', { class: 'icon-btn', title: 'Not now', onclick: () => { localStorage.setItem('yy-notif-snooze', Date.now() + 3 * DAY); renderSidebar(); } }, svg(I.close, 12)));
 }
 function sendVis() { try { if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'vis', visible: document.visibilityState === 'visible' })); } catch {} }
 document.addEventListener('visibilitychange', () => { sendVis(); if (document.visibilityState === 'visible') checkUpdate(); });
@@ -2916,22 +2960,26 @@ function platform() {
 function maybeInstallBanner() {
   // "Installed" is only remembered, so it goes stale when someone deletes the app. The browser's own install
   // signal wins, and on iPhone (no signal) opening Yakyard in Safari means it is not on the Home Screen anymore.
-  if (!isStandalone() && (installEvt || platform().ios)) localStorage.removeItem('pw-installed');
-  if (isStandalone() || localStorage.getItem('pw-installed') || $('.install')) return;
-  const seen = JSON.parse(localStorage.getItem('pw-install') || '{"n":0,"t":0}');
+  if (!isStandalone() && (installEvt || platform().ios)) localStorage.removeItem('yy-installed');
+  if (isStandalone() || localStorage.getItem('yy-installed') || $('.install')) return;
+  const seen = JSON.parse(localStorage.getItem('yy-install') || '{"n":0,"t":0}');
   if (seen.n >= 5 || seen.t > Date.now()) return;
+  // Never on the first day: let people look around before asking them to install anything.
+  const first = +localStorage.getItem('yy-first-seen') || 0;
+  if (!first) { localStorage.setItem('yy-first-seen', String(Date.now())); return; }
+  if (Date.now() - first < DAY) return;
   const p = platform();
 
-  const close = () => { localStorage.setItem('pw-install', JSON.stringify({ n: seen.n + 1, t: Date.now() + 3 * DAY })); el.remove(); };
+  const close = () => { localStorage.setItem('yy-install', JSON.stringify({ n: seen.n + 1, t: Date.now() + 3 * DAY })); el.remove(); };
   const sub = p.inApp ? 'Open this page in Safari or Chrome first, then add it to your Home Screen.'
     : p.ios ? 'Add it to your Home Screen. It opens like a normal app and can send you notifications.'
-      : p.macSafari ? 'Add it to your Dock so it opens like Slack, in its own window, with notifications.'
+      : p.macSafari ? 'Add it to your Dock. It opens in its own window, with notifications.'
         : p.firefox ? 'Firefox can’t install apps. Open Yakyard in Chrome, Edge or Safari to get the desktop app.'
-          : p.desktop ? 'Get the desktop app: its own window and icon, opens at startup, with notifications. Like Slack.'
+          : p.desktop ? 'Its own window and icon, with notifications.'
             : 'Install it so it opens like a normal app, with notifications.';
-  const el = h('div', { class: 'install' + (p.phone ? ' phone' : '') }, h('img', { src: '/brand/icon-192.png', alt: '' }),
+  const el = h('div', { class: 'install' + (p.phone ? ' phone' : '') }, h('img', { src: '/brand/app-icon-192.png', alt: '' }),
     h('div', { class: 'grow' }, h('b', {}, p.desktop ? 'Get the Yakyard desktop app' : 'Get the Yakyard app'), h('small', {}, sub)),
-    p.inApp ? '' : h('button', { class: 'btn primary sm', onclick: async () => { if (installEvt) { installEvt.prompt(); const c = await installEvt.userChoice; if (c.outcome === 'accepted') { localStorage.setItem('pw-installed', '1'); el.remove(); } } else installApp(); } }, installEvt ? 'Install' : 'Show me how'),
+    p.inApp ? '' : h('button', { class: 'btn primary sm', onclick: async () => { if (installEvt) { installEvt.prompt(); const c = await installEvt.userChoice; if (c.outcome === 'accepted') { localStorage.setItem('yy-installed', '1'); el.remove(); } } else installApp(); } }, installEvt ? 'Install' : 'Show me how'),
     h('button', { class: 'icon-btn', title: 'Not now', onclick: close }, svg(I.close, 14)));
   document.body.append(el);
 }
@@ -2955,17 +3003,17 @@ async function checkUpdate() {
     const r = await fetch('/version.json?t=' + Date.now(), { cache: 'no-store' });
     const { v } = await r.json();
     if (!v || v === APP_VERSION || updShown === v || H.channel) return;
-    if (+localStorage.getItem('pw-upd-snooze-' + v) > Date.now()) return;
+    if (+localStorage.getItem('yy-upd-snooze-' + v) > Date.now()) return;
     updShown = v;
     modal('New version of Yakyard', h('div', {}, h('p', {}, 'A new version is ready. Update now to get the latest. It only takes a second, and your drafts are kept.')),
-      [['Later', () => { localStorage.setItem('pw-upd-snooze-' + v, Date.now() + 30 * 60e3); updShown = ''; }], ['Update now', async () => { saveDraft(); try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); await caches?.delete('yakyard-shell'); } catch {} location.reload(); return true; }]]);
+      [['Later', () => { localStorage.setItem('yy-upd-snooze-' + v, Date.now() + 30 * 60e3); updShown = ''; }], ['Update now', async () => { saveDraft(); try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); await caches?.delete('yakyard-shell'); } catch {} location.reload(); return true; }]]);
   } catch {}
 }
 function startUpdateCheck() { setInterval(checkUpdate, 5 * 60e3); setTimeout(checkUpdate, 20e3); }
 
 // ---------- emoji recents
-function recentEmoji() { try { return JSON.parse(localStorage.getItem('pw-emoji-recent') || '[]'); } catch { return []; } }
-function rememberEmoji(e) { const r = recentEmoji().filter((x) => x !== e); r.unshift(e); localStorage.setItem('pw-emoji-recent', JSON.stringify(r.slice(0, 16))); }
+function recentEmoji() { try { return JSON.parse(localStorage.getItem('yy-emoji-recent') || '[]'); } catch { return []; } }
+function rememberEmoji(e) { const r = recentEmoji().filter((x) => x !== e); r.unshift(e); localStorage.setItem('yy-emoji-recent', JSON.stringify(r.slice(0, 16))); }
 
 async function deleteChannel(c) {
   const conf = h('input', { class: 'input', placeholder: c.name });
@@ -2973,9 +3021,29 @@ async function deleteChannel(c) {
     [['Cancel'], ['Delete for everyone', async () => { if (conf.value.trim() !== c.name) throw new Error('Name does not match'); await api(`/api/channels/${c.id}/manage`, { method: 'POST', body: { delete: true } }); toast(`#${c.name} deleted`); S.channels.delete(c.id); if (typeof A !== 'undefined' && A.channels) { A.channels = A.channels.filter((x) => x.id !== c.id); renderAdmin(); } if (S.current === c.id) { S.current = null; closeThread(false); location.hash = '#/'; } renderSidebar(); }, 'danger']]);
 }
 
+// ---------- color theme: system (follows the device), light, dark, yaky
+const THEME_COLOR = { light: '#fff8e6', dark: '#120f2e', yaky: '#2b1bd6' };
+function themePick() { return localStorage.getItem('yy-theme') || 'system'; }
+function applyTheme() {
+  const pick = themePick(), t = pick === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : pick;
+  document.documentElement.dataset.theme = t;
+  $('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[t]);
+}
+function setTheme(pick) {
+  localStorage.setItem('yy-theme', pick);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (document.startViewTransition && !reduce) document.startViewTransition(applyTheme); else applyTheme();
+}
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { if (themePick() === 'system') applyTheme(); });
+applyTheme();
+function themeMenu(anchor) {
+  const r = anchor.getBoundingClientRect();
+  menu(THEMES.map(([v, l]) => [(themePick() === v ? '✓ ' : '') + l, () => setTheme(v)]), r.left, r.bottom + 4);
+}
+const THEMES = [['system', 'Match my device'], ['light', 'Light'], ['dark', 'Dark'], ['yaky', 'Yaky (bold color)']];
 function applyLook() {
-  document.body.classList.toggle('bubbles', (localStorage.getItem('pw-look') || 'bubbles') === 'bubbles');
-  const t = localStorage.getItem('pw-text') || 'l';
+  document.body.classList.toggle('bubbles', (localStorage.getItem('yy-look') || 'bubbles') === 'bubbles');
+  const t = localStorage.getItem('yy-text') || 'l';
   document.body.classList.toggle('text-m', t === 'm'); document.body.classList.toggle('text-xl', t === 'xl');
 }
 applyLook();
@@ -2990,7 +3058,7 @@ function showList() {
 // Opening a conversation from the list: remember it so Back returns to the list.
 document.addEventListener('click', (e) => { if (e.target.closest('#side-list .chan[data-id]')) S.cameFromList = true; }, true);
 
-// ================================================================== presence (like Slack)
+// ================================================================== presence
 function presenceOf(u) {
   if (!u) return 'away';
   if (inDnd(u)) return 'dnd';
@@ -3031,7 +3099,10 @@ function meMenu(anchor) {
     h('hr'),
     row('Profile', () => profile(S.me)),
     row('Status and notifications', () => (location.hash = '#/prefs')),
-    row('Moving day: bring my Slack over', () => (location.hash = '#/import')),
+    h('div', { class: 'mm-theme', role: 'group', 'aria-label': 'Theme' }, ...THEMES.map(([v, l]) => h('button', { class: 'mm-th t-' + v + (themePick() === v ? ' on' : ''), 'aria-pressed': String(themePick() === v), title: l,
+      onclick: (e) => { setTheme(v); e.currentTarget.parentNode.querySelectorAll('button').forEach((b) => { const on = b === e.currentTarget; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }); } },
+      h('span', { class: 'tp-swatch', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), h('span', {}, v === 'system' ? 'Auto' : v === 'yaky' ? 'Yaky' : l)))),
+    row('Import my Slack history', () => (location.hash = '#/import')),
     row('Later', () => openLater()),
     row('Files', () => openFiles()),
     row('Install the app', installApp),
@@ -3082,15 +3153,15 @@ function importCard() {
   const im = S.imp; if (!im || !im.ready) return null;
   const j = im.job;
   if (j?.status === 'running') return h('button', { class: 'notif-card imp', onclick: () => (location.hash = '#/import') }, h('span', { class: 'nc-ico spin' }, svg(I.clock, 16)),
-    h('div', { class: 'grow' }, h('b', {}, 'Moving your Slack in'), h('small', {}, `${(j.msgs || 0).toLocaleString()} messages so far`)));
-  if (j?.status === 'done' || +localStorage.getItem('pw-imp-snooze') > Date.now()) return null;
+    h('div', { class: 'grow' }, h('b', {}, 'Importing your Slack'), h('small', {}, `${(j.msgs || 0).toLocaleString()} messages so far`)));
+  if (j?.status === 'done' || +localStorage.getItem('yy-imp-snooze') > Date.now()) return null;
   return h('div', { class: 'notif-card' }, h('span', { class: 'nc-ico' }, svg(I.thread, 16)),
-    h('div', { class: 'grow' }, h('b', {}, 'Moving day'), h('small', {}, 'Bring your Slack DMs and private channels over.')),
+    h('div', { class: 'grow' }, h('b', {}, 'Import from Slack'), h('small', {}, 'Bring your Slack DMs and private channels over.')),
     h('button', { class: 'btn primary sm', onclick: () => (location.hash = '#/import') }, 'Move in'),
-    h('button', { class: 'icon-btn', title: 'Not now', onclick: () => { localStorage.setItem('pw-imp-snooze', Date.now() + 7 * DAY); renderSidebar(); } }, svg(I.close, 12)));
+    h('button', { class: 'icon-btn', title: 'Not now', onclick: () => { localStorage.setItem('yy-imp-snooze', Date.now() + 7 * DAY); renderSidebar(); } }, svg(I.close, 12)));
 }
 function openImport() {
-  pageShell('import', 'Moving day', 'Bring your own Slack DMs, group messages and private channels over to Yakyard.');
+  pageShell('import', 'Import from Slack', 'Bring your own Slack DMs, group messages and private channels over to Yakyard.');
   drawImport();
   pollImport();
 }
@@ -3098,7 +3169,7 @@ async function drawImport() {
   const list = $('#main .feed'); if (!list) return;
   const im = S.imp || {}; const j = im.job;
   const e = (location.hash.split('?e=')[1] || '').split('&')[0];
-  const errText = { cancelled: 'You cancelled in Slack. Nothing was copied.', expired: 'That took too long. Please start again.', slack: "Slack didn't confirm. Please try again.", workspace: `That was a different Slack workspace. Pick ${S.workspace.name}.`, other: 'That Slack account belongs to someone else in Yakyard. Sign in to Slack as yourself.', setup: 'The Slack connection is not set up yet.', guest: 'Guests cannot import from Slack.' }[e];
+  const errText = { cancelled: 'You cancelled in Slack. Nothing was copied.', expired: 'That took too long. Start again.', slack: "Slack didn't confirm. Try again.", workspace: `That was a different Slack workspace. Pick ${S.workspace.name}.`, other: 'That Slack account belongs to someone else in Yakyard. Sign in to Slack as yourself.', setup: "The Slack import isn't set up on this server yet. Ask your admin.", guest: "Guests can't import from Slack." }[e];
   const sec = (title, ...kids) => h('section', { class: 'pref-sec' }, title ? h('h2', {}, title) : '', ...kids);
   const kids = [];
   if (errText) kids.push(h('div', { class: 'imp-err' }, errText));
@@ -3106,7 +3177,7 @@ async function drawImport() {
     kids.push(sec('Not ready yet', h('p', { class: 'pref-sub' }, S.me.role === 'owner' ? 'One last step for you: paste the Slack Client Secret below.' : 'Your admin still has to finish connecting Slack. Check back soon.')));
   } else if (j?.status === 'running') {
     const pct = j.convs_total ? Math.round((j.convs_done / j.convs_total) * 100) : 0;
-    kids.push(sec('Moving in now', h('p', { class: 'pref-sub' }, 'You can keep using Yakyard or close it. It keeps going and tells you when it is done.'),
+    kids.push(sec('Import running', h('p', { class: 'pref-sub' }, 'You can keep using Yakyard or close it. It keeps going and tells you when it is done.'),
       h('div', { class: 'imp-bar' }, h('i', { style: { width: Math.max(4, pct) + '%' } })),
       h('div', { class: 'imp-stats' }, h('span', {}, h('b', {}, `${j.convs_done || 0} of ${j.convs_total || '…'}`), ' conversations'), h('span', {}, h('b', {}, (j.msgs || 0).toLocaleString()), ' messages'), h('span', {}, h('b', {}, (j.files || 0).toLocaleString()), ' files'))));
   } else if (j?.status === 'done') {
@@ -3137,13 +3208,13 @@ async function drawImport() {
 
 // ================================================================== pick microphone, speaker, camera
 function micConstraints() {
-  const id = localStorage.getItem('pw-mic');
+  const id = localStorage.getItem('yy-mic');
   return { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(id ? { deviceId: { ideal: id } } : {}) };
 }
 const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
-function applySpeaker(el) { const id = localStorage.getItem('pw-spk'); if (canPickSpeaker && id) el.setSinkId(id).catch(() => {}); }
+function applySpeaker(el) { const id = localStorage.getItem('yy-spk'); if (canPickSpeaker && id) el.setSinkId(id).catch(() => {}); }
 async function useMic(id) {
-  localStorage.setItem('pw-mic', id);
+  localStorage.setItem('yy-mic', id);
   if (!H.channel) return;
   try {
     const st = await navigator.mediaDevices.getUserMedia({ audio: micConstraints() });
@@ -3154,7 +3225,7 @@ async function useMic(id) {
     toast('Microphone switched');
   } catch { toast("Couldn't use that microphone"); }
 }
-function useSpeaker(id) { localStorage.setItem('pw-spk', id); for (const p of H.peers.values()) applySpeaker(p.audio); toast('Speaker switched'); }
+function useSpeaker(id) { localStorage.setItem('yy-spk', id); for (const p of H.peers.values()) applySpeaker(p.audio); toast('Speaker switched'); }
 async function soundMenu(anchor) {
   closePopups();
   let devs = [];
@@ -3164,16 +3235,16 @@ async function soundMenu(anchor) {
     list.length ? list.map((d, i) => h('button', { class: 'sm-item' + ((current ? d.deviceId === current : d.deviceId === 'default' || i === 0) ? ' on' : ''), onclick: () => { closePopups(); fn(d.deviceId); } }, label(d, i, kind))) : h('div', { class: 'sm-note' }, note));
   const mics = devs.filter((d) => d.kind === 'audioinput'), spk = devs.filter((d) => d.kind === 'audiooutput'), cams = devs.filter((d) => d.kind === 'videoinput');
   const pop = h('div', { class: 'menu sound-menu' },
-    group('Microphone', 'Microphone', mics, localStorage.getItem('pw-mic'), useMic, 'No microphone found'),
-    group('Speaker', 'Speaker', canPickSpeaker ? spk : [], localStorage.getItem('pw-spk'), useSpeaker, 'On this phone or browser, sound follows your system: connect headphones or a speaker and it switches by itself.'),
-    group('Camera', 'Camera', cams, localStorage.getItem('pw-cam'), (id) => { localStorage.setItem('pw-cam', id); if (H.videoKind === 'cam') { setVideo(null, null); toggleVideo('cam'); } toast('Camera switched'); }, 'No camera found'));
+    group('Microphone', 'Microphone', mics, localStorage.getItem('yy-mic'), useMic, 'No microphone found'),
+    group('Speaker', 'Speaker', canPickSpeaker ? spk : [], localStorage.getItem('yy-spk'), useSpeaker, 'On this phone or browser, sound follows your system: connect headphones or a speaker and it switches by itself.'),
+    group('Camera', 'Camera', cams, localStorage.getItem('yy-cam'), (id) => { localStorage.setItem('yy-cam', id); if (H.videoKind === 'cam') { setVideo(null, null); toggleVideo('cam'); } toast('Camera switched'); }, 'No camera found'));
   document.body.append(pop);
   const r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
   pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pr.width - 8)) + 'px';
   pop.style.top = Math.max(8, r.top - pr.height - 8) + 'px';
 }
 // Plugging in headphones mid-call: follow the system default unless a device was picked.
-navigator.mediaDevices?.addEventListener?.('devicechange', () => { if (H.channel && !localStorage.getItem('pw-mic')) useMic(''); });
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { if (H.channel && !localStorage.getItem('yy-mic')) useMic(''); });
 
 // ================================================================== add someone / mute someone
 function tileMenu(x, anchor) {
@@ -3182,7 +3253,7 @@ function tileMenu(x, anchor) {
   menu([
     [x.muted ? `${name} is already muted` : `Mute ${name}`, () => { if (!x.muted) { sendWS({ type: 'huddle_mute', to: x.sid }); toast(`${name} is muted. They can unmute themselves.`); } }],
     [p?.audio?.muted ? `Hear ${name} again` : `Mute ${name} for me only`, () => { if (p) { p.audio.muted = !p.audio.muted; renderHuddleUI(); } }],
-    ['—'],
+    ['---'],
     [`Open profile`, () => profile(user(x.user_id))],
   ], r.left, r.bottom - 10);
 }
@@ -3200,7 +3271,7 @@ function invitedCard(ev) {
   document.body.append(card);
   tone(true); setTimeout(() => tone(true), 900);
   if ('Notification' in window && Notification.permission === 'granted' && !document.hasFocus()) {
-    const n = new Notification(`${from.name} wants you in a pop-in`, { body: label, tag: 'inv' + ev.channel_id, icon: from.avatar || '/brand/icon-192.png' });
+    const n = new Notification(`${from.name} wants you in a pop-in`, { body: label, tag: 'inv' + ev.channel_id, icon: from.avatar || '/brand/app-icon-192.png' });
     n.onclick = () => { window.focus(); n.close(); };
   }
   setTimeout(() => card.remove(), 60e3);
@@ -3212,7 +3283,7 @@ function invitedCard(ev) {
 const FAV = { n: 0, timer: null, base: null, star: null, link: null, still: null };
 function favImgs() {
   if (FAV.base) return;
-  FAV.base = new Image(); FAV.base.src = '/brand/logo-base.png';
+  FAV.base = new Image(); FAV.base.src = '/brand/logo.png';
   FAV.star = new Image(); FAV.star.src = '/brand/logo-star.png';
   FAV.link = document.querySelector('link[rel="icon"][type="image/png"]') || document.querySelector('link[rel="icon"]');
   FAV.still = FAV.link?.href;

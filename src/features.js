@@ -6,7 +6,6 @@ const now = () => Date.now();
 const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (status, message) => json({ error: message }, status);
-export const PUSH_EMPTY = 0;
 
 // ---------------------------------------------------------------- push
 const plain = (t, names) => String(t || '')
@@ -80,7 +79,7 @@ export async function sendPushes(env, { msg, ch, sender, members, direct, wide, 
   if (msg.thread_id) title = `${sender.name} replied in a thread` + (ch.kind === 'dm' ? '' : ` in #${ch.name}`);
   const body = plain(msg.text, names) || (msg.files?.length ? `Sent ${msg.files.length > 1 ? msg.files.length + ' files' : 'a file'}` : '');
   await pushToUsers(env, targets, {
-    title, body, tag: msg.thread_id || ch.id, icon: '/brand/icon-192.png', badge: '/brand/favicon-64.png',
+    title, body, tag: msg.thread_id || ch.id, icon: '/brand/app-icon-192.png', badge: '/brand/favicon-64.png',
     data: { url: `/#/c/${ch.id}${msg.thread_id ? '/t/' + msg.thread_id : ''}`, id: msg.id },
   });
 }
@@ -161,11 +160,12 @@ async function search(env, user, q, hydrate) {
 }
 
 // ---------------------------------------------------------------- reminders / scheduled
-async function slackbotId(env) {
-  let b = await env.DB.prepare("SELECT id FROM users WHERE email='uslackbot@bot.local'").first();
+// The Yakyard bot: sends reminders as a DM. Created on first use.
+async function botUserId(env) {
+  let b = await env.DB.prepare("SELECT id FROM users WHERE email='yakyard@bot.local'").first();
   if (b) return b.id;
   const id = uid('U');
-  await env.DB.prepare("INSERT INTO users (id,email,name,role,active,created_at,color) VALUES (?,?,?,?,1,?,?)").bind(id, 'uslackbot@bot.local', 'Slackbot', 'member', now(), '#4a154b').run();
+  await env.DB.prepare("INSERT INTO users (id,email,name,role,active,created_at,color) VALUES (?,?,?,?,1,?,?)").bind(id, 'yakyard@bot.local', 'Yakyard', 'member', now(), '#2b1bd6').run();
   return id;
 }
 async function dmWith(env, a, b) {
@@ -194,16 +194,16 @@ export async function cronTick(env, ctx, postMessage, runImports) {
     if (!member) continue;
     try { await postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel }); } catch (e) { console.log('scheduled send failed', e); }
   }
-  // reminders, delivered by Slackbot like Slack does
+  // reminders arrive as a DM from the Yakyard bot
   const rem = (await env.DB.prepare('SELECT * FROM reminders WHERE done=0 AND due_at <= ? ORDER BY due_at LIMIT 25').bind(t).all()).results;
   if (rem.length) {
-    const botId = await slackbotId(env);
+    const botId = await botUserId(env);
     const bot = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(botId).first();
     for (const r of rem) {
       await env.DB.prepare('UPDATE reminders SET done=1 WHERE id=?').bind(r.id).run();
       const ch = await dmWith(env, botId, r.user_id);
       const link = r.message_id ? ` <${env.APP_URL || ''}/#/m/${r.message_id}|View message>` : '';
-      try { await postMessage(env, ctx, bot, ch, { text: `⏰ Reminder: ${r.text || 'this message'}${link}` }); } catch (e) { console.log('reminder failed', e); }
+      try { await postMessage(env, ctx, bot, ch, { text: `Reminder: ${r.text || 'this message'}${link}` }); } catch (e) { console.log('reminder failed', e); }
     }
   }
   // housekeeping, once an hour
@@ -240,7 +240,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     return json({ ok: true });
   }
   if (path === '/api/push/test' && method === 'POST') {
-    const n = await pushToUsers(env, [user.id], { title: 'Yakyard', body: 'Notifications are on. This is how they will look.', tag: 'test', icon: '/brand/icon-192.png', data: { url: '/' } });
+    const n = await pushToUsers(env, [user.id], { title: 'Yakyard', body: 'Notifications are on. This is how they will look.', tag: 'test', icon: '/brand/app-icon-192.png', data: { url: '/' } });
     return json({ sent: n });
   }
   if (path === '/api/prefs' && method === 'GET') {
@@ -254,7 +254,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     if (has && !has.done && !body.done) { await env.DB.prepare('DELETE FROM saved WHERE user_id=? AND message_id=?').bind(user.id, m[1]).run(); return json({ saved: false }); }
     if (body.done) { await env.DB.prepare('UPDATE saved SET done=1 WHERE user_id=? AND message_id=?').bind(user.id, m[1]).run(); return json({ saved: false, done: true }); }
     const msg = await env.DB.prepare('SELECT channel_id FROM messages WHERE id=?').bind(m[1]).first();
-    if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, 'Not a member');
+    if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
     await env.DB.prepare('INSERT OR REPLACE INTO saved (user_id,message_id,created_at,done) VALUES (?,?,?,0)').bind(user.id, m[1], now()).run();
     return json({ saved: true });
   }
@@ -262,9 +262,9 @@ export async function featureApi(req, env, user, path, method, body, x) {
   // pins
   if ((m = path.match(/^\/api\/messages\/([^/]+)\/pin$/)) && method === 'POST') {
     const msg = await env.DB.prepare('SELECT * FROM messages WHERE id=?').bind(m[1]).first();
-    if (!msg || msg.deleted) return err(404, 'Message not found');
-    if (!(await isMember(env, msg.channel_id, user.id))) return err(403, 'Not a member');
-    if (user.role === 'guest') return err(403, 'Guests cannot pin');
+    if (!msg || msg.deleted) return err(404, "That message isn't here anymore.");
+    if (!(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
+    if (user.role === 'guest') return err(403, "Guests can't pin messages.");
     const has = await env.DB.prepare('SELECT 1 FROM pins WHERE message_id=?').bind(msg.id).first();
     if (has) await env.DB.prepare('DELETE FROM pins WHERE message_id=?').bind(msg.id).run();
     else await env.DB.prepare('INSERT INTO pins (channel_id,message_id,user_id,created_at) VALUES (?,?,?,?)').bind(msg.channel_id, msg.id, user.id, now()).run();
@@ -273,7 +273,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     return json(full);
   }
   if ((m = path.match(/^\/api\/channels\/([^/]+)\/pins$/)) && method === 'GET') {
-    if (!(await isMember(env, m[1], user.id))) return err(403, 'Not a member');
+    if (!(await isMember(env, m[1], user.id))) return err(403, "You're not in this channel.");
     const r = await env.DB.prepare('SELECT x.* FROM pins p JOIN messages x ON x.id=p.message_id WHERE p.channel_id=? AND x.deleted=0 ORDER BY p.created_at DESC').bind(m[1]).all();
     return json(await hydrate(env, r.results));
   }
@@ -290,10 +290,10 @@ export async function featureApi(req, env, user, path, method, body, x) {
   }
   if (path === '/api/reminders' && method === 'POST') {
     const due = +body.due_at;
-    if (!due || due < now() - 60e3) return err(400, 'Pick a time in the future');
+    if (!due || due < now() - 60e3) return err(400, 'Pick a time in the future.');
     if (body.message_id) {
       const msg = await env.DB.prepare('SELECT channel_id FROM messages WHERE id=?').bind(String(body.message_id)).first();
-      if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, 'Not a member');
+      if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
     }
     const r = { id: uid('R'), user_id: user.id, message_id: body.message_id || null, text: String(body.text || '').slice(0, 500), due_at: due, done: 0 };
     await env.DB.prepare('INSERT INTO reminders (id,user_id,message_id,text,due_at) VALUES (?,?,?,?,?)').bind(r.id, r.user_id, r.message_id, r.text, r.due_at).run();
@@ -305,12 +305,12 @@ export async function featureApi(req, env, user, path, method, body, x) {
   }
   if (path === '/api/scheduled' && method === 'POST') {
     const at = +body.send_at;
-    if (!at || at < now() + 30e3) return err(400, 'Pick a time in the future');
+    if (!at || at < now() + 30e3) return err(400, 'Pick a time in the future.');
     const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(String(body.channel_id || '')).first();
-    if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, 'Not a member');
+    if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
     const text = String(body.text || '').slice(0, 40000);
     const files = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
-    if (!text.trim() && !files.length) return err(400, 'Empty message');
+    if (!text.trim() && !files.length) return err(400, 'Write something first.');
     const s = { id: uid('Q'), user_id: user.id, channel_id: ch.id, thread_id: body.thread_id || null, text, files: JSON.stringify(files), also_channel: body.also_channel ? 1 : 0, send_at: at, created_at: now() };
     await env.DB.prepare('INSERT INTO scheduled (id,user_id,channel_id,thread_id,text,files,also_channel,send_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
       .bind(s.id, s.user_id, s.channel_id, s.thread_id, s.text, s.files, s.also_channel, s.send_at, s.created_at).run();
@@ -323,7 +323,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     if (method === 'PATCH') {
       if (body.send_now) {
         const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
-        if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, 'Not a member');
+        if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
         await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run();
         return postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel });
       }
@@ -392,7 +392,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
   // ---------- channel management (admins, owners, or whoever created the channel)
   if ((m = path.match(/^\/api\/channels\/([^/]+)\/manage$/)) && method === 'POST') {
     const ch = await env.DB.prepare("SELECT * FROM channels WHERE id=? AND kind='channel'").bind(m[1]).first();
-    if (!ch) return err(404, 'Channel not found');
+    if (!ch) return err(404, "That channel isn't here anymore.");
     const admin = ['owner', 'admin'].includes(user.role);
     if (!admin && ch.created_by !== user.id) return err(403, 'Only admins or the person who made this channel can change it');
     if (ch.name === 'general' && (body.archived || body.delete || body.name)) return err(403, '#general stays as it is');
@@ -412,8 +412,8 @@ export async function featureApi(req, env, user, path, method, body, x) {
     }
     if (body.name != null) {
       const name = String(body.name).toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-      if (!name) return err(400, 'Name required');
-      if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=? AND id<>?").bind(name, ch.id).first()) return err(409, 'That name is taken');
+      if (!name) return err(400, 'Add a name first.');
+      if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=? AND id<>?").bind(name, ch.id).first()) return err(409, 'That name is taken. Pick another one.');
       await env.DB.prepare('UPDATE channels SET name=? WHERE id=?').bind(name, ch.id).run();
     }
     if (body.private != null) await env.DB.prepare('UPDATE channels SET private=? WHERE id=?').bind(body.private ? 1 : 0, ch.id).run();
@@ -425,7 +425,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
   }
   if ((m = path.match(/^\/api\/channels\/([^/]+)\/remove$/)) && method === 'POST') {
     const ch = await env.DB.prepare("SELECT * FROM channels WHERE id=? AND kind='channel'").bind(m[1]).first();
-    if (!ch) return err(404, 'Channel not found');
+    if (!ch) return err(404, "That channel isn't here anymore.");
     if (!['owner', 'admin'].includes(user.role) && ch.created_by !== user.id) return err(403, 'Only admins or the person who made this channel can remove people');
     const who = String(body.user_id || '');
     await env.DB.prepare('DELETE FROM members WHERE channel_id=? AND user_id=?').bind(ch.id, who).run();
@@ -438,7 +438,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     return json({ create_channels: r?.value || 'everyone' });
   }
   if (path === '/api/settings' && method === 'POST') {
-    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Admins only');
+    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can do this.');
     const v = body.create_channels === 'admins' ? 'admins' : 'everyone';
     await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('create_channels',?)").bind(v).run();
     return json({ create_channels: v });
@@ -469,7 +469,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     return json({ avatar: avatarUrl });
   }
 
-  // guests only see places of people they share a channel with
+  // guests don't see team locations
   if (path === '/api/team/places' && method === 'GET' && user.role === 'guest') return json([]);
   return null;
 }
