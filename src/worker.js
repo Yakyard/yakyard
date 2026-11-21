@@ -1,7 +1,7 @@
 // Yakyard: Cloudflare Worker (API + auth + files) and the Hub Durable Object (live updates).
 import { unfurl, safeFetchUrl } from './unfurl.js';
 import { slackRoutes, slackApi, runImports } from './slackimport.js';
-import { sendPushes, cronTick, featureApi, hydrateExtras } from './features.js';
+import { sendPushes, cronTick, featureApi, hydrateExtras, openDm, v6 } from './features.js';
 import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceCron, fmtDur, VOICE_MAX } from './voice.js';
 import { DurableObject } from 'cloudflare:workers';
 
@@ -38,6 +38,10 @@ const SEC = {
   'referrer-policy': 'same-origin',
   'strict-transport-security': 'max-age=31536000; includeSubDomains',
 };
+// Who may hear about a person's profile: everyone but guests, plus guests who share a conversation with them.
+async function audience(env, uid) {
+  return (await env.DB.prepare("SELECT id FROM users WHERE role<>'guest' AND active=1 UNION SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?").bind(uid).all()).results.map((r) => r.id);
+}
 async function nonGuestIds(env) {
   return (await env.DB.prepare("SELECT id FROM users WHERE role<>'guest' AND active=1").all()).results.map((r) => r.id);
 }
@@ -66,7 +70,7 @@ function allowedEmail(email, env) {
 }
 
 // Avatar colors: all keep white initials at AA contrast.
-const PALETTE = ['#2b1bd6', '#c8280f', '#1f7a4d', '#a24a06', '#6b2fb3', '#0f6e8c', '#b0204e', '#5b5670', '#2d6a0f', '#8a3b12'];
+const PALETTE = ['#2b1bd6', '#8a1f5c', '#16606b', '#a24a06', '#6b2fb3', '#0f6e8c', '#5b5670', '#3d3a8c'];
 const locationOn = (env) => env.TEAM_LOCATION === '1';
 const weatherOn = (env) => env.WEATHER === '1';
 // What the browser gets about the signed-in person (no coordinates, no Slack id).
@@ -233,7 +237,7 @@ async function passwordLogin(req, env) {
   const password = String(f.get('password') || '');
   // IPv6 addresses count per /64, since one connection usually owns the whole block.
   const ip0 = req.headers.get('cf-connecting-ip') || 'x';
-  const ip = ip0.includes(':') ? ip0.split(':').slice(0, 4).join(':') + '::/64' : ip0;
+  const ip = ip0.includes(':') ? v6(ip0).slice(0, 4).join(':') + '::/64' : ip0;
   const win = Math.floor(now() / (15 * 60e3));
   const hit = async (k) => (await env.DB.prepare('INSERT INTO login_attempts (k,n) VALUES (?,1) ON CONFLICT(k) DO UPDATE SET n=n+1 RETURNING n').bind(k + '|' + win).first()).n;
   // Per address, per account from any address, and per account from one address.
@@ -245,7 +249,7 @@ async function passwordLogin(req, env) {
   if (!ok) return loginPage('Wrong email or password.', email);
   return signedIn(req, await createSession(env, row.id));
 }
-const page = (title, inner) => new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+const page = (title, inner) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#fff8e6"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"><script src="/theme.js"></script></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard" width="64" height="64"><p class="login-brands">${escH(globalThis.__wsName || 'Yakyard')}</p>${inner}</main></body></html>`,
   { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SEC } });
 const escH = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -268,7 +272,7 @@ async function joinPage(req, env, token) {
       env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) SELECT channel_id, user_id, ?, ? FROM pending_members WHERE user_id=?').bind(now(), now(), inv.id),
       env.DB.prepare('DELETE FROM pending_members WHERE user_id=?').bind(inv.id),
     ]);
-    await broadcast(env, { type: 'user_updated', user: { id: inv.id, name } }).catch(() => {});
+    await broadcast(env, { type: 'user_updated', user: { id: inv.id, name } }, await audience(env, inv.id)).catch(() => {});
     return signedIn(req, await createSession(env, inv.id));
   }
   return joinForm(inv);
@@ -280,14 +284,14 @@ async function setupPage(req, env) {
   if (await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first()) return done();
   const ready = !!env.SETUP_TOKEN && env.SETUP_TOKEN.length >= 24;
   const form = (error = '', email = '') => page('Set up Yakyard', ready ? `<h1>Set up Yakyard</h1><p>Create the owner account. Use an email listed in OWNER_EMAILS.</p>
-${error ? `<p class="login-error">${escH(error)}</p>` : ''}
+${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
 <form method="post" class="login-form">
 <label>Setup code<input class="input" name="token" type="password" required autocomplete="off" placeholder="The SETUP_TOKEN you set"></label>
 <label>Your name<input class="input" name="name" required maxlength="80" autocomplete="name"></label>
-<label>Email<input class="input" name="email" type="email" required autocomplete="username" value="${escH(email)}"></label>
+<label>Email<input class="input" name="email" type="email" required autocomplete="username" spellcheck="false" autocapitalize="off" value="${escH(email)}"></label>
 <label>Choose a password<input class="input" name="password" type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
 <button class="login-btn primary" type="submit">Create workspace</button></form>` : `<h1>Set up Yakyard</h1>
-<p class="login-error">Set a setup code first.</p>
+<p class="login-error" role="alert">Set a setup code first.</p>
 <p>Run <code>npx wrangler secret put SETUP_TOKEN</code> and paste a long random code (at least 24 characters, for example from <code>openssl rand -hex 24</code>). Then reload this page.</p>`);
   if (req.method !== 'POST' || !ready) return form();
   const o = req.headers.get('origin');
@@ -313,7 +317,7 @@ ${error ? `<p class="login-error">${escH(error)}</p>` : ''}
 function joinForm(inv, error = '') {
   const isNew = inv.name === inv.email.split('@')[0];
   return page('Join Yakyard', `<h1>Join Yakyard</h1><p>You're signing in as <b>${escH(inv.email)}</b>.</p>
-${error ? `<p class="login-error">${escH(error)}</p>` : ''}
+${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
 <form method="post" class="login-form">
 <label>Your name<input class="input" name="name" required maxlength="80" autocomplete="name" value="${isNew ? '' : escH(inv.name)}"></label>
 <label>Choose a password<input class="input" name="password" type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
@@ -324,9 +328,9 @@ function loginPage(message = '', email = '') {
   const google = globalThis.__googleOn ? `<div class="login-or"><span>or</span></div>
 <a class="login-btn" href="/auth/google"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Continue with Google</a>` : '';
   return page('Sign in to Yakyard', `<h1>Sign in to Yakyard</h1>
-${message ? `<p class="login-error">${escH(message)}</p>` : ''}
+${message ? `<p class="login-error" role="alert">${escH(message)}</p>` : ''}
 <form method="post" action="/auth/login" class="login-form">
-<label>Email<input class="input" name="email" type="email" required autocomplete="username" value="${escH(email)}"></label>
+<label>Email<input class="input" name="email" type="email" required autocomplete="username" spellcheck="false" autocapitalize="off" value="${escH(email)}"></label>
 <label>Password<input class="input" name="password" type="password" required autocomplete="current-password"></label>
 <button class="login-btn primary" type="submit">Sign in</button></form>${google}
 <p class="login-note">New here or forgot your password? Ask your workspace admin for a sign-in link.</p>`);
@@ -480,7 +484,7 @@ async function api(req, env, user, path, ctx) {
   const method = req.method;
   const body = method === 'GET' || method === 'DELETE' ? null : await req.json().catch(() => ({}));
   let m;
-  const fx = await featureApi(req, env, user, path, method, body, { postMessage, hydrateMessages, broadcast, isMember, channelMembers, ctx });
+  const fx = await featureApi(req, env, user, path, method, body, { postMessage, hydrateMessages, broadcast, isMember, channelMembers, audience, ctx });
   if (fx) return fx;
   const sx = await slackApi(req, env, user, path, method, body, ctx);
   if (sx) return sx;
@@ -577,17 +581,7 @@ async function api(req, env, user, path, ctx) {
     }
     const ids = [user.id, ...others].sort();
     const key = ids.join(',');
-    let ch = await env.DB.prepare('SELECT * FROM channels WHERE dm_key=?').bind(key).first();
-    if (ch && ch.archived) { await env.DB.prepare('UPDATE channels SET archived=0 WHERE id=?').bind(ch.id).run(); ch.archived = 0; }
-    if (!ch) {
-      const id = uid('D');
-      await env.DB.prepare('INSERT INTO channels (id,kind,name,dm_key,private,created_by,created_at,last_ts) VALUES (?,?,?,?,1,?,?,?)')
-        .bind(id, 'dm', '', key, user.id, now(), now()).run();
-      for (const u of ids) {
-        await env.DB.prepare('INSERT INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(id, u, now(), now()).run();
-      }
-      ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(id).first();
-    }
+    const ch = await openDm(env, ids, user.id);
     return json({ ...ch, members: ids, last_read: now(), unread: 0, mentions: 0 });
   }
 
@@ -703,6 +697,9 @@ async function api(req, env, user, path, ctx) {
     if (sub === '' && method === 'DELETE') {
       if (msg.user_id !== user.id && !['owner', 'admin'].includes(user.role)) return err(403, 'Not allowed');
       await env.DB.prepare("UPDATE messages SET deleted=1, text='', files='[]' WHERE id=?").bind(mid).run();
+      // Deleting a message deletes its files too, so old links stop working.
+      const keys = JSON.parse(msg.files || '[]').map((f) => f.key).filter(Boolean);
+      if (keys.length) { await env.FILES.delete(keys); await env.DB.prepare(`DELETE FROM files WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).run(); }
       const [full] = await hydrateMessages(env, [{ ...msg, deleted: 1, text: '', files: '[]' }]);
       await broadcast(env, { type: 'message_changed', message: full }, await members());
       return json(full);
@@ -753,32 +750,6 @@ async function api(req, env, user, path, ctx) {
     const rows = await hydrateMessages(env, r.results);
     return json(rows.map((m, i) => ({ ...m, r_emoji: r.results[i].r_emoji, r_user: r.results[i].r_user })));
   }
-  // ----- threads I started or replied to
-  if (path === '/api/threads' && method === 'GET') {
-    const r = await env.DB.prepare(
-      `SELECT p.* FROM messages p JOIN members me ON me.channel_id=p.channel_id AND me.user_id=?
-       WHERE p.reply_count>0 AND p.deleted=0 AND (p.user_id=? OR EXISTS(SELECT 1 FROM messages q WHERE q.thread_id=p.id AND q.user_id=?))
-       ORDER BY p.last_reply_ts DESC LIMIT 25`).bind(user.id, user.id, user.id).all();
-    const parents = await hydrateMessages(env, r.results);
-    for (const p of parents) {
-      const rr = await env.DB.prepare('SELECT * FROM messages WHERE thread_id=? AND deleted=0 ORDER BY ts DESC LIMIT 2').bind(p.id).all();
-      p.latest = (await hydrateMessages(env, rr.results)).reverse();
-    }
-    return json(parents);
-  }
-
-  // ----- search
-  if (path === '/api/search' && method === 'GET') {
-    const q = (new URL(req.url).searchParams.get('q') || '').trim();
-    if (q.length < 2) return json([]);
-    const like = '%' + q.replace(/[%_]/g, '') + '%';
-    const r = await env.DB.prepare(
-      `SELECT x.* FROM messages x JOIN members m ON m.channel_id=x.channel_id AND m.user_id=?
-       WHERE x.deleted=0 AND x.source != 'huddle' AND x.text LIKE ? ORDER BY x.ts DESC LIMIT 40`
-    ).bind(user.id, like).all();
-    return json(await hydrateMessages(env, r.results));
-  }
-
   // ----- profile
   if (path === '/api/me' && method === 'PATCH') {
     const name = body.name != null ? String(body.name).slice(0, 80) : user.name;
@@ -800,12 +771,12 @@ async function api(req, env, user, path, ctx) {
     if ('share_location' in body && !upd.share_location) {
       // Stop sharing: forget the stored place right away.
       await env.DB.prepare("UPDATE users SET city='', region='', country='', lat=NULL, lon=NULL, loc_at=NULL WHERE id=?").bind(user.id).run();
-      await broadcast(env, { type: 'user_updated', user: { id: user.id, city: '', country: '', tz: '' } }, null);
+      await broadcast(env, { type: 'user_updated', user: { id: user.id, city: '', country: '', tz: '' } }, await audience(env, user.id));
     }
     await env.DB.prepare('UPDATE users SET name=?, title=?, status_emoji=?, status_text=?, status_until=?, dnd_until=?, dnd_start=?, dnd_end=?, notify_level=?, vips=?, away=?, share_location=? WHERE id=?')
       .bind(upd.name, upd.title, upd.status_emoji, upd.status_text, upd.status_until, upd.dnd_until, upd.dnd_start, upd.dnd_end, upd.notify_level, upd.vips || '[]', upd.away || 0, upd.share_location || 0, user.id).run();
     const pub = { id: user.id, name, title, status_emoji: upd.status_emoji, status_text: upd.status_text, status_until: upd.status_until, dnd_until: upd.dnd_until, dnd_start: upd.dnd_start, dnd_end: upd.dnd_end, away: upd.away };
-    await broadcast(env, { type: 'user_updated', user: pub });
+    await broadcast(env, { type: 'user_updated', user: pub }, await audience(env, user.id));
     return json({ ok: true });
   }
 
@@ -900,7 +871,8 @@ async function api(req, env, user, path, ctx) {
         ]);
         await kick(env, t.id);
       } else if (body.deactivated === false) {
-        await env.DB.prepare('UPDATE users SET deactivated=0 WHERE id=?').bind(t.id).run();
+        if (t.role === 'admin' && user.role !== 'owner') return err(403, 'Only the owner can reactivate admins.');
+        await env.DB.prepare('UPDATE users SET deactivated=0, active=1 WHERE id=?').bind(t.id).run();
       }
       const nu = await env.DB.prepare('SELECT id,email,name,title,avatar,color,role,active FROM users WHERE id=?').bind(t.id).first();
       await broadcast(env, { type: 'user_updated', user: nu }, await nonGuestIds(env)).catch(() => {});
@@ -917,8 +889,10 @@ async function api(req, env, user, path, ctx) {
       if (method === 'POST') {
         const t = await env.DB.prepare('SELECT id,active FROM users WHERE id=?').bind(m[1]).first();
         if (!t) return err(404, 'Not found');
-        const target = await env.DB.prepare("SELECT kind FROM channels WHERE id=?").bind(body.channel_id).first();
+        const target = await env.DB.prepare("SELECT kind, private FROM channels WHERE id=?").bind(body.channel_id).first();
         if (!target || target.kind !== 'channel') return err(400, 'Channels only');
+        // Private stays private: only people already in a private channel can change who is in it.
+        if (target.private && !(await isMember(env, body.channel_id, user.id))) return err(403, 'Only people in that private channel can change who is in it. Ask one of them.');
         const table = t.active ? 'members' : 'pending_members';
         if (body.member) {
           if (t.active) await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(body.channel_id, t.id, now(), now()).run();
@@ -936,14 +910,6 @@ async function api(req, env, user, path, ctx) {
           (SELECT COUNT(*) FROM messages x WHERE x.channel_id=c.id) messages
         FROM channels c WHERE c.kind='channel' ORDER BY c.archived, c.name`).all();
       return json(r.results);
-    }
-    if ((m = path.match(/^\/api\/admin\/channels\/([\w]+)$/)) && method === 'PATCH') {
-      if (body.archived !== undefined) await env.DB.prepare('UPDATE channels SET archived=? WHERE id=?').bind(body.archived ? 1 : 0, m[1]).run();
-      if (body.private !== undefined) await env.DB.prepare('UPDATE channels SET private=? WHERE id=?').bind(body.private ? 1 : 0, m[1]).run();
-      if (body.name) await env.DB.prepare('UPDATE channels SET name=? WHERE id=?').bind(String(body.name).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 80), m[1]).run();
-      const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(m[1]).first();
-      await broadcast(env, { type: 'channel_updated', channel: ch }, await channelMembers(env, ch.id));
-      return json(ch);
     }
     if (path === '/api/admin/stats' && method === 'GET') {
       const r = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM messages) messages,
@@ -1199,7 +1165,7 @@ async function route(req, env, ctx, url, path) {
       return json(await transcribe(env, String(b.key), { hydrateMessages, broadcast, channelMembers }, !!b.retry));
     }
     if (path.startsWith('/api/upload/')) return bigUpload(req, env, user, path, url);
-    if (path === '/api/me/avatar' && req.method === 'POST') return (await featureApi(req, env, user, path, 'POST', {}, { postMessage, hydrateMessages, broadcast, isMember, channelMembers, ctx })) || err(404, 'Not found');
+    if (path === '/api/me/avatar' && req.method === 'POST') return (await featureApi(req, env, user, path, 'POST', {}, { postMessage, hydrateMessages, broadcast, isMember, channelMembers, audience, ctx })) || err(404, 'Not found');
     if (path.startsWith('/slack/')) return slackRoutes(req, env, user, ctx);
     if (path.startsWith('/files/')) {
       let key; try { key = decodeURIComponent(path.slice(7)); } catch { return err(400, 'Bad path'); }

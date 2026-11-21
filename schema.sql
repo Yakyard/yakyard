@@ -138,8 +138,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS voice_fts USING fts5(text, message_id UNINDEX
 
 CREATE INDEX IF NOT EXISTS files_chan ON files(channel_id, created_at);
 
-CREATE INDEX IF NOT EXISTS files_channel ON files(channel_id);
-
 CREATE INDEX IF NOT EXISTS files_t_status ON files(t_status) WHERE t_status IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS invites_user ON invites(user_id);
@@ -149,8 +147,6 @@ CREATE INDEX IF NOT EXISTS members_user ON members(user_id);
 CREATE INDEX IF NOT EXISTS mentions_user ON mentions(user_id, ts);
 
 CREATE INDEX IF NOT EXISTS mentions_user_chan ON mentions(user_id, channel_id, ts);
-
-CREATE INDEX IF NOT EXISTS messages_channel_ts ON messages(channel_id, thread_id, ts);
 
 CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id, ts);
 

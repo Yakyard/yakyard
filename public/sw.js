@@ -1,8 +1,12 @@
 // Yakyard service worker: installable app + phone notifications.
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 // Speed: the app shell and versioned files come from the phone/computer cache, then refresh quietly.
-const SHELL = 'yakyard-shell', STATIC = 'yakyard-static';
+// Bump STATIC when files under /brand, /fonts or /vendor change (their URLs carry no version).
+const SHELL = 'yakyard-shell', STATIC = 'yakyard-static-3';
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+  for (const k of await caches.keys()) if (![SHELL, STATIC].includes(k)) await caches.delete(k);
+  await self.clients.claim();
+})()));
 self.addEventListener('fetch', (e) => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
@@ -23,7 +27,14 @@ self.addEventListener('fetch', (e) => {
   }
   const versioned = url.searchParams.has('v') || /^\/(fonts|brand|vendor)\//.test(url.pathname);
   if (versioned && !url.pathname.startsWith('/files/')) {
-    e.respondWith(caches.open(STATIC).then(async (c) => (await c.match(req)) || fetch(req).then((r) => { if (r.ok) c.put(req, r.clone()); return r; })));
+    e.respondWith(caches.open(STATIC).then(async (c) => (await c.match(req)) || fetch(req).then(async (r) => {
+      if (r.ok) {
+        // One copy per file: drop older ?v= versions of the same path.
+        for (const k of await c.keys()) if (new URL(k.url).pathname === url.pathname) await c.delete(k);
+        await c.put(req, r.clone());
+      }
+      return r;
+    })));
   }
 });
 self.addEventListener('message', (e) => { if (e.data === 'skip-waiting') self.skipWaiting(); });

@@ -1,6 +1,8 @@
 <p align="center"><img src="docs/wordmark.png" width="420" alt="Yakyard"></p>
 
-<p align="center"><b>Your own team chat. Channels, threads, calls and voice notes with transcripts.<br>Runs on your Cloudflare account. No per-seat bill, no one else holding your messages.</b></p>
+<p align="center"><b>Yak all you want. Pay nobody.</b></p>
+
+<p align="center">Your own team chat. Channels, threads, calls and voice notes with transcripts.<br>Runs on your Cloudflare account, so nobody bills you per seat and nobody else holds your messages.</p>
 
 <p align="center"><img src="docs/screenshot-app.png" alt="Yakyard" width="860"></p>
 
@@ -8,9 +10,7 @@
 
 ## Why
 
-Team chat gets expensive fast, and your company history ends up on someone else's servers. Yakyard is a full team chat you deploy once to your own Cloudflare account. It feels familiar from day one, it works on phones and computers, and it can bring your old Slack history with it.
-
-Built for and used daily by a small distributed team.
+Team chat gets expensive fast, and your company history ends up on someone else's servers. Yakyard is a full team chat you deploy once to your own Cloudflare account. If your team knows Slack, they know Yakyard. It works on phones and computers, and it can bring your Slack history with it.
 
 ## What's inside
 
@@ -45,7 +45,7 @@ Built for and used daily by a small distributed team.
 
 **Running it**
 - Invite links and passwords, or Sign in with Google (optionally limited to your company domain)
-- Admin page: people, roles, guests, who can create channels
+- Admin page: people, roles, guests, who can create channels. Private channels stay private: admins can only change who is in a private channel they are in themselves
 - Slack import: each person imports their own Slack DMs, group messages and private channels (read-only Slack access, revoked when done). People are matched by Slack account and email, and DMs from two people's imports end up in one conversation
 - New-version pop-up so everyone updates at once
 - Three looks: light, dark and Yaky (bold color). Each person picks theirs
@@ -53,7 +53,7 @@ Built for and used daily by a small distributed team.
 ## What you need
 
 - A Cloudflare account.
-- Node.js 20 or newer on your computer, only to deploy. Works on macOS, Linux and Windows.
+- Node.js 22.5 or newer on your computer, only to deploy. Works on macOS, Linux and Windows.
 
 Yakyard uses Workers, Durable Objects, D1 (database), R2 (files), Workers AI (transcripts) and the Images binding (photo previews).
 
@@ -106,18 +106,11 @@ If Wrangler offers to add the database to your config for you, answer No and pas
 - `APP_URL`: the address people will use. A new Worker lives at `https://yakyard.<your-subdomain>.workers.dev`. Find your subdomain in the Cloudflare dashboard under **Workers & Pages**, on the right under **Subdomain**. Or deploy once, copy the address it prints, set `APP_URL` and deploy again.
 
 ```bash
-# 4. Tables
-npm run db:init
-
-# 5. Setup code, before the first visit
-openssl rand -hex 24                      # prints a long random code
-npx wrangler secret put SETUP_TOKEN       # paste that code
-
-# 6. Go live
+# 4. Go live
 npm run deploy
 ```
 
-On Windows without `openssl`, any random string of 24 or more letters and numbers works as the setup code.
+`npm run deploy` creates the tables, deploys, and on the first run makes a setup code and prints it once. Keep it until you have set up Yakyard.
 
 Open the address it prints. The first visit shows **Set up Yakyard**: enter the setup code, then create the owner account with an email you listed in `OWNER_EMAILS`. The setup code makes sure nobody else can claim your new workspace before you do. It only works once. Then invite your team from the menu (**Invite people**). Invites make a link: you send it yourself, by email, chat or text.
 
@@ -163,7 +156,7 @@ Each person's time zone is always saved from their own browser (not their locati
 | `WORKSPACE_NAME` | `[vars]` | yes | Team name on the sign-in page. Default "Yakyard". |
 | `OWNER_EMAILS` | `[vars]` | yes | Comma-separated owner emails. |
 | `APP_URL` | `[vars]` | yes | Public address. Used in reminder links and as the push contact if `VAPID_SUBJECT` is empty. |
-| `SETUP_TOKEN` | secret | first run | Setup code for the first visit, 24+ characters. |
+| `SETUP_TOKEN` | secret | first run | Setup code for the first visit, 24+ characters. `npm run deploy` makes one if it is missing. |
 | `VAPID_PUBLIC`, `VAPID_SUBJECT` | `[vars]` | for notifications | From `npm run vapid`. |
 | `VAPID_PRIVATE` | secret | for notifications | From `npm run vapid`. |
 | `ALLOWED_DOMAINS` | `[vars]` | no | Email domains that may sign in with Google without an invite. |
@@ -177,19 +170,24 @@ Each person's time zone is always saved from their own browser (not their locati
 | `DEV_LOGIN` | `[vars]` | no | Local testing only: `/auth/dev?email=...` signs in on localhost. Keep `"0"` in production. |
 | `SLACK_API` | `[vars]` | no | Tests only: point the Slack import at a mock server. |
 
-The D1 database must be named `yakyard` (the npm scripts use that name).
-
 ## Updating
 
 ```bash
 git pull
-npm run db:init   # creates any new tables
-npm run deploy
+npm run deploy    # also creates any new tables
 ```
 
-`db:init` adds missing tables and indexes. It does not add new columns to tables you already have, so read the release notes: a release that changes a table says what to run. Also compare `wrangler.toml.example` with your `wrangler.toml` for new settings, since your own file is never overwritten.
+Deploying adds missing tables and indexes. It does not add new columns to tables you already have, so read the release notes: a release that changes a table says what to run. Also compare `wrangler.toml.example` with your `wrangler.toml` for new settings, since your own file is never overwritten.
 
 Open apps show "New version of Yakyard" and update in one tap.
+
+## Tests
+
+```bash
+npm test
+```
+
+Runs the unit tests, then the security checks against a local server if one is running (`npx wrangler dev --local --port 8797` on a fresh `npm run db:init:local`). The security checks need Python 3 with `requests` and `playwright`.
 
 ## How it's built
 

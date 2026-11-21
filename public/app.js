@@ -38,10 +38,11 @@ const h = (tag, attrs = {}, ...kids) => {
     else el.setAttribute(k, v === true ? '' : v);
   }
   for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  if (tag === 'button' && attrs?.title && !attrs['aria-label'] && !el.textContent.trim()) el.setAttribute('aria-label', attrs.title);
   return el;
 };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const svg = (d, size = 16) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 20 20'); s.style.width = s.style.height = size + 'px'; const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); s.append(p); return s; };
+const svg = (d, size = 16) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('aria-hidden', 'true'); s.setAttribute('viewBox', '0 0 20 20'); s.style.width = s.style.height = size + 'px'; const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', d); s.append(p); return s; };
 const I = {
   copy: 'M7 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-1v-1.5h1a.5.5 0 0 0 .5-.5V4a.5.5 0 0 0-.5-.5H7a.5.5 0 0 0-.5.5v1H5V4a2 2 0 0 1 2-2zM5 5h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 1.5a.5.5 0 0 0-.5.5v9c0 .3.2.5.5.5h7a.5.5 0 0 0 .5-.5V7a.5.5 0 0 0-.5-.5H5z',
   caret: 'M5.7 7.3a1 1 0 0 1 1.4 0L10 10.2l2.9-2.9a1 1 0 1 1 1.4 1.4l-3.6 3.6a1 1 0 0 1-1.4 0L5.7 8.7a1 1 0 0 1 0-1.4z',
@@ -74,9 +75,11 @@ async function api(path, opts = {}) {
     credentials: 'same-origin',
   });
   const bm = res.headers.get('x-d1-bookmark'); if (bm) api.bm = bm;
-  if (res.status === 401) { try { localStorage.removeItem('yy-boot'); await caches?.delete('yakyard-shell'); } catch {} location.href = '/'; throw new Error('signed out'); }
+  if (res.status === 401) { await forgetLocal(); location.href = '/'; throw new Error('signed out'); }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "That didn't go through. Try again.");
+  // Server text is already written for people on 400 and 409; other codes get a plain line.
+  if (!res.ok) throw new Error(res.status === 404 ? "That's not here anymore." : res.status === 403 && /^(Not allowed|Bad origin|Private channel)$/.test(data.error || '') ? "You can't do that here. Ask an admin."
+    : res.status >= 500 || !data.error || /^(Bad |Piece too big|No file)/.test(data.error) ? "That didn't go through. Try again." : data.error);
   return data;
 }
 function toast(msg) {
@@ -93,7 +96,7 @@ function avatar(u, cls = 'av', size) {
   return el;
 }
 // Deep tones with white letters (all pass AA), easy to tell people apart in every theme.
-const PALETTE = ['#2b1bd6', '#c8280f', '#1f7a4d', '#a24a06', '#6b2fb3', '#0f6e8c', '#b0204e', '#5b5670'];
+const PALETTE = ['#2b1bd6', '#8a1f5c', '#16606b', '#a24a06', '#6b2fb3', '#0f6e8c', '#5b5670', '#3d3a8c'];
 function avatarColor(u) { let h = 0; for (const c of String(u.id || u.name || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; }
 function dmOthers(ch) { return (ch.members || []).filter((u) => u !== S.me.id); }
 function chanLabel(ch) {
@@ -230,7 +233,7 @@ function renderSidebar() {
     list.append(sectionBlock({ id: '__dms', name: 'Direct messages' }, recentDms, addRow('Add colleagues', () => composeDM())));
   }
   if (!isStandalone() && !localStorage.getItem('yy-installed') && !platform().phone)
-    list.append(h('button', { class: 'get-app', onclick: () => (installEvt ? installEvt.prompt() : installApp()) }, svg('M10 3v8.2l3-3 1 1L10 13.9 6 9.2l1-1 3 3V3h0zM4 15h12v1.5H4z', 16), 'Get the desktop app'));
+    list.append(h('button', { class: 'get-app', onclick: () => (installEvt ? installEvt.prompt() : installApp()) }, svg('M10 3v8.2l3-3 1 1L10 13.9 6 9.2l1-1 3 3V3h0zM4 15h12v1.5H4z', 16), platform().phone ? 'Add Yakyard to your home screen' : 'Get the app'));
   list.scrollTop = scroll;
   updateTitle();
 }
@@ -330,7 +333,7 @@ async function openChannel(id) {
   renderSidebar();
   const main = $('#main');
   const head = channelHeader(ch);
-  const msgs = h('div', { class: 'msgs', id: 'msgs' }, h('div', { class: 'msgs-inner', id: 'msgs-inner' }));
+  const msgs = h('div', { class: 'msgs', id: 'msgs' }, h('div', { class: 'msgs-inner', id: 'msgs-inner', role: 'log', 'aria-label': 'Messages' }));
   const footer = S.channels.has(id) ? composer({ channelId: id }) : joinBar(ch);
   main.replaceChildren(head, msgs, footer);
   const jump = h('button', { class: 'jump', hidden: true, onclick: () => { msgs.scrollTo({ top: msgs.scrollHeight, behavior: 'smooth' }); } }, svg(I.caret, 14), h('span', {}, 'Jump to latest'));
@@ -463,11 +466,11 @@ function channelIntro(ch) {
   if (ch.kind === 'dm') {
     const others = dmOthers(ch);
     return h('div', { class: 'chan-intro' }, h('h2', {}, chanLabel(ch)),
-      h('p', {}, others.length ? `This is the very beginning of your direct message history with ${chanLabel(ch)}.` : 'This is your space. Draft messages, list your to-dos, or keep links and files handy.'));
+      h('p', {}, others.length ? `Start of your messages with ${chanLabel(ch)}. Say hi.` : 'Your own corner. Drafts, to-dos, links to self.'));
   }
   return h('div', { class: 'chan-intro' }, h('img', { class: 'intro-mark yak-bob', src: '/brand/mark.svg', alt: '', width: 64, height: 58 }),
     h('h2', {}, (ch.private ? '' : '# ') + ch.name),
-    h('p', {}, `This is the very beginning of #${ch.name}.`), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '', firstRun());
+    h('p', {}, 'Quiet in here. Say something.'), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '', firstRun());
 }
 // First run: the owner is alone in a new workspace. A short list of what to do next.
 function firstRun() {
@@ -478,7 +481,7 @@ function firstRun() {
       step('Bring your people in', "They'll get a link to join.", 'Invite people', invitePeople),
       step('Make a channel', 'One per project or team works well.', 'Create a channel', createChannel),
       S.pushKey ? step('Turn on notifications', 'So you hear when someone writes.', 'Turn on', enablePush)
-        : h('li', {}, h('div', { class: 'grow' }, h('b', {}, 'Phone notifications are off'), h('small', {}, 'Add VAPID keys to the server to turn them on. See the README, Notifications.')))));
+        : h('li', {}, h('div', { class: 'grow' }, h('b', {}, 'Phone notifications are off'), h('small', {}, 'They need one setup step on your server. See Notifications in the README.')))));
 }
 async function loadNewer() {
   const id = S.current, st = S.msgs.get(id);
@@ -733,7 +736,7 @@ function filesEl(files) {
   }
   return box;
 }
-const fileColor = (ext) => ({ pdf: '#b4534f', xls: '#3d7a5c', xlsx: '#3d7a5c', csv: '#3d7a5c', numbers: '#3d7a5c', doc: '#4f5f73', docx: '#4f5f73', pages: '#4f5f73', ppt: '#a8693a', pptx: '#a8693a', key: '#a8693a', zip: '#6b707b', mp4: '#5d5a73', mov: '#5d5a73' }[ext.toLowerCase()] || '#6b707b');
+const fileColor = (ext) => ({ pdf: '#b4534f', xls: '#3d7a5c', xlsx: '#3d7a5c', csv: '#3d7a5c', numbers: '#3d7a5c', doc: '#4f5f73', docx: '#4f5f73', pages: '#4f5f73', ppt: '#94592b', pptx: '#94592b', key: '#a8693a', zip: '#6b707b', mp4: '#5d5a73', mov: '#5d5a73' }[ext.toLowerCase()] || '#6b707b');
 function lightbox(src) {
   const lb = h('div', { class: 'lightbox', onclick: () => lb.remove() }, h('img', { src }));
   document.body.append(lb);
@@ -879,7 +882,7 @@ async function openThread(id) {
   pane.replaceChildren(
     h('div', { class: 'thread-head' }, h('button', { class: 'icon-btn th-back', title: 'Back', onclick: () => closeThread(true) }, svg('M11.7 4.3a1 1 0 0 1 0 1.4L7.4 10l4.3 4.3a1 1 0 0 1-1.4 1.4l-5-5a1 1 0 0 1 0-1.4l5-5a1 1 0 0 1 1.4 0z', 18)), h('h3', {}, 'Thread'), h('span', { class: 'sub' }, ch.kind === 'dm' ? chanLabel(ch) : '# ' + ch.name),
       h('button', { class: 'icon-btn', title: 'Close', onclick: () => closeThread(true) }, svg(I.close, 18))),
-    h('div', { class: 'msgs', id: 'thread-msgs' }, h('div', { class: 'msgs-inner', id: 'thread-inner' })),
+    h('div', { class: 'msgs', id: 'thread-msgs' }, h('div', { class: 'msgs-inner', id: 'thread-inner', role: 'log', 'aria-label': 'Thread replies' })),
     S.channels.has(S.current) ? composer({ channelId: S.current, threadId: id }) : '',
   );
   if (S.threadBar) pane.append(S.threadBar);
@@ -1042,7 +1045,7 @@ function composer({ channelId, threadId }) {
       m._freshAt = tmp ? 0 : Date.now();
       applyMessage(m, true);
     } catch (e) {
-      toast('Not sent. ' + e.message);
+      toast(e.message);
       ed.innerHTML = keepHtml; pending.push(...keepPending); pendingBox.replaceChildren(...keepChips); for (const [k, v] of keepMentions) mentionMap.set(k, v); sync();
     }
   }
@@ -1092,7 +1095,7 @@ function composer({ channelId, threadId }) {
         m._freshAt = Date.now(); applyMessage(m, true);
         done();
       } catch (e) {
-        toast('Voice note not sent. ' + e.message);
+        toast(e.message === "That didn't go through. Try again." ? 'Voice note not sent. Try again.' : e.message);
         // keep it so nothing is lost
         const a = h('a', { href: URL.createObjectURL(file), download: file.name }, 'Save the recording');
         bar.replaceChildren(h('span', { class: 'rec-fail' }, 'Not sent. '), a, h('button', { class: 'rec-btn', title: 'Close', onclick: done }, svg(I.close, 14)));
@@ -1322,11 +1325,17 @@ let ws = null, wsRetry = 1000;
 function connect() {
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   ws.onopen = () => {
+    clearTimeout(connect.downT); connect.downT = 0;
+    if (connect.bar) { connect.bar.textContent = 'Back online.'; const b = connect.bar; connect.bar = null; setTimeout(() => b.remove(), 2000); }
     wsRetry = 1000; sendVis();
     if (connect.wasDown) resync();
     if (H.channel) { for (const sid of [...H.peers.keys()]) dropPeer(sid); sendWS({ type: 'huddle_join', channel_id: H.channel }); }
   };
-  ws.onclose = () => { connect.wasDown = true; setTimeout(connect, wsRetry); wsRetry = Math.min(wsRetry * 2, 15000); };
+  ws.onclose = () => {
+    connect.wasDown = true; setTimeout(connect, wsRetry); wsRetry = Math.min(wsRetry * 2, 15000);
+    // Only say it after 2 seconds, so a quick blip shows nothing.
+    connect.downT ||= setTimeout(() => { if (!connect.bar) document.body.append(connect.bar = h('div', { class: 'conn', role: 'status' }, "Can't reach your server. Reconnecting…")); }, 2000);
+  };
   ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
 }
 setInterval(() => { if (ws?.readyState === 1) ws.send('{"type":"ping"}'); }, 30000);
@@ -1444,7 +1453,7 @@ function modal(title, body, buttons = [['Close']]) {
   const foot = h('div', { class: 'modal-foot' });
   buttons.forEach(([label, fn, kind], i) => {
     foot.append(h('button', {
-      class: 'btn' + (kind === 'danger' ? ' danger' : fn && i === buttons.length - 1 ? ' primary' : ''),
+      class: 'btn' + (kind === 'danger' ? ' danger' : fn && i === buttons.length - 1 ? ' primary' : ' ghost'),
       onclick: async (e) => { if (!fn) return closeModal(); const btn = e.currentTarget; btn.disabled = true; try { const keep = await fn(); if (!keep) closeModal(); else btn.disabled = false; } catch (err) { toast(err.message); btn.disabled = false; } },
     }, label));
   });
@@ -1968,7 +1977,7 @@ function channelsTable() {
     h('div', { class: 'thead cgrid' }, h('span', {}, 'Channel'), h('span', {}, 'Type'), h('span', {}, 'Members'), h('span', {}, 'Messages'), h('span', {}, 'Last message'), h('span', {})), body);
 }
 async function setChannel(c, change) {
-  try { await api(`/api/admin/channels/${c.id}`, { method: 'PATCH', body: change }); A.channels = await api('/api/admin/channels'); renderAdmin(); await bootstrap(); renderSidebar(); }
+  try { await api(`/api/channels/${c.id}/manage`, { method: 'POST', body: change }); A.channels = await api('/api/admin/channels'); renderAdmin(); await bootstrap(); renderSidebar(); }
   catch (e) { toast(e.message); }
 }
 
@@ -2034,7 +2043,7 @@ async function openTeam() {
     });
     root.replaceChildren(
       h('header', { class: 'admin-head' }, h('div', {}, h('h1', {}, 'Team time'), h('p', {}, 'Local time for everyone who chose to share their city.')), h('div', { class: 'admin-actions' }, S.workspace.weather ? unitBtn : '')),
-      !S.workspace.location ? h('div', { class: 'card empty-row' }, 'Team clocks are off for this workspace. The admin can turn them on with TEAM_LOCATION (see the README).')
+      !S.workspace.location ? h('div', { class: 'card empty-row' }, isAdmin() ? 'Team clocks are off. Turn them on with TEAM_LOCATION in wrangler.toml (see the README).' : 'Team clocks are off. Your admin can turn them on.')
         : cards.length ? h('div', { class: 'tgrid' }, ...cards) : h('div', { class: 'card empty-row' }, 'Nobody shares their city yet. Turn it on for yourself in Status and notifications.',
           ' ', h('a', { href: '#/prefs' }, 'Open settings')),
       h('p', { class: 'tnote' }, 'Location comes from each person’s internet connection, so a VPN can show a different city.'));
@@ -2161,8 +2170,12 @@ function applyBoot(b) {
   S.saved = new Set(b.saved || []); S.pushKey = b.push_key || ''; S.pushDevices = b.push_devices || 0;
   return prev;
 }
+// Signed out or session gone: forget cached messages and drafts on this device.
+async function forgetLocal() {
+  try { Object.keys(localStorage).filter((k) => k === 'yy-boot' || k === 'yy-drafts' || k.startsWith('yy-m-')).forEach((k) => localStorage.removeItem(k)); await caches?.delete('yakyard-shell'); } catch {}
+}
 async function signOut() {
-  try { Object.keys(localStorage).filter((k) => k === 'yy-boot' || k.startsWith('yy-m-')).forEach((k) => localStorage.removeItem(k)); await caches?.delete('yakyard-shell'); } catch {}
+  await forgetLocal();
   // Sign-out is a POST (the server refuses cross-site sign-outs).
   const f = document.createElement('form'); f.method = 'post'; f.action = '/auth/logout';
   document.body.append(f); f.submit();

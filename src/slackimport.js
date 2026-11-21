@@ -6,6 +6,7 @@
 // Slack profile. Anyone with no Yakyard account yet gets a hidden placeholder (`<slack id>@bot.local`).
 // When that person later connects their own Slack, the placeholder is merged into their account,
 // so both halves of a DM end up in one conversation.
+import { openDm } from './features.js';
 
 // The Slack workspace people may import from (SLACK_TEAM_ID). Required: without it anyone could
 // import from a Slack workspace they made themselves.
@@ -124,7 +125,7 @@ export async function slackRoutes(req, env, user, ctx) {
     // The Slack account must be this person's own.
     const owner = await env.DB.prepare('SELECT id FROM users WHERE slack_id=?').bind(au.id).first();
     if (owner && owner.id !== user.id) {
-      await fetch('https://slack.com/api/auth.revoke', { headers: { authorization: 'Bearer ' + au.access_token } }).catch(() => {});
+      await revoke(au.access_token);
       return back('other');
     }
     if (!owner) {
@@ -206,12 +207,12 @@ async function runSlice(env, userId) {
     await save(true);
     const done = S.phase === 'done';
     if (done) {
-      await fetch('https://slack.com/api/auth.revoke', { headers: { authorization: 'Bearer ' + ctx.token } }).catch(() => {});
+      await revoke(ctx.token);
       try { await env.HUB.get(env.HUB.idFromName('workspace')).fetch('https://hub/broadcast', { method: 'POST', body: JSON.stringify({ event: { type: 'import_done' }, to: [userId] }) }); } catch {}
     }
   } catch (e) {
     const msg = String(e?.message || e).slice(0, 300);
-    const fatal = /invalid_auth|token_revoked|account_inactive|not_authed/.test(msg);
+    const fatal = /invalid_auth|token_revoked|account_inactive|not_authed|OperationError|TOKEN_KEY/.test(msg);
     await env.DB.prepare(`UPDATE slack_imports SET state=?, msgs=msgs+?, files=files+?, lock_until=?, error=?, updated_at=? ${fatal ? ", status='error', token_enc=''" : ''} WHERE user_id=?`)
       .bind(JSON.stringify(S), ctx.msgs, ctx.files, /ratelimited/.test(msg) ? now() + 60e3 : 0, msg, now(), userId).run();
   }
@@ -345,15 +346,7 @@ async function ensureChannel(ctx, c) {
     }
     const ids = [user.id];
     for (const s of sids) ids.push(await mapUser(ctx, s));
-    const uniq = [...new Set(ids)].sort();
-    const key = uniq.join(',');
-    let ch = await env.DB.prepare('SELECT id FROM channels WHERE dm_key=?').bind(key).first();
-    if (!ch) {
-      const id = rid('D');
-      await env.DB.prepare("INSERT INTO channels (id,kind,name,dm_key,private,created_by,created_at,last_ts) VALUES (?,'dm','',?,1,?,?,0)").bind(id, key, user.id, now()).run();
-      ch = { id };
-    }
-    await env.DB.batch(uniq.map((u) => env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(ch.id, u, now(), now())));
+    const ch = await openDm(env, ids, user.id, 0);
     return ch.id;
   }
   // Private channel: matched only by its Slack id (unique, and conversations.list with this person's
@@ -414,7 +407,7 @@ async function saveMessages(ctx, cid, list) {
       if (f.is_external || f.external_type || f.mode === 'external') continue;
       const url = f.url_private_download || f.url_private; if (!url || !slackFileUrl(url)) continue;
       const ym = new Date(tsMs(m.ts)).toISOString().slice(0, 7);
-      const k = `slack/${ym}/${f.id}/` + String(f.name || f.id).replace(/[^A-Za-z0-9 ._()\-]/g, '_');
+      const k = `slack/${ym}/${f.id}/${cid}/` + String(f.name || f.id).replace(/[^A-Za-z0-9 ._()\-]/g, '_');
       files.push({ key: k, name: f.name || f.id, size: f.size || 0, type: f.mimetype || 'application/octet-stream' });
       const have = await env.DB.prepare('SELECT 1 FROM files WHERE key=?').bind(k).first();
       if (!have && (f.size || 0) < 90e6) { S.files.push({ url, key: k, type: f.mimetype || '' }); stmts.push(env.DB.prepare('INSERT OR IGNORE INTO files (key,uploader,channel_id,created_at) VALUES (?,?,?,?)').bind(k, author, cid, tsMs(m.ts))); }

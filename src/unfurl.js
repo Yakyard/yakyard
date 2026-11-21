@@ -53,11 +53,6 @@ function isValidContentType(contentType) {
   );
 }
 
-/**
- * Handles the unfurling of a URL by extracting metadata such as title, description, image, and favicon.
- * @param {string} url - The URL to unfurl.
- * @returns {Promise<Result<UnfurledData, UnfurlError>>} - A promise that resolves to an object containing the extracted metadata, or null if an error occurs.
- */
 // Link previews may only fetch public web pages: http(s), normal ports, no private or local hosts.
 const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\[)|\.local$|\.internal$|\.localhost$|^\d+$|^[\d.]+$/i;
 export function safeFetchUrl(u) {
@@ -70,6 +65,11 @@ export function safeFetchUrl(u) {
 }
 const MAX_HTML = 512 * 1024;
 
+/**
+ * Handles the unfurling of a URL by extracting metadata such as title, description, image, and favicon.
+ * @param {string} url - The URL to unfurl.
+ * @returns {Promise<Result<UnfurledData, UnfurlError>>} - A promise that resolves to an object containing the extracted metadata, or null if an error occurs.
+ */
 export async function unfurl(url) {
   if (typeof url !== "string" || !safeFetchUrl(url)) {
     return { ok: false, error: "bad-param" };
@@ -191,34 +191,6 @@ function parseDimension(value) {
   if (typeof value !== "string") return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-/**
- * Implements a handler for a GET request where the uri is passed in as a search param called `url`.
- *
- * e.g. GET /foo/bar?url=https://example.com
- *
- * @param {Request} request
- * @returns {Promise<Response>}
- */
-export async function handleUnfurlRequest(request) {
-  const url = new URL(request.url).searchParams.get("url");
-
-  if (!url) {
-    return new Response("Missing URL query parameter.", { status: 400 });
-  }
-
-  const result = await unfurl(url);
-
-  if (result.ok) {
-    return new Response(JSON.stringify(result.value), {
-      headers: { "Content-Type": "application/json" },
-    });
-  } else if (result.error === "bad-param") {
-    return new Response("Bad URL query parameter.", { status: 400 });
-  } else {
-    return new Response("Failed to fetch URL.", { status: 422 });
-  }
 }
 
 /**

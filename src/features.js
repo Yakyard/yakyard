@@ -7,6 +7,9 @@ const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const err = (status, message) => json({ error: message }, status);
 
+// Full 8 groups of an IPv6 address, so "a::1" and "a::2" land in the same /64.
+export const v6 = (a) => { const [h, t = ''] = a.split('::'); const H = h ? h.split(':') : [], T = t ? t.split(':') : []; return a.includes('::') ? [...H, ...Array(Math.max(0, 8 - H.length - T.length)).fill('0'), ...T] : H; };
+
 // ---------------------------------------------------------------- push
 const plain = (t, names) => String(t || '')
   .replace(/<@(U\w+)>/g, (_, id) => '@' + (names[id] || 'someone'))
@@ -168,16 +171,16 @@ async function botUserId(env) {
   await env.DB.prepare("INSERT INTO users (id,email,name,role,active,created_at,color) VALUES (?,?,?,?,1,?,?)").bind(id, 'yakyard@bot.local', 'Yakyard', 'member', now(), '#2b1bd6').run();
   return id;
 }
-async function dmWith(env, a, b) {
-  const ids = [...new Set([a, b])].sort(); const key = ids.join(',');
-  let ch = await env.DB.prepare('SELECT * FROM channels WHERE dm_key=?').bind(key).first();
-  if (!ch) {
-    const id = uid('D');
-    await env.DB.prepare("INSERT INTO channels (id,kind,name,dm_key,private,created_by,created_at,last_ts) VALUES (?,'dm','',?,1,?,?,?)").bind(id, key, a, now(), now()).run();
-    for (const u of ids) await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(id, u, 0, now()).run();
-    ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(id).first();
-  }
-  if (ch.archived) await env.DB.prepare('UPDATE channels SET archived=0 WHERE id=?').bind(ch.id).run();
+// The one way to open a DM or group DM. INSERT OR IGNORE on the unique dm_key, so two people opening it at once both get it.
+export async function openDm(env, ids, by, lastTs = now()) {
+  ids = [...new Set(ids)].sort(); const key = ids.join(',');
+  await env.DB.prepare("INSERT OR IGNORE INTO channels (id,kind,name,dm_key,private,created_by,created_at,last_ts) VALUES (?,'dm','',?,1,?,?,?)").bind(uid('D'), key, by, now(), lastTs).run();
+  const ch = await env.DB.prepare('SELECT * FROM channels WHERE dm_key=?').bind(key).first();
+  await env.DB.batch([
+    ...ids.map((u) => env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(ch.id, u, now(), now())),
+    env.DB.prepare('UPDATE channels SET archived=0 WHERE id=? AND archived=1').bind(ch.id),
+  ]);
+  ch.archived = 0;
   return ch;
 }
 
@@ -201,7 +204,7 @@ export async function cronTick(env, ctx, postMessage, runImports) {
     const bot = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(botId).first();
     for (const r of rem) {
       await env.DB.prepare('UPDATE reminders SET done=1 WHERE id=?').bind(r.id).run();
-      const ch = await dmWith(env, botId, r.user_id);
+      const ch = await openDm(env, [botId, r.user_id], botId);
       const link = r.message_id ? ` <${env.APP_URL || ''}/#/m/${r.message_id}|View message>` : '';
       try { await postMessage(env, ctx, bot, ch, { text: `Reminder: ${r.text || 'this message'}${link}` }); } catch (e) { console.log('reminder failed', e); }
     }
@@ -399,12 +402,19 @@ export async function featureApi(req, env, user, path, method, body, x) {
     if (body.delete) {
       if (!admin) return err(403, 'Only admins can delete channels');
       const mem = await x.channelMembers(env, ch.id);
+      // Its files go too (rows and stored objects), so nothing is left that nobody can open.
+      const keys = (await env.DB.prepare('SELECT key FROM files WHERE channel_id=?').bind(ch.id).all()).results.map((r) => r.key);
+      for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000));
       await env.DB.batch([
+        env.DB.prepare('DELETE FROM files WHERE channel_id=?').bind(ch.id),
         env.DB.prepare('DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE channel_id=?)').bind(ch.id),
         env.DB.prepare('DELETE FROM mentions WHERE channel_id=?').bind(ch.id),
         env.DB.prepare('DELETE FROM pins WHERE channel_id=?').bind(ch.id),
         env.DB.prepare('DELETE FROM messages WHERE channel_id=?').bind(ch.id),
         env.DB.prepare('DELETE FROM members WHERE channel_id=?').bind(ch.id),
+        env.DB.prepare('DELETE FROM scheduled WHERE channel_id=?').bind(ch.id),
+        env.DB.prepare('DELETE FROM pending_members WHERE channel_id=?').bind(ch.id),
+        env.DB.prepare('DELETE FROM slack_channels WHERE channel_id=?').bind(ch.id),
         env.DB.prepare('DELETE FROM channels WHERE id=?').bind(ch.id),
       ]);
       await broadcast(env, { type: 'channel_removed', channel_id: ch.id }, mem);
@@ -465,7 +475,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     await env.FILES.put(key, bytes, { httpMetadata: { contentType: type } });
     const avatarUrl = '/files/' + key;
     await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatarUrl, user.id).run();
-    await broadcast(env, { type: 'user_updated', user: { id: user.id, avatar: avatarUrl } });
+    await x.audience(env, user.id).then((to) => broadcast(env, { type: 'user_updated', user: { id: user.id, avatar: avatarUrl } }, to));
     return json({ avatar: avatarUrl });
   }
 

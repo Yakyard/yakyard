@@ -7,15 +7,18 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "node scripts/deploy.mjs",
-    "db:init": "wrangler d1 execute yakyard --remote --file=schema.sql",
-    "db:init:local": "wrangler d1 execute yakyard --local --file=schema.sql",
+    "db:init": "wrangler d1 execute DB --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute DB --local --file=schema.sql",
     "vapid": "node scripts/vapid.mjs",
-    "test": "node --test test/merge-placeholder.test.mjs"
+    "test": "node --test test/*.test.mjs && python3 test/security.py"
   },
   "dependencies": {
     "@pushforge/builder": "2.0.5"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22.5"
   }
 }

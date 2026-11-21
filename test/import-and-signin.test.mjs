@@ -34,3 +34,11 @@ test('placeholder DM merges into the real person and both halves end up in one D
   assert.equal(m.user_id, 'bob'); assert.equal(m.channel_id, 'D2'); assert.equal(m.text, 'hi <@bob>');
   assert.equal(db.prepare("SELECT COUNT(*) n FROM channels WHERE id='D1'").get().n, 0);
 });
+
+test('IPv6 sign-in throttling groups a whole /64', async () => {
+  const { v6 } = await import('../src/features.js');
+  const net = (a) => v6(a).slice(0, 4).join(':');
+  assert.equal(net('2001:db8::1'), net('2001:db8::2'));
+  assert.equal(net('2001:db8:0:0:1::1'), '2001:db8:0:0');
+  assert.deepEqual(v6('1:2:3:4:5:6:7:8'), ['1', '2', '3', '4', '5', '6', '7', '8']);
+});
