@@ -121,13 +121,13 @@ missing for your team.
 
 **Gallery** (Product Hunt recommends 1270 × 760; crop or pad the screenshots on `#FFF8E6`)
 
-1. [`docs/guide/channel.png`](guide/channel.png): a busy channel, light theme
-2. [`docs/guide/yaky.png`](guide/yaky.png): the Yaky theme
-3. [`docs/screens/dark.png`](screens/dark.png): the dark theme
-4. [`docs/guide/search.png`](guide/search.png): searching voice notes
-5. [`docs/guide/later.png`](guide/later.png): Later, reminders and scheduled messages
+1. [`docs/screens/hero-light.png`](screens/hero-light.png): a busy channel, light theme
+2. [`docs/screens/hero-yaky.png`](screens/hero-yaky.png): the Yaky theme
+3. [`docs/screens/desktop-dark.png`](screens/desktop-dark.png): the dark theme
+4. [`docs/screens/search-voice.png`](screens/search-voice.png): searching voice notes
+5. [`docs/guide/later.png`](guide/later.png): Later, with a scheduled message
 6. [`docs/screens/slack-import.png`](screens/slack-import.png): a finished Slack import
-7. [`docs/screens/phone-yaky.png`](screens/phone-yaky.png): on a phone
+7. [`docs/screens/phone-yaky-channel.png`](screens/phone-yaky-channel.png): on a phone
 
 Logo: [`docs/brand/yakyard-app-icon.svg`](brand/yakyard-app-icon.svg), exported at 240 × 240 (Product Hunt's recommended size).
 

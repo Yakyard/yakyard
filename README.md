@@ -16,7 +16,7 @@
   <a href="LICENSE.md">License</a>
 </p>
 
-<p align="center"><img src="docs/guide/channel.png" alt="A Yakyard channel with messages, a thread, a mention and voice notes" width="860"></p>
+<p align="center"><img src="docs/screens/hero-light.png" alt="A Yakyard channel in the light theme: a shared design with reactions and a three-reply thread, and a voice note with its transcript" width="860"></p>
 
 ---
 
@@ -32,25 +32,27 @@ It started as an internal tool. It's built for and used every day by a real team
 
 **Talk the usual way.** Public and private channels, threads, direct and group messages, @mentions, reactions, pins. A message box with buttons for bold, lists, quotes and code, so nobody types markdown. Files, photos and videos up to 1 GB, with link previews.
 
-<p align="center"><img src="docs/guide/thread.png" alt="A thread open next to a channel" width="760"></p>
+<p align="center"><img src="docs/screens/thread-panel.png" alt="A thread open next to the channel, with a mention in one of the replies" width="760"></p>
 
 **Talk out loud.** Tap the mic, talk for up to 15 minutes, send. Every voice note gets a written transcript automatically, and the transcripts are searchable. When typing is too slow, click **Pop in** for a call in any channel or DM, with screen share and camera.
 
-<p align="center"><img src="docs/screens/dark.png" alt="Yakyard in the dark theme" width="760"></p>
+<p align="center"><img src="docs/screens/voice-note-transcript.png" alt="A voice note with a play button, a waveform and its full transcript" width="420"></p>
+
+<p align="center"><img src="docs/screens/desktop-dark.png" alt="The dark theme: a link, a mention and a voice note in a channel" width="760"></p>
 
 **Find it later.** Search covers messages and voice transcripts, with `from:`, `in:`, `has:`, `before:` and `after:` filters. Activity, Threads, Mentions, Files and Later pages keep the rest in reach.
 
-<p align="center"><img src="docs/guide/search.png" alt="Search results for voice notes" width="760"></p>
+<p align="center"><img src="docs/screens/search-voice.png" alt="Search for has:voice, showing two voice notes matched by their transcripts" width="760"></p>
 
 **Don't forget it.** Send a message later, set a reminder on any message, or save it for Later. All three live on one page.
 
 **Take it everywhere.** Install Yakyard like an app on iPhone, Android, Mac and Windows (it's a PWA). Push notifications with quiet hours, muted channels and VIPs who still get through.
 
-<p align="center"><img src="docs/screens/phone-yaky.png" alt="Yakyard on a phone in the Yaky theme" width="280"></p>
+<p align="center"><img src="docs/screens/phone-light-channel.png" alt="A channel on a phone, light theme" width="260">&nbsp;&nbsp;<img src="docs/screens/phone-yaky-dms.png" alt="The direct messages list on a phone, Yaky theme, with unread counts" width="260"></p>
 
 **Make it yours.** Three themes: Light, Dark and Yaky, the loud one. Each person picks their own.
 
-<p align="center"><img src="docs/guide/yaky.png" alt="The Yaky theme: indigo frame, yellow highlights" width="760"></p>
+<p align="center"><img src="docs/screens/hero-yaky.png" alt="The Yaky theme: indigo frame, yellow highlights" width="760"></p>
 
 **Bring people in, keep others out.** Invite links, passwords, or Sign in with Google limited to your company domain. Guests (clients, freelancers) only see the channels you give them.
 

@@ -1724,7 +1724,7 @@ function feedItem(m, extra) {
   return h('button', { class: 'fitem', onclick: () => jumpTo(m) },
     h('div', { class: 'fctx' }, extra?.badge || '', h('span', {}, where(m.channel_id)), h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), h('span', {}, ago(m.ts))),
     h('div', { class: 'frow' }, avatar(u, 'av', '13px'), h('div', { class: 'fbody' },
-      h('b', {}, u.name), h('div', { class: 'text', html: fmt(m.text) || (m.files?.[0]?.voice ? '<i>Voice note' + (m.files[0].transcript ? ': ' + esc(m.files[0].transcript.slice(0, 140)) : '') + '</i>' : m.files?.length ? '<i>Shared a file</i>' : '') }), extra?.after || '')));
+      h('b', {}, u.name), h('div', { class: 'text', html: fmt(m.text) || (m.files?.[0]?.voice ? '<i>Voice note' + (m.files[0].transcript ? ': ' + esc(m.files[0].transcript.length > 140 ? m.files[0].transcript.slice(0, 140).replace(/\s+\S*$/, '') + '…' : m.files[0].transcript) : '') + '</i>' : m.files?.length ? '<i>Shared a file</i>' : '') }), extra?.after || '')));
 }
 function jumpTo(m) {
   if (m.thread_id) { S.focus = { id: m.id }; go(m.channel_id, m.thread_id); return; }

@@ -1354,8 +1354,9 @@ body.bubbles .msg.mine .text.has-bar > .hover-bar { font-size: var(--fs-lg); }
 .vn-play:active { transform: scale(.94); }
 .vn-play svg { width: 16px; height: 16px; margin-left: 1px; }
 .voice.playing .vn-play svg { margin-left: 0; }
-.vn-wave { flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; gap: 2px; cursor: pointer; touch-action: none; }
-.vn-wave i { flex: 1; min-width: 2px; max-width: 4px; border-radius: 2px; background: rgb(var(--ink-rgb) / .45); transition: background .12s; }
+.vn-wave { flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; gap: 2px; overflow: hidden; cursor: pointer; touch-action: none; }
+.vn-wave i { flex: 1; min-width: 1px; max-width: 4px; border-radius: 2px; background: rgb(var(--ink-rgb) / .45); transition: background .12s; }
+@media (max-width: 760px) { .vn-wave { gap: 1px; } }
 .vn-wave i.on { background: var(--accent-ink, var(--success)); }
 .vn-time { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 34px; text-align: right; }
 .vn-speed { font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2); background: rgb(var(--ink-rgb) / .07); border-radius: var(--radius-sm); padding: 2px 7px; min-width: 34px; }

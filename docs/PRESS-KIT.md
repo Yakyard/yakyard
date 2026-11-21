@@ -85,16 +85,19 @@ Real screenshots of the app, with made-up team names and messages. Use any of th
 
 | File | Shows |
 |---|---|
-| [`docs/guide/channel.png`](guide/channel.png) | A busy channel: thread, mention, voice notes (light theme) |
-| [`docs/screenshot-app.png`](screenshot-app.png) | A channel in the light theme |
-| [`docs/screens/dark.png`](screens/dark.png) | The dark theme |
-| [`docs/guide/yaky.png`](guide/yaky.png) | The Yaky theme |
-| [`docs/screens/phone-yaky.png`](screens/phone-yaky.png) | Phone, Yaky theme |
-| [`docs/guide/phone.png`](guide/phone.png) | Phone, light theme |
-| [`docs/guide/thread.png`](guide/thread.png) | A thread open beside a channel |
-| [`docs/guide/search.png`](guide/search.png) | Searching voice notes |
-| [`docs/guide/later.png`](guide/later.png) | Later: saved, reminders and scheduled messages |
-| [`docs/guide/voice-note.png`](guide/voice-note.png) | A voice note |
+| [`docs/screens/hero-light.png`](screens/hero-light.png) | Hero, light theme: a shared design, reactions, a thread, a voice note with transcript (1440 × 900 at 1.5x) |
+| [`docs/screens/hero-yaky.png`](screens/hero-yaky.png) | Hero, Yaky theme |
+| [`docs/screens/desktop-dark.png`](screens/desktop-dark.png) | The dark theme: a link, a mention and a voice note |
+| [`docs/screens/thread-panel.png`](screens/thread-panel.png) | A thread open beside a channel |
+| [`docs/screens/voice-note-transcript.png`](screens/voice-note-transcript.png) | Close-up of a voice note and its transcript |
+| [`docs/screens/search-voice.png`](screens/search-voice.png) | Search for `has:voice`, matched by transcript |
+| [`docs/screens/phone-light-channel.png`](screens/phone-light-channel.png) | Phone, light theme, a channel |
+| [`docs/screens/phone-light-dms.png`](screens/phone-light-dms.png) | Phone, light theme, direct messages |
+| [`docs/screens/phone-yaky-channel.png`](screens/phone-yaky-channel.png) | Phone, Yaky theme, a channel |
+| [`docs/screens/phone-yaky-dms.png`](screens/phone-yaky-dms.png) | Phone, Yaky theme, direct messages |
+| [`docs/screens/help-panel.png`](screens/help-panel.png) | The Help panel |
+| [`docs/screens/admin-usage.png`](screens/admin-usage.png) | Admin: team numbers and free plan usage |
+| [`docs/guide/later.png`](guide/later.png) | Later: a scheduled message |
 | [`docs/screens/slack-import.png`](screens/slack-import.png) | A finished Slack import |
 | [`docs/guide/notifications.png`](guide/notifications.png) | Notification settings |
 

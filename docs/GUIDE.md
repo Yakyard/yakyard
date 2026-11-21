@@ -68,7 +68,7 @@ Keep side conversations out of the way. Hover a message and click **Reply** (on 
 
 Type **@** and a name to get someone's attention. They get a notification. **@here** or **@channel** reaches everyone in the conversation, so use it when it matters.
 
-<img src="guide/mention.png" alt="Typing @an shows Ana Ruiz to pick">
+<img src="guide/mention.png" alt="Typing @pr shows Priya Raman to pick">
 
 To react, hover a message and pick an emoji. Hover a reaction to see who reacted. **Mentions & reactions** in the sidebar shows everything aimed at you.
 
@@ -76,7 +76,7 @@ To react, hover a message and pick an emoji. Hover a reaction to see who reacted
 
 Tap the mic in the message box, talk, then send. Up to 15 minutes.
 
-<img src="guide/voice-note.png" width="420" alt="A voice note with a play button, a waveform and a line about the transcript">
+<img src="guide/voice-note.png" width="420" alt="A voice note with a play button, a waveform and its transcript">
 
 - Yakyard writes down what you said. The transcript shows under the note and is searchable.
 - Play at 1x, 1.5x or 2x. Click the waveform to jump.
@@ -116,7 +116,7 @@ Mix them: `banner from:@ben in:#launch-plans`.
 
 **Later** in the sidebar keeps all three in one place, on three tabs. You can send a scheduled message now, change its time, or delete it.
 
-<img src="guide/later.png" alt="The Later page with a saved message, a reminder and a scheduled message">
+<img src="guide/later.png" alt="The Later page, Scheduled tab: a message set to send Thursday at 10">
 
 ## Notifications
 
