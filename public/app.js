@@ -472,7 +472,8 @@ function channelIntro(ch, empty) {
   }
   return h('div', { class: 'chan-intro' }, h('img', { class: 'intro-mark yak-bob', src: '/brand/mark.svg', alt: '', width: 64, height: 58 }),
     h('h2', {}, (ch.private ? '' : '# ') + ch.name),
-    h('p', {}, empty ? 'Quiet in here. Say something.' : `This is where ${ch.private ? '' : '#'}${ch.name} starts.`), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '', firstRun());
+    h('p', {}, empty ? 'Quiet in here. Say something.' : `This is where ${ch.private ? '' : '#'}${ch.name} starts.`), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '',
+    S.me.role === 'guest' ? h('p', { class: 'intro-topic' }, "You're a guest here. You see the channels you were added to.") : '', firstRun());
 }
 // First run: the owner is alone in a new workspace. A short list of what to do next.
 function firstRun() {
@@ -880,7 +881,13 @@ function deleteMessage(m) {
 }
 
 // ------------------------------------------------------------------ threads
+// Panels opened from the keyboard appear at once; motion is for pointer and touch.
+let keyAt = 0;
+addEventListener('keydown', () => (keyAt = Date.now()), true);
+addEventListener('pointerdown', () => (keyAt = 0), true);
+function instantIfKeyboard() { if (Date.now() - keyAt < 600) { document.body.classList.add('instant'); setTimeout(() => document.body.classList.remove('instant'), 400); } }
 async function openThread(id) {
+  instantIfKeyboard();
   S.thread = id;
   $('#app').classList.add('has-thread');
   const pane = $('#thread');
@@ -1060,7 +1067,7 @@ function composer({ channelId, threadId }) {
   let vrec = null;
   async function startVoice() {
     if (vrec) return;
-    if (H.channel) return toast('Leave the pop-in to record a voice note');
+    if (H.channel) return toast('Leave the call to record a voice note');
     const dot = h('span', { class: 'rec-dot' });
     const clock = h('span', { class: 'rec-time' }, '0:00');
     const cv = h('canvas', { class: 'rec-wave', height: 32 });
@@ -1453,8 +1460,10 @@ function menu(items, x, y, flipY) {
   document.body.append(m);
   const w = m.offsetWidth, ht = m.offsetHeight;
   if (flipY != null && y + ht > innerHeight - 8) y = flipY - ht - 4;
-  m.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + 'px';
-  m.style.top = Math.max(8, Math.min(y, innerHeight - ht - 8)) + 'px';
+  const left = Math.max(8, Math.min(x, innerWidth - w - 8)), top = Math.max(8, Math.min(y, innerHeight - ht - 8));
+  m.style.left = left + 'px'; m.style.top = top + 'px';
+  // Grow from the side the menu was opened from: pushed left by the screen edge, it opens from its right; placed above, from its bottom.
+  m.style.transformOrigin = `${left < x - 1 ? 'right' : 'left'} ${top < y - 1 ? 'bottom' : 'top'}`;
 }
 function modal(title, body, buttons = [['Close']]) {
   const ov = $('#overlay');
@@ -1462,7 +1471,17 @@ function modal(title, body, buttons = [['Close']]) {
   buttons.forEach(([label, fn, kind], i) => {
     foot.append(h('button', {
       class: 'btn' + (kind === 'danger' ? ' danger' : fn && i === buttons.length - 1 ? ' primary' : ' ghost'),
-      onclick: async (e) => { if (!fn) return closeModal(); const btn = e.currentTarget; btn.disabled = true; try { const keep = await fn(); if (!keep) closeModal(); else btn.disabled = false; } catch (err) { toast(err.message); btn.disabled = false; } },
+      onclick: async (e) => {
+        if (!fn) return closeModal();
+        const btn = e.currentTarget, m = btn.closest('.modal'); btn.disabled = true;
+        m.querySelector('.modal-error')?.remove();
+        try { const keep = await fn(); if (!keep) closeModal(); else btn.disabled = false; } catch (err) {
+          // The error sits in the dialog, next to what it is about, and focus goes to the field to fix.
+          btn.disabled = false;
+          m.querySelector('.modal-foot').before(h('p', { class: 'login-error modal-error', role: 'alert' }, err.message || "That didn't go through. Try again."));
+          (m.querySelector('.modal-body :invalid') || m.querySelector('.modal-body input:not([type=checkbox]), .modal-body textarea'))?.focus();
+        }
+      },
     }, label));
   });
   modal.returnTo = document.activeElement;
@@ -1526,7 +1545,9 @@ async function emojiPicker(anchor, onPick) {
     const r = anchor.getBoundingClientRect(), W = pop.offsetWidth || 352, H = pop.offsetHeight || 440;
     if (innerWidth <= 760) { if (!pop.classList.contains('em-sheet')) pushOverlay(); pop.classList.add('em-sheet'); pop.style.left = '0px'; pop.style.right = '0px'; pop.style.top = 'auto'; pop.style.bottom = '0px'; return; }
     pop.style.left = Math.max(8, Math.min(r.left - W / 2 + r.width / 2, innerWidth - W - 8)) + 'px';
-    pop.style.top = Math.max(8, r.top > H + 16 ? r.top - H - 6 : Math.min(r.bottom + 6, innerHeight - H - 8)) + 'px';
+    const above = r.top > H + 16;
+    pop.style.top = Math.max(8, above ? r.top - H - 6 : Math.min(r.bottom + 6, innerHeight - H - 8)) + 'px';
+    pop.style.transformOrigin = `${Math.round(r.left + r.width / 2 - parseFloat(pop.style.left))}px ${above ? 'bottom' : 'top'}`;
   };
   place();
   const pick = (v) => { closePopups(); rememberEmoji(v); onPick(v); };
@@ -1620,11 +1641,11 @@ function addChannelMenu(e) {
 }
 function createChannel() {
   const name = h('input', { class: 'input', placeholder: 'e.g. plan-budget', maxlength: 80 });
-  const topic = h('input', { class: 'input', placeholder: 'What is this channel about? (optional)' });
+  const topic = h('input', { class: 'input', placeholder: 'What is this channel about?' });
   const priv = h('input', { type: 'checkbox' });
   modal('Create a channel', h('div', {},
     h('label', { class: 'field' }, h('span', {}, 'Name'), name, h('small', {}, 'Lowercase, no spaces. Use dashes: like-this.')),
-    h('label', { class: 'field' }, h('span', {}, 'Description'), topic),
+    h('label', { class: 'field' }, h('span', {}, 'Description, optional'), topic),
     h('label', { class: 'check' }, priv, h('span', {}, h('b', {}, 'Make private'), h('br'), h('small', {}, 'Only invited people can see and join it.')))),
   [['Cancel'], ['Create', async () => {
     const ch = await api('/api/channels', { method: 'POST', body: { name: name.value, topic: topic.value, private: priv.checked } });
@@ -1634,7 +1655,7 @@ function createChannel() {
 }
 async function browseChannels() {
   const list = await api('/api/channels');
-  const q = h('input', { class: 'input', placeholder: 'Search for a channel' });
+  const q = h('input', { class: 'input', placeholder: 'Search for a channel…' });
   const box = h('div', { style: { marginTop: '12px' } });
   const draw = () => box.replaceChildren(...list.filter((c) => c.name.includes(q.value.toLowerCase())).map((c) => h('div', { class: 'list-item', onclick: () => { closeModal(); go(c.id); } },
     h('div', { class: 'grow' }, h('div', { class: 't' }, (c.private ? '🔒 ' : '# ') + c.name + (c.archived ? ' (archived)' : '')),
@@ -1644,7 +1665,7 @@ async function browseChannels() {
 }
 function composeDM() {
   const chosen = [];
-  const q = h('input', { class: 'input', placeholder: 'Type a name' });
+  const q = h('input', { class: 'input', placeholder: 'Type a name…' });
   const chips = h('div', { class: 'chips' });
   const box = h('div', {});
   const draw = () => {
@@ -1665,7 +1686,7 @@ function composeDM() {
 }
 function findConversation() { document.body.classList.add('instant'); setTimeout(() => document.body.classList.remove('instant'), 400); return findConversationInner(); }
 function findConversationInner() {
-  const q = h('input', { class: 'input', placeholder: 'Jump to a channel or person' });
+  const q = h('input', { class: 'input', placeholder: 'Jump to a channel or person…' });
   const box = h('div', { style: { marginTop: '8px' } });
   let sel = 0, items = [];
   const draw = () => {
@@ -1799,7 +1820,7 @@ async function channelDetails(ch, tab) {
   const list = h('div', {}, ...ids.map((id) => { const u = user(id); return h('div', { class: 'list-item member', onclick: () => profile(u) }, avatar(u, 'av', '14px'), h('div', { class: 'grow' }, h('div', { class: 't' }, u.name), h('div', { class: 's' }, u.title || u.email))); }));
   const addBox = h('div', {});
   const addBtn = h('button', { class: 'btn', onclick: () => {
-    const q = h('input', { class: 'input', placeholder: 'Add people by name' });
+    const q = h('input', { class: 'input', placeholder: 'Add people by name…' });
     const res = h('div', {});
     q.addEventListener('input', () => res.replaceChildren(...[...S.users.values()].filter((u) => u.active && !ids.includes(u.id) && u.name.toLowerCase().includes(q.value.toLowerCase())).slice(0, 8)
       .map((u) => h('div', { class: 'list-item', onclick: async () => { await api(`/api/channels/${ch.id}/members`, { method: 'POST', body: { user_ids: [u.id] } }); toast(`${u.name} added`); closeModal(); loadMembers(ch.id); } }, avatar(u, 'av', '14px'), h('div', { class: 'grow t' }, u.name)))));
@@ -1903,7 +1924,7 @@ function renderAdmin() {
 const kpi = (n, l) => h('div', { class: 'kpi' }, h('b', {}, String(n)), h('span', {}, l));
 function peopleTable(counts) {
   const filters = [['all', 'Everyone'], ['active', 'Signed in'], ['invited', 'Invite sent'], ['not_invited', 'Not invited'], ['admins', 'Admins'], ['guest', 'Guests'], ['deactivated', 'Deactivated']];
-  const search = h('input', { class: 'input admin-search', placeholder: 'Search people', value: A.q, oninput: (e) => { A.q = e.target.value; draw(); } });
+  const search = h('input', { class: 'input admin-search', placeholder: 'Search people…', value: A.q, oninput: (e) => { A.q = e.target.value; draw(); } });
   const chips = h('div', { class: 'chips-row' }, ...filters.map(([k, l]) => h('button', { class: 'fchip' + (A.filter === k ? ' on' : ''), onclick: () => { A.filter = k; renderAdmin(); } }, l, h('i', {}, counts[k] || 0))));
   const body = h('div', { class: 'tbody' });
   const draw = () => {
@@ -2061,7 +2082,7 @@ async function openTeam() {
     });
     root.replaceChildren(
       h('header', { class: 'admin-head' }, h('div', {}, h('h1', {}, 'Team time'), h('p', {}, 'Local time for everyone who chose to share their city.')), h('div', { class: 'admin-actions' }, S.workspace.weather ? unitBtn : '')),
-      !S.workspace.location ? h('div', { class: 'card empty-row' }, isAdmin() ? 'Team clocks are off. Turn them on with TEAM_LOCATION in wrangler.toml (see the README).' : 'Team clocks are off. Your admin can turn them on.')
+      !S.workspace.location ? h('div', { class: 'card empty-row' }, isAdmin() ? 'Team clocks are off. Turn them on with TEAM_LOCATION in wrangler.jsonc (see the README).' : 'Team clocks are off. Your admin can turn them on.')
         : cards.length ? h('div', { class: 'tgrid' }, ...cards) : h('div', { class: 'card empty-row' }, 'Nobody shares their city yet. Turn it on for yourself in Status and notifications.',
           ' ', h('a', { href: '#/prefs' }, 'Open settings')),
       h('p', { class: 'tnote' }, 'Location comes from each person’s internet connection, so a VPN can show a different city.'));
@@ -2348,7 +2369,7 @@ async function startHuddle(cid) {
   H.panel = true;
   if (H.channel) {
     const ch = S.channels.get(H.channel);
-    return modal('Already in a pop-in', h('p', {}, `Leave the pop-in in ${ch ? (ch.kind === 'dm' ? chanLabel(ch) : '#' + ch.name) : 'another conversation'} and pop in here?`),
+    return modal('Already in a call', h('p', {}, `Leave the call in ${ch ? (ch.kind === 'dm' ? chanLabel(ch) : '#' + ch.name) : 'another conversation'} and join this one?`),
       [['Cancel'], ['Switch', async () => { leaveHuddle(true); await startHuddle(cid); }]]);
   }
   try {
@@ -2530,7 +2551,7 @@ function huddleButton(cid) {
     wave(), h('span', { class: 'hb-live-time', id: 'hb-head-time' }, '0:00'), h('span', { class: 'hb-sep' }), 'Pop out');
   if (list.length) {
     const people = [...new Set(list.map((x) => x.user_id))];
-    return h('button', { class: 'huddle-btn live', id: 'huddle-btn', title: 'Join the pop-in (Ctrl+Shift+H)', onclick: () => startHuddle(cid) },
+    return h('button', { class: 'huddle-btn live', id: 'huddle-btn', title: 'Join the voice call (Ctrl+Shift+H)', onclick: () => startHuddle(cid) },
       wave(), h('span', { class: 'hb-faces' }, ...people.slice(0, 3).map((u) => avatar(user(u), '', '9px'))), 'Pop in too');
   }
   return h('button', { class: 'huddle-btn', id: 'huddle-btn', title: 'Start a quick voice call here (Ctrl+Shift+H)', onclick: () => startHuddle(cid) }, svg(HI.headphones, 16), 'Pop in');
@@ -2561,7 +2582,7 @@ function renderHuddleUI() {
       ctrl(H.muted ? HI.micOff : HI.mic, H.muted ? 'Unmute' : 'Mute', !H.muted, toggleMute, H.muted ? 'off' : ''),
       ctrl(HI.cam, 'Camera', H.videoKind === 'cam', () => toggleVideo('cam')),
       navigator.mediaDevices?.getDisplayMedia ? ctrl(HI.screen, 'Share screen', H.videoKind === 'screen', () => toggleVideo('screen')) : '',
-      ctrl(HI.expand, 'Open pop-in window', H.expanded, () => { H.expanded = !H.expanded; renderHuddleUI(); }),
+      ctrl(HI.expand, 'Open call window', H.expanded, () => { H.expanded = !H.expanded; renderHuddleUI(); }),
       ctrl(HI.leave, 'Pop out', false, () => leaveHuddle(), 'leave')));
   tickHuddle();
   renderStage(list);
@@ -2618,7 +2639,7 @@ function renderStage(list) {
       h('button', { class: 'sc-btn' + (H.muted ? ' off' : ''), onclick: toggleMute }, svg(H.muted ? HI.micOff : HI.mic, 18), H.muted ? 'Unmute' : 'Mute'),
       h('button', { class: 'sc-btn' + (H.videoKind === 'cam' ? ' on' : ''), onclick: () => toggleVideo('cam') }, svg(HI.cam, 18), 'Camera'),
       navigator.mediaDevices?.getDisplayMedia ? h('button', { class: 'sc-btn' + (H.videoKind === 'screen' ? ' on' : ''), onclick: () => toggleVideo('screen') }, svg(HI.screen, 18), 'Share') : '',
-      h('button', { class: 'sc-btn', title: 'Add someone to this pop-in', onclick: (e) => pickPerson(e.currentTarget, (u) => { sendWS({ type: 'huddle_invite', user_id: u.id }); toast(`Ringing ${u.name.split(' ')[0]}…`); H.ringing = { ...(H.ringing || {}), [u.id]: Date.now() }; renderHuddleUI(); }) }, svg('M8 3a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zm0 1.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM2 16.5c0-3 2.7-5 6-5 1 0 2 .2 2.8.5l-.6 1.4A6 6 0 0 0 8 13c-2.6 0-4.4 1.4-4.5 3h5v1.5H2v-1zM15 11h1.5v2.5H19V15h-2.5v2.5H15V15h-2.5v-1.5H15V11z', 18), 'Add'),
+      h('button', { class: 'sc-btn', title: 'Add someone to this call', onclick: (e) => pickPerson(e.currentTarget, (u) => { sendWS({ type: 'huddle_invite', user_id: u.id }); toast(`Ringing ${u.name.split(' ')[0]}…`); H.ringing = { ...(H.ringing || {}), [u.id]: Date.now() }; renderHuddleUI(); }) }, svg('M8 3a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zm0 1.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM2 16.5c0-3 2.7-5 6-5 1 0 2 .2 2.8.5l-.6 1.4A6 6 0 0 0 8 13c-2.6 0-4.4 1.4-4.5 3h5v1.5H2v-1zM15 11h1.5v2.5H19V15h-2.5v2.5H15V15h-2.5v-1.5H15V11z', 18), 'Add'),
       h('button', { class: 'sc-btn', title: 'Microphone, speaker and camera', onclick: (e) => soundMenu(e.currentTarget) }, svg('M10 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zm0 1.6a1.9 1.9 0 1 0 0 3.8 1.9 1.9 0 0 0 0-3.8zM8.9 1.5h2.2l.4 2.1 1.4.6 1.8-1.2 1.6 1.6-1.2 1.8.6 1.4 2.1.4v2.2l-2.1.4-.6 1.4 1.2 1.8-1.6 1.6-1.8-1.2-1.4.6-.4 2.1H8.9l-.4-2.1-1.4-.6-1.8 1.2-1.6-1.6 1.2-1.8-.6-1.4-2.1-.4V8.9l2.1-.4.6-1.4-1.2-1.8 1.6-1.6 1.8 1.2 1.4-.6.4-2.1z', 18), 'Sound'),
       h('button', { class: 'sc-btn leave', onclick: () => leaveHuddle() }, svg(HI.leave, 18), 'Pop out')));
 }
@@ -2772,7 +2793,7 @@ async function detailsPanel(ch, tab = 'about') {
         h('button', { class: 'd-row', onclick: () => openFiles(ch.id) }, svg(I.file, 16), h('span', { class: 'grow' }, 'Files shared here'), h('b', {}, 'Open')),
         h('div', { class: 'd-row static' }, svg(I.at, 16), h('span', { class: 'grow' }, `${ids.length} members`))));
   } else if (tab === 'members') {
-    const q = h('input', { class: 'input', placeholder: 'Find or add people' });
+    const q = h('input', { class: 'input', placeholder: 'Find or add people…' });
     const list = h('div', {});
     const draw = () => {
       const v = q.value.toLowerCase();
@@ -2835,7 +2856,7 @@ async function openLater(tab = 'saved') {
 
 // ---------- Files browser
 async function openFiles(channelId = '', type = '', q = '', mine = false) {
-  const search = h('input', { class: 'input page-search', placeholder: 'Search file names', value: q });
+  const search = h('input', { class: 'input page-search', placeholder: 'Search file names…', value: q });
   const seg = h('div', { class: 'seg' }, ...[['', 'All'], ['image', 'Images'], ['doc', 'Documents'], ['video', 'Videos'], ['other', 'Other']].map(([k, l]) => h('button', { class: type === k ? 'on' : '', onclick: () => openFiles(channelId, k, search.value, mine) }, l)));
   const mineBtn = h('button', { class: 'btn sm' + (mine ? ' primary' : ''), onclick: () => openFiles(channelId, type, search.value, !mine) }, 'Only mine');
   const list = pageShell('files', 'Files', channelId ? `Shared in ${where(channelId)}` : 'Everything shared in your channels and DMs.', search, seg, mineBtn);
@@ -2880,7 +2901,8 @@ function passwordSection(section) {
     btn.disabled = true; btn.textContent = 'One moment…';
     try {
       const k = window.yyKdf, s = await k.saltOf(S.me.email), salt = k.newSalt();
-      await api('/api/me/password', { method: 'POST', body: { key: await k.derive(cur.value, s.salt, s.iter), ...(s.legacy ? { password: cur.value } : {}), new_key: await k.derive(nw.value, salt), new_salt: salt, len: nw.value.length } });
+      if (s.legacy) throw new Error(s.note);
+      await api('/api/me/password', { method: 'POST', body: { key: await k.derive(cur.value, s.salt, s.iter), new_key: await k.derive(nw.value, salt), new_salt: salt, len: nw.value.length } });
       cur.value = nw.value = ''; toast('Password changed. You were signed out on your other devices.');
     } catch (e) { msg.textContent = e.message || "Can't reach your server. Try again."; msg.hidden = false; (/current/.test(msg.textContent) ? cur : nw).focus(); }
     btn.disabled = false; btn.textContent = 'Change password';
@@ -3159,7 +3181,7 @@ function meMenu(anchor) {
       h('div', {}, h('b', {}, S.me.name), h('small', { class: 'mm-pres p-' + p }, presenceLabel(S.me)))),
     h('button', { class: 'mm-status', onclick: () => { closePopups(); location.hash = '#/prefs'; } }, st ? emojiNode(st.emoji || '💬') : '🙂', h('span', {}, st ? st.text || 'Status set' : 'Update your status'),
       st ? h('span', { class: 'mm-clear', role: 'button', title: 'Clear status', onclick: (e) => { e.stopPropagation(); closePopups(); setMe({ status_emoji: '', status_text: '', status_until: 0 }); } }, '×') : ''),
-    st ? '' : h('div', { class: 'mm-quick' }, ...quick.map(([e, t, d]) => h('button', { title: t, onclick: () => { closePopups(); setMe({ status_emoji: e, status_text: t, status_until: d === 'today' ? endOfDay() : d ? Date.now() + d : 0 }); toast(`Status: ${t}`); } }, e))),
+    st ? '' : h('div', { class: 'mm-quick' }, ...quick.map(([e, t, d]) => h('button', { title: t, onclick: () => { closePopups(); setMe({ status_emoji: e, status_text: t, status_until: d === 'today' ? endOfDay() : d ? Date.now() + d : 0 }); toast(`Status: ${t}`); } }, t))),
     h('hr'),
     row(S.me.away ? 'Set yourself as active' : 'Set yourself as away', () => setMe({ away: S.me.away ? 0 : 1 })),
     row(S.me.dnd_until > Date.now() ? 'Resume notifications' : 'Pause notifications…', () => (S.me.dnd_until > Date.now() ? setMe({ dnd_until: 0 }) : pauseMenu(anchor))),
@@ -3170,8 +3192,6 @@ function meMenu(anchor) {
       onclick: (e) => { setTheme(v); e.currentTarget.parentNode.querySelectorAll('button').forEach((b) => { const on = b === e.currentTarget; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }); } },
       h('span', { class: 'tp-swatch', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), h('span', {}, v === 'system' ? 'Auto' : v === 'yaky' ? 'Yaky' : l)))),
     row('Import my Slack history', () => (location.hash = '#/import')),
-    row('Later', () => openLater()),
-    row('Files', () => openFiles()),
     row('Install the app', installApp),
     h('hr'),
     row('Sign out of ' + S.workspace.name, () => signOut(), 'danger'));
@@ -3245,7 +3265,7 @@ async function drawImport() {
   } else if (j?.status === 'running') {
     const pct = j.convs_total ? Math.round((j.convs_done / j.convs_total) * 100) : 0;
     kids.push(sec('Import running', h('p', { class: 'pref-sub' }, 'You can keep using Yakyard or close it. It keeps going and tells you when it is done.'),
-      h('div', { class: 'imp-bar' }, h('i', { style: { width: Math.max(4, pct) + '%' } })),
+      h('div', { class: 'imp-bar', role: 'progressbar', 'aria-valuenow': String(Math.round(pct)), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-label': 'Import progress' }, h('i', { style: `--p: ${Math.max(4, pct)}%` })),
       h('div', { class: 'imp-stats' }, h('span', {}, h('b', {}, `${j.convs_done || 0} of ${j.convs_total || '…'}`), ' conversations'), h('span', {}, h('b', {}, (j.msgs || 0).toLocaleString()), ' messages'), h('span', {}, h('b', {}, (j.files || 0).toLocaleString()), ' files'))));
   } else if (j?.status === 'done') {
     kids.push(sec('Done', h('p', { class: 'pref-sub' }, `Copied ${(j.msgs || 0).toLocaleString()} messages and ${(j.files || 0).toLocaleString()} files from ${j.convs_total} conversations. Yakyard no longer has access to your Slack.`),
@@ -3332,13 +3352,13 @@ function invitedCard(ev) {
   $(`.incoming[data-cid="${ev.channel_id}"]`)?.remove();
   const card = h('div', { class: 'incoming', 'data-cid': ev.channel_id },
     avatar(from, 'av', '16px'),
-    h('div', { class: 'grow' }, h('b', {}, from.name), h('div', {}, `wants you in a pop-in ${label}`)),
+    h('div', { class: 'grow' }, h('b', {}, from.name), h('div', {}, `wants you in a call ${label}`)),
     h('button', { class: 'btn', onclick: () => card.remove() }, 'Not now'),
     h('button', { class: 'btn join', onclick: () => { card.remove(); if (!S.channels.has(ev.channel_id)) S.guestCall = { id: ev.channel_id, label: 'Pop-in ' + label }; else go(ev.channel_id); startHuddle(ev.channel_id); } }, svg(HI.headphones, 14), 'Pop in'));
   document.body.append(card);
   tone(true); setTimeout(() => tone(true), 900);
   if ('Notification' in window && Notification.permission === 'granted' && !document.hasFocus()) {
-    const n = new Notification(`${from.name} wants you in a pop-in`, { body: label, tag: 'inv' + ev.channel_id, icon: ext(from.avatar) || '/brand/app-icon-192.png' });
+    const n = new Notification(`${from.name} wants you in a call`, { body: label, tag: 'inv' + ev.channel_id, icon: ext(from.avatar) || '/brand/app-icon-192.png' });
     n.onclick = () => { window.focus(); n.close(); };
   }
   setTimeout(() => card.remove(), 60e3);
