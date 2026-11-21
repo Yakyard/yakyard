@@ -142,7 +142,7 @@ On iPhone, people first add Yakyard to their Home Screen (Share, then **Add to H
 
 ## 11. Optional: bring your Slack history
 
-Each person can copy their own Slack messages (DMs, group DMs, private channels) into Yakyard. It needs a small Slack app that you create once. The steps are in the README, under **Optional**, row **Slack import**. On the free plan the copy runs in the background at about 150 messages a minute, so a big history can take a night.
+Each person can copy their own Slack messages (DMs, group DMs, private channels) into Yakyard. It needs a small Slack app that you create once. The steps are in the README, under **Optional**, row **Slack import**. On the free plan the copy runs in the background at about 75 messages a minute, so a big history can take a night or two.
 
 ## Updates
 

@@ -10,7 +10,8 @@
   }
   async function saltOf(email) {
     const r = await fetch('/auth/salt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email }) });
-    if (!r.ok) throw new Error('salt');
+    if (r.status === 429) throw new Error((await r.json()).error);
+    if (!r.ok) throw new Error();
     return r.json();
   }
   const newSalt = () => b64(crypto.getRandomValues(new Uint8Array(16)));
@@ -33,11 +34,11 @@
           put(f, 'len', String(pw.value.length));
         }
         f.submit();
-      } catch {
+      } catch (er) {
         btn.disabled = false; btn.textContent = label;
         let p = f.parentNode.querySelector('.login-error');
         if (!p) { p = document.createElement('p'); p.className = 'login-error'; p.setAttribute('role', 'alert'); f.before(p); }
-        p.textContent = "Can't reach your server. Try again.";
+        p.textContent = er.message || "Can't reach your server. Try again.";
       }
     });
   }

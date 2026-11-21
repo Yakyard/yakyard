@@ -1364,9 +1364,8 @@ body.bubbles .msg.mine .text.has-bar > .hover-bar { font-size: var(--fs-lg); }
 .vn-acts { display: flex; gap: 14px; margin-top: 3px; }
 .vn-link { font-size: var(--fs-xs); font-weight: 700; color: var(--accent-ink, var(--accent-ink)); }
 .vn-link:hover { text-decoration: underline; }
-.vn-muted { font-size: var(--fs-sm); color: var(--ink-4); }
-.vn-wait { animation: yy-rec 1.4s ease-in-out infinite; }
-@keyframes yy-rec { 50% { opacity: .45; } }
+/* ink-3, steady: the waiting line sits on Yaky yellow too and has to pass AA (4.5:1) the whole time */
+.vn-muted { font-size: var(--fs-sm); color: var(--ink-3); }
 body.text-m .vn-text { font-size: var(--fs-sm); }
 body.text-xl .vn-text { font-size: var(--fs-lg); }
 /* mic in the message box + recording bar */

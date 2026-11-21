@@ -77,8 +77,8 @@ Yakyard is built to fit Cloudflare's free plan with zero paid features turned on
 | Unknown email at sign-in | 0.05 ms | Same work as a real account, so the reply doesn't reveal who has one. |
 | Opening a conversation (50 messages) | 0.05 ms | Database time doesn't count as CPU. |
 | One phone notification | 1.5 ms | Encryption and signing. Two go out right away; the rest go out four at a time from the hub (a Durable Object alarm), so a message to 30 people never piles up in one request. |
-| Slack import, one page of 50 messages | 2 ms | The import runs once a minute: 3 pages per run, about 150 messages a minute. |
-| Voice note to transcript, per minute of audio | under 1 ms | Native base64. One transcript per minute from the background job. |
+| Slack import, one page of 50 messages | 2 ms | The background job runs once a minute and does one heavy thing per run: up to 3 due messages or reminders, else an import run (3 pages, 150 messages) or a transcript, in turn. So an import moves about 75 messages a minute. |
+| Voice note to transcript, per minute of audio | under 1 ms | Native base64. One transcript every other minute from the background job. |
 | Link previews and outside pictures | small | Page parsing is native (HTMLRewriter), capped at 512 KB; pictures are streamed, 5 MB max. |
 
 Calls (Pop in) go browser to browser; the server only relays the short setup messages.

@@ -318,6 +318,25 @@ r = session().post(B + '/auth/login', data={'email': 'dz@example.com', 'password
 check('old password no longer works', r.status_code == 200 and 'Wrong email' in r.text)
 r = session().post(B + '/auth/login', data={'email': 'dz@example.com', 'password': 'newdeepassword1'}, allow_redirects=False)
 check('new password works', r.status_code == 303)
+# KDF review gaps: the password field is never posted, limits on the salt and change endpoints, even timing
+lp = requests.get(B + '/')
+check('KDF password inputs have no name, so a plain form post never sends the password', 'data-pw' in lp.text and not re.search(r'<input[^>]*data-pw[^>]*name=|<input[^>]*name="password"', lp.text), lp.text[:200])
+js = requests.get(B + '/auth.js').text
+check('KDF auth.js only adds the password for old accounts', js.count("'password'") == 1 and "if (s.legacy) put(f, 'password'" in js)
+ts = lambda e: (lambda t0: (requests.post(B + '/auth/salt', json={'email': e}), time.time() - t0)[1])(time.time())
+ka = sorted(ts('owner@example.com') for _ in range(5))[2]; kb = sorted(ts('ghost%d@example.com' % i) for i in range(5))[2]
+print(f'  salt timing: existing {ka*1000:.0f} ms, unknown {kb*1000:.0f} ms')
+check('KDF salt reply takes the same time for real and unknown emails (within 3x)', kb > ka / 3 and ka > kb / 3, (ka, kb))
+l2 = invite(owner, 'legacy2@example.com', name='Lou'); join(l2.json()['link'], 'Lou', 'throwaway12345')
+subprocess.run(['npx', 'wrangler', 'd1', 'execute', 'DB', '--local', *PERSIST, '--command', f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{l2.json()['id']}'"], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), capture_output=True)
+def tl(e):
+    t0 = time.time(); requests.post(B + '/auth/login', data={'email': e, 'key': dk, 'password': 'wrongpassword1', '_raw': 1}); return time.time() - t0
+la = sorted(tl('legacy2@example.com') for _ in range(3))[1]; lb = sorted(tl('ghost-legacy@example.com') for _ in range(3))[1]
+print(f'  old-account timing: existing {la*1000:.0f} ms, unknown {lb*1000:.0f} ms')
+check('KDF unknown email with a password does the old slow hash too (within 1.8x)', lb > la / 1.8 and la > lb / 1.8, (la, lb))
+ads_salt = requests.post(B + '/auth/salt', json={'email': 'adm@example.com'}).json()['salt']
+codes = [api(ads, 'POST', '/api/me/password', {'key': kdf('wrong%d' % i, ads_salt, 1), 'new_key': dk, 'new_salt': ns, 'len': 15}).status_code for i in range(11)]
+check('password change is limited to 10 tries in 15 minutes', codes[:10] == [400] * 10 and codes[10] == 429, codes)
 
 # ---------------- free plan: images through the worker, storage sizes, tighter CSP
 r = owner.get(B + '/')
@@ -357,6 +376,10 @@ with sync_playwright() as p:
     check('L2 members see everyone online', opres and lon_id in opres[-1]['online'], opres[-1:] if opres else None)
     check('L2 guest does not see people they share nothing with', gpres and lon_id not in gpres[-1]['online'] and me in gpres[-1]['online'], gpres[-1:] if gpres else None)
     br.close()
+
+# ---------------- KDF salt endpoint limit (last: it uses up this address's allowance)
+codes = [requests.post(B + '/auth/salt', json={'email': ('owner@example.com', 'ghost@example.com')[i % 2]}).status_code for i in range(110)]
+check('KDF salt endpoint is limited per address (100 in 15 minutes)', 429 in codes and codes[-1] == 429 and codes[-2] == 429, codes[-12:])
 
 print()
 print(f"{sum(1 for _, ok in results if ok)}/{len(results)} passed")

@@ -224,16 +224,20 @@ async function keyHash(key, saltB64) {
 }
 // Checks a sign-in key against a credentials row. Returns the new hash to store when an old row was upgraded.
 async function checkKey(row, key, password) {
-  if (!row || !goodB64(key, 32)) { await keyHash(goodB64(key, 32) ? key : 'A'.repeat(43) + '=', 'AAAAAAAAAAAAAAAAAAAAAA=='); return { ok: false }; }
+  // No account: do the same work as a real one (the slow old hash too when a password came along),
+  // so the response time doesn't tell which emails have an account.
+  if (!row || !goodB64(key, 32)) { await keyHash(goodB64(key, 32) ? key : 'A'.repeat(43) + '=', 'AAAAAAAAAAAAAAAAAAAAAA=='); if (password) await hashPassword(password, 'AAAAAAAAAAAAAAAAAAAAAA=='); return { ok: false }; }
   if (row.hash.startsWith('c1:')) return { ok: sameText(await keyHash(key, row.salt), row.hash) };
   if (!password) return { ok: false };
   const ok = sameText((await hashPassword(password, row.salt)).hash, row.hash);
   return { ok, upgrade: ok ? await keyHash(key, row.salt) : null };
 }
 // One random server secret, made on first use, so unknown emails get a stable fake salt.
+let PEPPER;
 async function pepper(env) {
+  if (PEPPER) return PEPPER;
   await env.DB.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('pepper',?)").bind(b64(crypto.getRandomValues(new Uint8Array(32)))).run();
-  return unb64((await env.DB.prepare("SELECT value FROM settings WHERE key='pepper'").first()).value);
+  return (PEPPER = unb64((await env.DB.prepare("SELECT value FROM settings WHERE key='pepper'").first()).value));
 }
 async function hmac(keyBytes, text) {
   const k = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -241,14 +245,27 @@ async function hmac(keyBytes, text) {
 }
 // The browser asks for its salt before stretching the password. Unknown emails get a fake salt that
 // never changes, and the "legacy" answer is faked half the time while old rows exist, so the reply
-// doesn't tell anyone which emails have an account.
+// doesn't tell anyone which emails have an account. Both answers do the same queries and hashing, so
+// the response time doesn't either.
 async function saltFor(req, env) {
   const email = String((await req.json().catch(() => ({}))).email || '').toLowerCase().trim().slice(0, 200);
-  const row = email ? await env.DB.prepare('SELECT c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first() : null;
-  if (row) return json({ salt: row.salt, iter: KDF_ITER, legacy: !row.hash.startsWith('c1:') });
+  if ((await bump(env, 'salt:' + clientIp(req))) > 100) return json({ error: 'Too many tries. Wait 15 minutes.' }, 429);
+  const [row, anyOld] = await Promise.all([
+    env.DB.prepare('SELECT c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first(),
+    env.DB.prepare("SELECT 1 FROM credentials WHERE hash NOT LIKE 'c1:%' LIMIT 1").first(),
+  ]);
   const h = await hmac(await pepper(env), 'salt:' + email);
-  const anyOld = await env.DB.prepare("SELECT 1 FROM credentials WHERE hash NOT LIKE 'c1:%' LIMIT 1").first();
+  if (row) return json({ salt: row.salt, iter: KDF_ITER, legacy: !row.hash.startsWith('c1:') });
   return json({ salt: b64(h.slice(0, 16)), iter: KDF_ITER, legacy: !!anyOld && (h[16] & 1) === 1 });
+}
+// Counters for sign-in limits, one row per key per 15-minute window (cleared hourly by the cron).
+async function bump(env, k) {
+  return (await env.DB.prepare('INSERT INTO login_attempts (k,n) VALUES (?,1) ON CONFLICT(k) DO UPDATE SET n=n+1 RETURNING n').bind(k + '|' + Math.floor(now() / (15 * 60e3))).first()).n;
+}
+// IPv6 addresses count per /64, since one connection usually owns the whole block.
+function clientIp(req) {
+  const ip = req.headers.get('cf-connecting-ip') || 'x';
+  return ip.includes(':') ? v6(ip).slice(0, 4).join(':') + '::/64' : ip;
 }
 // New password from a join, setup or change form: the browser sends key, salt and the password length.
 function newKey(f) {
@@ -279,11 +296,7 @@ async function passwordLogin(req, env) {
   const email = String(f.get('email') || '').toLowerCase().trim();
   const key = String(f.get('key') || ''), password = String(f.get('password') || '');
   if (!key) return loginPage('Turn on JavaScript to sign in.', email);
-  // IPv6 addresses count per /64, since one connection usually owns the whole block.
-  const ip0 = req.headers.get('cf-connecting-ip') || 'x';
-  const ip = ip0.includes(':') ? v6(ip0).slice(0, 4).join(':') + '::/64' : ip0;
-  const win = Math.floor(now() / (15 * 60e3));
-  const hit = async (k) => (await env.DB.prepare('INSERT INTO login_attempts (k,n) VALUES (?,1) ON CONFLICT(k) DO UPDATE SET n=n+1 RETURNING n').bind(k + '|' + win).first()).n;
+  const ip = clientIp(req), hit = (k) => bump(env, k);
   // Per address, per account from any address, and per account from one address.
   if ((await hit('ip:' + ip)) > 30 || (await hit('em:' + email)) > 25 || (await hit('em:' + email + '|' + ip)) > 8) return loginPage('Too many tries. Wait 15 minutes or ask your workspace admin for a new link.', email);
   const row = await env.DB.prepare('SELECT u.id, c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first();
@@ -833,6 +846,7 @@ async function api(req, env, user, path, ctx) {
   if (path === '/api/me/password' && method === 'POST') {
     const row = await env.DB.prepare('SELECT hash, salt FROM credentials WHERE user_id=?').bind(user.id).first();
     if (!row) return err(400, 'You sign in with Google, so there is no password to change.');
+    if ((await bump(env, 'pw:' + user.id)) > 10) return err(429, 'Too many tries. Wait 15 minutes.');
     const { ok } = await checkKey(row, String(body.key || ''), String(body.password || ''));
     if (!ok) return err(400, "That's not your current password.");
     const nk = newKey(new Map([['key', body.new_key], ['salt', body.new_salt], ['len', body.len]]));
@@ -1180,9 +1194,12 @@ async function serveFile(req, env, key) {
 
 // ---------------------------------------------------------------- worker entry
 export default {
+  // One heavy job per tick, so a tick stays under the free plan's 10 ms CPU: due messages and reminders
+  // first; when none were due, a Slack import slice on even minutes and a transcript on odd ones.
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(cronTick(env, ctx, postMessage, runImports));
-    ctx.waitUntil(voiceCron(env, { hydrateMessages, broadcast, channelMembers }).catch((e) => console.log('voice cron', e)));
+    if (await cronTick(env, ctx, postMessage)) return;
+    if (new Date(event.scheduledTime).getUTCMinutes() % 2) await voiceCron(env, { hydrateMessages, broadcast, channelMembers }).catch((e) => console.log('voice cron', e));
+    else await runImports(env).catch((e) => console.log('imports', e));
   },
   fetch: (req, env, ctx) => handle(req, env, ctx),
 };

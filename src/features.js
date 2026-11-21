@@ -189,11 +189,12 @@ export async function openDm(env, ids, by, lastTs = now()) {
   return ch;
 }
 
-export async function cronTick(env, ctx, postMessage, runImports) {
+// Sends up to 3 due messages and reminders per tick (each send can cost a few ms with its pushes).
+// Returns how many it sent, so the caller skips the other heavy jobs on a busy tick.
+export async function cronTick(env, ctx, postMessage) {
   const t = now();
-  if (runImports) await runImports(env).catch((e) => console.log('imports', e));
   // scheduled messages
-  const due = (await env.DB.prepare('SELECT * FROM scheduled WHERE send_at <= ? ORDER BY send_at LIMIT 25').bind(t).all()).results;
+  const due = (await env.DB.prepare('SELECT * FROM scheduled WHERE send_at <= ? ORDER BY send_at LIMIT 3').bind(t).all()).results;
   for (const s of due) {
     await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run();
     const user = await env.DB.prepare('SELECT * FROM users WHERE id=? AND active=1').bind(s.user_id).first();
@@ -203,7 +204,7 @@ export async function cronTick(env, ctx, postMessage, runImports) {
     try { await postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel }); } catch (e) { console.log('scheduled send failed', e); }
   }
   // reminders arrive as a DM from the Yakyard bot
-  const rem = (await env.DB.prepare('SELECT * FROM reminders WHERE done=0 AND due_at <= ? ORDER BY due_at LIMIT 25').bind(t).all()).results;
+  const rem = (await env.DB.prepare('SELECT * FROM reminders WHERE done=0 AND due_at <= ? ORDER BY due_at LIMIT ?').bind(t, 3 - due.length).all()).results;
   if (rem.length) {
     const botId = await botUserId(env);
     const bot = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(botId).first();
@@ -226,6 +227,7 @@ export async function cronTick(env, ctx, postMessage, runImports) {
       env.DB.prepare('DELETE FROM login_attempts WHERE k NOT LIKE ?').bind('%|' + Math.floor(t / (15 * 60e3))),
     ]);
   }
+  return due.length + rem.length;
 }
 
 // ---------------------------------------------------------------- API routes
