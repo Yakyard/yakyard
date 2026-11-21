@@ -8,6 +8,13 @@
 
 ---
 
+**Start here**
+
+- **Running it for your team?** [Set up Yakyard, free](docs/SETUP.md): a step-by-step guide, no coding needed. About 30 minutes.
+- **Using it?** [Using Yakyard](docs/GUIDE.md): channels, threads, voice notes, search, notifications and more, with pictures.
+
+Runs on Cloudflare's free plan for a team of up to about 50 people. The math is in [Free plan](#free-plan).
+
 ## Why
 
 Team chat gets expensive fast, and your company history ends up on someone else's servers. Yakyard is a full team chat you deploy once to your own Cloudflare account. If your team knows Slack, they know Yakyard. It works on phones and computers, and it can bring your Slack history with it.
@@ -52,17 +59,52 @@ Team chat gets expensive fast, and your company history ends up on someone else'
 
 ## What you need
 
-- A Cloudflare account.
+- A Cloudflare account. The free plan is enough (see [Free plan](#free-plan)). File storage (R2) asks for a payment card before you can turn it on, even though the first 10 GB are free.
 - Node.js 22.5 or newer on your computer, only to deploy. Works on macOS, Linux and Windows.
 
 Yakyard uses Workers, Durable Objects, D1 (database), R2 (files), Workers AI (transcripts) and the Images binding (photo previews).
 
-### Free plan or Paid plan
+## Free plan
 
-Small teams fit in Cloudflare's free allowances for storage and requests, with two things to know:
+Yakyard is built to fit Cloudflare's free plan with zero paid features turned on. Free plan limits (November 2026): 10 ms of CPU per request, 100,000 Worker requests a day, 100,000 Durable Object requests a day, 5 million database rows read and 100,000 written a day, 10 GB of files, 10,000 Workers AI neurons a day, 5,000 photo previews a month. Daily limits reset at midnight UTC.
 
-- **Sign-in needs more CPU than the Free plan gives.** The Workers Free plan allows 10 ms of CPU time per request ([limits](https://developers.cloudflare.com/workers/platform/limits/)). Yakyard hashes passwords with PBKDF2 (100,000 rounds of SHA-256), which takes about 20 ms. On Free, setup, sign-in and joining can fail with error 1102. We did not lower the hashing to fit, because that would make stolen password hashes much easier to crack. Use Workers Paid ($5 a month) if people sign in with passwords. Google sign-in does not hash passwords.
-- **Free allowances run out quietly.** Workers AI Free covers about 200 minutes of voice transcripts a day; after that, transcripts wait until the next day. Cloudflare Images Free covers 5,000 photo previews a month; after that, photos show at full size. Check [Cloudflare's pricing](https://developers.cloudflare.com/workers/platform/pricing/) for current numbers.
+**CPU per request.** Every request has to finish in under 10 ms of CPU. Measured in Node.js on the code paths that do real work:
+
+| What | CPU | How it fits |
+|---|---|---|
+| Password sign-in | 0.05 ms | The slow part (PBKDF2-SHA256, 600,000 rounds, about 130 ms) runs in your browser, like Bitwarden. The server only does one SHA-256 of a salt and that key. |
+| Sign-in of an account made before this version | 18 ms, once | The old server-side hash (100,000 rounds) runs one last time, then the account moves to the new kind. If it fails with error 1102 on the free plan, send that person a new link. |
+| Unknown email at sign-in | 0.05 ms | Same work as a real account, so the reply doesn't reveal who has one. |
+| Opening a conversation (50 messages) | 0.05 ms | Database time doesn't count as CPU. |
+| One phone notification | 1.5 ms | Encryption and signing. Two go out right away; the rest go out four at a time from the hub (a Durable Object alarm), so a message to 30 people never piles up in one request. |
+| Slack import, one page of 50 messages | 2 ms | The import runs once a minute: 3 pages per run, about 150 messages a minute. |
+| Voice note to transcript, per minute of audio | under 1 ms | Native base64. One transcript per minute from the background job. |
+| Link previews and outside pictures | small | Page parsing is native (HTMLRewriter), capped at 512 KB; pictures are streamed, 5 MB max. |
+
+Calls (Pop in) go browser to browser; the server only relays the short setup messages.
+
+**How many people.** Rough daily numbers for one active person: 40 messages sent, 150 conversations opened, 5 app opens.
+
+| Allowance | Per active person a day | Free plan a day | People |
+|---|---|---|---|
+| Worker requests | about 400 (sends, opens, read marks, uploads) | 100,000, minus 1,440 for the once-a-minute job | about 245 |
+| Durable Object requests | about 250 (live updates, one per send and read mark) | 100,000 | about 400 |
+| Database rows read | about 20,000 | 5,000,000 | about 250 |
+| Database rows written | about 350 | 100,000 | about 285 |
+| Voice transcripts | depends | about 214 minutes for the whole team | |
+| File storage | depends | 10 GB (Yakyard stops new uploads at 9 GB) | |
+
+The tightest line is about 245 people. Real teams are bursty and some people are heavy users, so plan on a fifth of that: **up to about 50 people**, comfortably. The first things a busy team feels are voice transcripts (about 4 minutes per person a day for 50 people) and photo previews (5,000 a month).
+
+**When something runs out, nothing breaks:**
+- Voice transcripts: notes still send and play; the transcript says it comes tomorrow and the background job fills it in after midnight UTC.
+- Photo previews: photos show at full size for an hour, then Yakyard tries again.
+- Database: pages and the app show "Your team used up today's free database allowance" instead of an error page, until midnight UTC.
+- File storage: uploads stop with a clear message at 2 GB per person or 9 GB for the team. Change both with `STORAGE_PER_PERSON_GB` and `STORAGE_TOTAL_GB`.
+
+Admins see storage and today's voice minutes on the **Usage** card in Admin. Requests and database use are in the Cloudflare dashboard.
+
+**When to pay $5 a month (Workers Paid).** More than about 50 busy people, more than about 3 hours of voice notes a day, or if you see "free database allowance" or error 1102 more than once. Upgrade in the Cloudflare dashboard; nothing in Yakyard changes.
 
 ## Try it on your computer first
 
@@ -70,13 +112,13 @@ Small teams fit in Cloudflare's free allowances for storage and requests, with t
 git clone https://github.com/yakyard/yakyard.git
 cd yakyard
 npm ci
-cp wrangler.toml.example wrangler.toml     # for local testing you can leave the CHANGE values as they are
+cp wrangler.toml.example wrangler.toml     # works as it is
 echo "SETUP_TOKEN=$(openssl rand -hex 24)" > .dev.vars
 npm run db:init:local                      # creates the tables in a local database
 npm run dev                                # open the address it prints, usually http://localhost:8787
 ```
 
-The first visit shows **Set up Yakyard**. The setup code is the `SETUP_TOKEN` in `.dev.vars`. Use an email from `OWNER_EMAILS` in `wrangler.toml`.
+The first visit shows **Set up Yakyard**. The setup code is the `SETUP_TOKEN` in `.dev.vars`.
 
 Notes for local testing:
 - `.dev.vars` holds secrets for `wrangler dev`, one `NAME=value` per line. It is in `.gitignore`. Put `VAPID_PRIVATE`, `TOKEN_KEY` and others here when you test those features.
@@ -85,36 +127,20 @@ Notes for local testing:
 
 ## Deploy
 
-Do these in order.
+The step-by-step version, for people who don't use a terminal every day, is [docs/SETUP.md](docs/SETUP.md). The short version:
 
 ```bash
 npx wrangler login
-
-# 1. Settings file
-cp wrangler.toml.example wrangler.toml
-
-# 2. Database and file storage
-npx wrangler d1 create yakyard            # copy the database_id it prints into wrangler.toml
-npx wrangler r2 bucket create yakyard-files
-```
-
-If Wrangler offers to add the database to your config for you, answer No and paste the `database_id` yourself.
-
-**3. Fill in `wrangler.toml`.** Every line marked CHANGE:
-- `WORKSPACE_NAME`: your team's name, shown on the sign-in page.
-- `OWNER_EMAILS`: your email. Owners can do everything.
-- `APP_URL`: the address people will use. A new Worker lives at `https://yakyard.<your-subdomain>.workers.dev`. Find your subdomain in the Cloudflare dashboard under **Workers & Pages**, on the right under **Subdomain**. Or deploy once, copy the address it prints, set `APP_URL` and deploy again.
-
-```bash
-# 4. Go live
 npm run deploy
 ```
 
-`npm run deploy` creates the tables, deploys, and on the first run makes a setup code and prints it once. Keep it until you have set up Yakyard.
+The first `npm run deploy` copies `wrangler.toml.example` to `wrangler.toml`, creates the D1 database and the R2 bucket (Wrangler's automatic provisioning, so there are no ids to paste), deploys, brings the database tables up to date, and makes a setup code that it prints once. Turn on R2 in the Cloudflare dashboard first.
 
-Open the address it prints. The first visit shows **Set up Yakyard**: enter the setup code, then create the owner account with an email you listed in `OWNER_EMAILS`. The setup code makes sure nobody else can claim your new workspace before you do. It only works once. Then invite your team from the menu (**Invite people**). Invites make a link: you send it yourself, by email, chat or text.
+Open the address it prints. The first visit shows **Set up Yakyard**: enter the setup code, then create the owner account. The setup code makes sure nobody else can claim your new workspace. It only works once. If you set `OWNER_EMAILS`, the owner email must be on that list.
 
-To keep R2 tidy, add a lifecycle rule to the `yakyard-files` bucket in the Cloudflare dashboard (R2, the bucket, Settings, Object lifecycle rules) that aborts incomplete multipart uploads after 1 day.
+Then invite your team from the menu (**Invite people**). Invites make a link: you send it yourself, by email, chat or text.
+
+To keep R2 tidy, add a lifecycle rule to the bucket in the Cloudflare dashboard (R2, the bucket, Settings, Object lifecycle rules) that aborts incomplete multipart uploads after 1 day.
 
 ### Notifications (recommended)
 
@@ -153,10 +179,11 @@ Each person's time zone is always saved from their own browser (not their locati
 
 | Name | Where | Needed | What it does |
 |---|---|---|---|
-| `WORKSPACE_NAME` | `[vars]` | yes | Team name on the sign-in page. Default "Yakyard". |
-| `OWNER_EMAILS` | `[vars]` | yes | Comma-separated owner emails. |
-| `APP_URL` | `[vars]` | yes | Public address. Used in reminder links and as the push contact if `VAPID_SUBJECT` is empty. |
+| `WORKSPACE_NAME` | `[vars]` | no | Team name on the sign-in page. Default "Yakyard". |
+| `OWNER_EMAILS` | `[vars]` | no | Comma-separated emails that are always owners. When set, setup only accepts one of them. |
+| `APP_URL` | `[vars]` | no | Public address for reminder links. Default: the address setup was done on. |
 | `SETUP_TOKEN` | secret | first run | Setup code for the first visit, 24+ characters. `npm run deploy` makes one if it is missing. |
+| `STORAGE_PER_PERSON_GB`, `STORAGE_TOTAL_GB` | `[vars]` | no | File space caps. Default 2 and 9 (R2 is free up to 10 GB). |
 | `VAPID_PUBLIC`, `VAPID_SUBJECT` | `[vars]` | for notifications | From `npm run vapid`. |
 | `VAPID_PRIVATE` | secret | for notifications | From `npm run vapid`. |
 | `ALLOWED_DOMAINS` | `[vars]` | no | Email domains that may sign in with Google without an invite. |
@@ -174,12 +201,16 @@ Each person's time zone is always saved from their own browser (not their locati
 
 ```bash
 git pull
-npm run deploy    # also creates any new tables
+npm run deploy
 ```
 
-Deploying adds missing tables and indexes. It does not add new columns to tables you already have, so read the release notes: a release that changes a table says what to run. Also compare `wrangler.toml.example` with your `wrangler.toml` for new settings, since your own file is never overwritten.
+`npm run deploy` updates the database before the new code goes live (`scripts/migrate.mjs`): it adds any column an existing table is missing, then creates any new tables and indexes from `schema.sql`. Safe to run again and again. Compare `wrangler.toml.example` with your `wrangler.toml` for new settings, since your own file is never overwritten.
 
 Open apps show "New version of Yakyard" and update in one tap.
+
+## Sign-in throttling
+
+Sign-in allows 30 tries per network address and 25 per account in 15 minutes, from anywhere. That means someone who keeps guessing at one person's email can keep that person locked out of password sign-in for a while. Google sign-in and a new link from an admin still work. Admins can only send new links to people who never signed in; the owner can send one to anyone.
 
 ## Tests
 
@@ -187,7 +218,7 @@ Open apps show "New version of Yakyard" and update in one tap.
 npm test
 ```
 
-Runs the unit tests, then the security checks against a local server if one is running (`npx wrangler dev --local --port 8797` on a fresh `npm run db:init:local`). The security checks need Python 3 with `requests` and `playwright`.
+Runs the unit tests, then the security checks against a local server if one is running (`npx wrangler dev --local --port 8797` on a fresh `npm run db:init:local`). The security checks need Python 3 with `requests` and `playwright`. To use another port and database copy: `node scripts/migrate.mjs --local --persist-to=/tmp/yy`, `npx wrangler dev --local --persist-to /tmp/yy --port 8811`, then `YY_BASE=http://localhost:8811 YY_PERSIST=/tmp/yy npm test`.
 
 ## How it's built
 
@@ -201,7 +232,8 @@ No framework and no build step. Plain JavaScript in `public/app.js`, a Cloudflar
 | Voice notes and transcripts | `src/voice.js` |
 | Slack import | `src/slackimport.js` |
 | Link previews | `src/unfurl.js` |
-| Database tables | `schema.sql` |
+| Database tables | `schema.sql`, brought up to date by `scripts/migrate.mjs` |
+| Password stretching in the browser | `public/auth.js` |
 
 ## License
 

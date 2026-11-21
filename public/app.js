@@ -1703,7 +1703,7 @@ function feedItem(m, extra) {
   return h('button', { class: 'fitem', onclick: () => jumpTo(m) },
     h('div', { class: 'fctx' }, extra?.badge || '', h('span', {}, where(m.channel_id)), h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), h('span', {}, ago(m.ts))),
     h('div', { class: 'frow' }, avatar(u, 'av', '13px'), h('div', { class: 'fbody' },
-      h('b', {}, u.name), h('div', { class: 'text', html: fmt(m.text) || (m.files?.length ? '<i>Shared a file</i>' : '') }), extra?.after || '')));
+      h('b', {}, u.name), h('div', { class: 'text', html: fmt(m.text) || (m.files?.[0]?.voice ? '<i>Voice note' + (m.files[0].transcript ? ': ' + esc(m.files[0].transcript.slice(0, 140)) : '') + '</i>' : m.files?.length ? '<i>Shared a file</i>' : '') }), extra?.after || '')));
 }
 function jumpTo(m) {
   if (m.thread_id) { S.focus = { id: m.id }; go(m.channel_id, m.thread_id); return; }
@@ -1889,7 +1889,7 @@ function renderAdmin() {
     kpi(counts.active || 0, 'Signed in'), kpi((counts.invited || 0), 'Invites waiting'), kpi(counts.not_invited || 0, 'Not invited yet'),
     kpi((st.messages || 0).toLocaleString(), 'Messages'), kpi((st.messages_7d || 0).toLocaleString(), 'Messages this week'));
   // Usage today against Cloudflare's free plan. Rough: requests and database reads are only in the Cloudflare dashboard.
-  const gb = (b) => (b / 1024 ** 3).toFixed(b < 1024 ** 3 ? 2 : 1) + ' GB';
+  const gb = (b) => (b < 1024 ** 3 ? Math.ceil(b / 1024 ** 2) + ' MB' : (b / 1024 ** 3).toFixed(1) + ' GB');
   const meter = (label, used, max, text) => h('div', { class: 'use-row' }, h('div', { class: 'use-top' }, h('span', {}, label), h('span', { class: 'use-num' }, text)),
     h('div', { class: 'use-bar', role: 'meter', 'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-valuenow': Math.min(used, max) }, h('i', { style: { width: Math.min(100, (used / max) * 100 || 0) + '%' } })));
   const usage = h('section', { class: 'card usage' }, h('h3', {}, 'Usage'),
@@ -2129,7 +2129,7 @@ function openHelp() {
     ['Start a conversation', 'Plus next to Channels or Direct messages. Ctrl/⌘ + K jumps anywhere.'],
     ['Reply in a thread', 'Hover a message (or long-press on a phone) and pick Reply.'],
     ['Mention someone', 'Type @ and a name. @here reaches everyone in the channel.'],
-    ['Send a voice note', 'Hold the mic button to yak. The transcript shows up under it.'],
+    ['Send a voice note', 'Tap the mic, talk, then send. The transcript shows up under it.'],
     ['Find something', 'Search takes filters: from:@ana in:#sales has:voice before:2026-12-01'],
     ['Send later', 'The clock next to Send schedules a message. Find it in Later.'],
     ['Quiet hours', 'Status and notifications: pause, set do not disturb, pick a theme.'],

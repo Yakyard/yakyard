@@ -1608,9 +1608,10 @@ button { touch-action: manipulation; }
 }
 
 /* Help panel and first-run guide link */
-.help dl { margin: 0; display: grid; gap: var(--space-1); }
-.help dt { font-weight: 700; margin-top: var(--space-2); }
-.help dd { margin: 0; color: var(--ink-3); }
+.help dl { margin: 0; display: grid; grid-template-columns: minmax(9em, auto) 1fr; gap: var(--space-2) var(--space-4); }
+.help dt { font-weight: 700; }
+.help dd { margin: 0; color: var(--ink-3); font-size: var(--fs-sm); }
+@media (max-width: 560px) { .help dl { grid-template-columns: 1fr; gap: 0 0; } .help dd { margin-bottom: var(--space-2); } }
 .help p { margin: var(--space-4) 0 0; }
 .help a, .fr-guide a { color: var(--link); }
 .fr-guide { margin: var(--space-3) 0 0; color: var(--ink-3); font-size: var(--fs-sm); }
