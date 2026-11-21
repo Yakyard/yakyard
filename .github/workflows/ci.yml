@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      WRANGLER_SEND_METRICS: "false"
+      YY_BASE: http://localhost:8811
+      YY_PERSIST: /tmp/yy-ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install requests playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Syntax check
+        run: |
+          for f in src/*.js public/*.js scripts/*.mjs test/*.mjs; do node --check "$f"; done
+
+      - name: Unit tests
+        run: node --test test/*.test.mjs
+
+      - name: Start a local Yakyard
+        run: |
+          # Test-only setup code; the security suite uses the same value.
+          echo "SETUP_TOKEN=testsetuptoken123456789012" > .dev.vars
+          node scripts/migrate.mjs --local --persist-to=$YY_PERSIST
+          nohup npx wrangler dev --local --persist-to $YY_PERSIST --port 8811 > wrangler-dev.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -s -o /dev/null http://localhost:8811/; then echo "up after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          cat wrangler-dev.log
+          exit 1
+
+      - name: Security suite
+        run: python test/security.py
+
+      - name: Server log
+        if: failure()
+        run: tail -n 200 wrangler-dev.log
