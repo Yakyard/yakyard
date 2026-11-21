@@ -445,7 +445,7 @@ function renderMessages(scrollBottom) {
   const nearBottom = box._stick || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   inner.replaceChildren();
   const ch = S.channels.get(S.current) || S.preview;
-  if (!st.hasMore) inner.append(channelIntro(ch));
+  if (!st.hasMore) inner.append(channelIntro(ch, !st.list?.length));
   else inner.append(h('button', { class: 'load-more', onclick: loadOlder }, 'Load older messages'));
   let lastDay = '', prev = null, newShown = false;
   for (const m of st.list) {
@@ -462,7 +462,7 @@ function renderMessages(scrollBottom) {
   if (scrollBottom || nearBottom) box.scrollTop = box.scrollHeight;
   else box.scrollTop = prevTop + (box.scrollHeight - prevH) * 0;
 }
-function channelIntro(ch) {
+function channelIntro(ch, empty) {
   if (ch.kind === 'dm') {
     const others = dmOthers(ch);
     return h('div', { class: 'chan-intro' }, h('h2', {}, chanLabel(ch)),
@@ -470,7 +470,7 @@ function channelIntro(ch) {
   }
   return h('div', { class: 'chan-intro' }, h('img', { class: 'intro-mark yak-bob', src: '/brand/mark.svg', alt: '', width: 64, height: 58 }),
     h('h2', {}, (ch.private ? '' : '# ') + ch.name),
-    h('p', {}, 'Quiet in here. Say something.'), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '', firstRun());
+    h('p', {}, empty ? 'Quiet in here. Say something.' : `This is where ${ch.private ? '' : '#'}${ch.name} starts.`), ch.topic ? h('p', { class: 'intro-topic' }, ch.topic) : '', firstRun());
 }
 // First run: the owner is alone in a new workspace. A short list of what to do next.
 function firstRun() {
