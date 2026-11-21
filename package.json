@@ -15,10 +15,8 @@
     "signin-link": "node scripts/signin-link.mjs",
     "vapid": "node scripts/vapid.mjs",
     "cpu-check": "node scripts/cpu-check.mjs",
-    "test": "node --test test/*.test.mjs && python3 test/security.py"
-  },
-  "dependencies": {
-    "@pushforge/builder": "2.0.5"
+    "test": "node --test test/*.test.mjs && python3 test/security.py",
+    "cpu-bench": "node scripts/cpu-bench.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

@@ -233,7 +233,7 @@ npx wrangler secret bulk .cpu-check-secrets.json --config wrangler.cpu-check.jso
 node scripts/cpu-check.mjs run https://yakyard-cpu-check.YOUR-SUBDOMAIN.workers.dev
 ```
 
-It passes when the last line says `All ... invocations stayed under 10 ms`. If something went over, the list above it names the page or job and its CPU, and `cpu-check-report.json` has the details. Either way, remove the copy, its database and its file storage afterwards:
+It waits for one run of the 5-minute check, which can take up to 15 minutes to start on a new Worker, so allow 20 minutes; add `--quick` to skip that wait. Before deploying, `npm run cpu-bench` gives a quick estimate on your own computer. It passes when the last line says `All ... invocations stayed under 10 ms`. If something went over, the list above it names the page or job and its CPU, and `cpu-check-report.json` has the details. Either way, remove the copy, its database and its file storage afterwards:
 
 ```
 npx wrangler delete --config wrangler.cpu-check.jsonc

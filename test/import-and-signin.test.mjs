@@ -98,15 +98,15 @@ test('a reminder is claimed once and arrives as a DM from the bot', async () => 
   assert.match(got[0][2], /^Reminder: call Sam/);
 });
 
-test('pushes go out 4 to a job, one job per batch', async () => {
+test('each device gets its own push job', async () => {
   const { pushToUsers, PUSHES_PER_JOB } = await import('../src/features.js');
   const { db, DB } = d1();
   for (let i = 0; i < 10; i++) db.prepare("INSERT INTO push_subs (endpoint,user_id,p256dh,auth,created_at) VALUES (?,?,'k','a',0)").run('https://fcm.googleapis.com/' + i, i < 9 ? 'u1' : 'u2');
   const armed = [];
   const JOBS = { idFromName: (n) => n, get: (n) => ({ arm: async (job, at) => armed.push({ n, job, at }) }) };
   assert.equal(await pushToUsers({ DB, JOBS }, ['u1'], { title: 't' }), 9);
-  assert.equal(PUSHES_PER_JOB, 4);
-  assert.deepEqual(armed.map((a) => a.job.data.subs.length), [4, 4, 1]);
+  assert.equal(PUSHES_PER_JOB, 1);
+  assert.deepEqual(armed.map((a) => a.job.data.subs.length), Array(9).fill(1));
   assert.ok(armed.every((a) => a.n.startsWith('push:') && a.job.kind === 'push'));
 });
 
@@ -244,4 +244,37 @@ test('the CPU check reads wrangler tail output however it is split, and flags an
   assert.deepEqual(r.bad, ['alarm Job']);
   const cfg = JSON.parse(checkConfig(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')).replace(/^\/\/.*\n/, ''));
   assert.equal(cfg.limits.cpu_ms, 10); assert.equal(cfg.name, 'yakyard-cpu-check'); assert.equal(cfg.d1_databases[0].database_name, 'yakyard-cpu-check');
+});
+
+test('web push: a device can decrypt what we send, and the VAPID token verifies and is reused', async () => {
+  const { pushRequest, vapidHeader } = await import('../src/webpush.js');
+  const s = crypto.subtle, b64u = (b) => Buffer.from(b).toString('base64url');
+  const device = await s.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const uaPub = new Uint8Array(await s.exportKey('raw', device.publicKey)), auth = crypto.getRandomValues(new Uint8Array(16));
+  const server = await s.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const jwk = await s.exportKey('jwk', server.privateKey);
+  const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc', p256dh: b64u(uaPub), auth: b64u(auth) };
+  const { headers, body } = await pushRequest({ privateJwk: JSON.stringify(jwk), subject: 'mailto:a@b.c', subscription: sub, payload: { title: 'Hi', body: 'Zoë 🐂' }, topic: 'C1' });
+  assert.equal(headers['content-encoding'], 'aes128gcm'); assert.equal(headers.topic, 'C1');
+  // The device side of RFC 8291.
+  const salt = body.slice(0, 16), rs = new DataView(body.buffer, body.byteOffset).getUint32(16), idlen = body[20], asPub = body.slice(21, 21 + idlen);
+  assert.equal(rs, 4096); assert.equal(idlen, 65);
+  const asKey = await s.importKey('raw', asPub, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const shared = new Uint8Array(await s.deriveBits({ name: 'ECDH', public: asKey }, device.privateKey, 256));
+  const hk = async (salt, ikm, info, n) => new Uint8Array(await s.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, await s.importKey('raw', ikm, 'HKDF', false, ['deriveBits']), n * 8));
+  const te = new TextEncoder();
+  const ikm = await hk(auth, shared, new Uint8Array([...te.encode('WebPush: info\0'), ...uaPub, ...asPub]), 32);
+  const cek = await hk(salt, ikm, te.encode('Content-Encoding: aes128gcm\0'), 16), nonce = await hk(salt, ikm, te.encode('Content-Encoding: nonce\0'), 12);
+  const plain = new Uint8Array(await s.decrypt({ name: 'AES-GCM', iv: nonce }, await s.importKey('raw', cek, 'AES-GCM', false, ['decrypt']), body.slice(21 + idlen)));
+  assert.equal(plain[plain.length - 1], 2);
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(plain.slice(0, -1))), { title: 'Hi', body: 'Zoë 🐂' });
+  // The VAPID token: signed by the server key, for this push service, and the same one next time.
+  const m = headers.authorization.match(/^vapid t=([^.]+)\.([^.]+)\.([^,]+), k=(.+)$/);
+  assert.ok(m);
+  const ok = await s.verify({ name: 'ECDSA', hash: 'SHA-256' }, server.publicKey, Buffer.from(m[3], 'base64url'), te.encode(m[1] + '.' + m[2]));
+  assert.ok(ok);
+  const claims = JSON.parse(Buffer.from(m[2], 'base64url'));
+  assert.equal(claims.aud, 'https://fcm.googleapis.com'); assert.equal(claims.sub, 'mailto:a@b.c');
+  assert.equal(m[4], b64u(new Uint8Array(await s.exportKey('raw', server.publicKey))));
+  assert.equal(await vapidHeader(JSON.stringify(jwk), 'https://fcm.googleapis.com', 'mailto:a@b.c'), headers.authorization);
 });

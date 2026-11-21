@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { randomBytes, pbkdf2Sync, generateKeyPairSync, createECDH } from 'node:crypto';
 import { root } from './wrangler.mjs';
 
-const CONFIG = 'wrangler.cpu-check.jsonc', SECRETS = '.cpu-check-secrets.json', LIMIT = 10;
+const CONFIG = 'wrangler.cpu-check.jsonc', SECRETS = '.cpu-check-secrets.json', LIMIT = 10, TARGET = 7, PACE = 400;
 const stripJsonc = (t) => t.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*/g, (m, str) => str || '');
 
 export function checkConfig(jsonc) {
@@ -67,6 +67,7 @@ export function eventName(e) {
   }
   if (e.event?.cron) return `cron ${e.event.cron}`;
   if (e.event?.scheduledTime || /alarm/i.test(e.eventType || '')) return `alarm ${e.entrypoint || e.scriptName || ''}`.trim();
+  if (e.event?.rpcMethod) return `rpc ${e.entrypoint || ''}.${e.event.rpcMethod}`;
   if (e.event?.getWebSocketEvent || /websocket/i.test(e.eventType || '')) return 'websocket';
   return e.eventType || 'other';
 }
@@ -99,6 +100,7 @@ async function run(base) {
     const headers = { origin: base, ...(jar[opts.as || 'owner'] ? { cookie: jar[opts.as || 'owner'] } : {}), ...(opts.headers || {}) };
     let payload = body;
     if (body && !(body instanceof FormData) && !(body instanceof URLSearchParams) && typeof body !== 'string') { payload = JSON.stringify(body); headers['content-type'] = 'application/json'; }
+    await sleep(PACE);   // wrangler tail drops events when they come too fast
     const r = await fetch(base + path, { method, headers, body: payload, redirect: 'manual' });
     const set = r.headers.get('set-cookie'); if (set && /yy_session=([^;]+)/.test(set) && !/yy_session=;/.test(set)) jar[opts.as || 'owner'] = 'yy_session=' + set.match(/yy_session=([^;]+)/)[1];
     statuses.push([method, path.split('?')[0], r.status]);
@@ -161,9 +163,12 @@ async function run(base) {
   await call('POST', '/api/scheduled', { channel_id: gen, text: 'Scheduled by the CPU check', send_at: Date.now() + 40e3 });
   await call('POST', '/api/reminders', { text: 'Reminder from the CPU check', due_at: Date.now() + 20e3 });
   await call('POST', '/auth/logout', '', { as: 'member' });
-  const waitMin = process.argv.includes('--quick') ? 1.5 : 6;
-  console.log(`Waiting ${waitMin} minutes for the jobs${waitMin > 2 ? ' and one cron run' : ''}…`);
-  await sleep(waitMin * 60e3);
+  // Jobs finish within a minute. The cron runs every 5 minutes, but a new or changed cron trigger can take up to
+  // 15 minutes to start, so the check waits for one cron event, at most 16 minutes (--quick skips this).
+  const quick = process.argv.includes('--quick');
+  console.log(quick ? 'Waiting 90 seconds for the jobs…' : 'Waiting for the jobs and one cron run (up to 16 minutes)…');
+  await sleep(90e3);
+  for (let t = 0; !quick && t < 15 * 60e3 && !events.some((e) => eventName(e).startsWith('cron')); t += 15e3) await sleep(15e3);
   await sleep(10e3);   // last tail events
   tail.kill();
   const { rows, bad } = report(events);
@@ -171,8 +176,12 @@ async function run(base) {
   for (const r of rows) console.log(`  ${(r.maxCpuMs == null ? '  n/a' : r.maxCpuMs.toFixed(1).padStart(5)) + ' ms'}  x${String(r.count).padEnd(4)} ${r.name}  ${JSON.stringify(r.outcomes)}`);
   const http5 = statuses.filter(([, , s]) => s >= 500);
   if (http5.length) console.log('\nServer errors seen by the client:', http5);
-  writeFileSync(join(root, 'cpu-check-report.json'), JSON.stringify({ at: new Date().toISOString(), base, rows, bad, statuses, events: events.length }, null, 2));
-  const missing = ['alarm', 'cron'].filter((k) => !rows.some((r) => r.name.startsWith(k)) && (k !== 'cron' || waitMin > 5));
+  writeFileSync(join(root, 'cpu-check-report.json'), JSON.stringify({ at: new Date().toISOString(), base, rows, bad, statuses, events: events.length, raw: events.map((e) => ({ name: eventName(e), cpuTime: e.cpuTime, wallTime: e.wallTime, outcome: e.outcome, t: e.eventTimestamp })) }, null, 2));
+  const sent = statuses.length, seen = events.filter((e) => e.event?.request).length;
+  console.log(`\nRequests sent: ${sent}, seen in the live log: ${seen}${seen < sent ? ' (the live log dropped some; their CPU is unknown)' : ''}.`);
+  const near = rows.filter((r) => r.maxCpuMs != null && r.maxCpuMs > TARGET && r.maxCpuMs <= LIMIT).map((r) => r.name);
+  if (near.length) console.log(`Within 3 ms of the limit (over ${TARGET} ms): ${near.join(', ')}`);
+  const missing = ['alarm', 'cron'].filter((k) => !rows.some((r) => r.name.startsWith(k)) && (k !== 'cron' || !quick));
   if (missing.length) console.log('\nNo ' + missing.join(' or ') + ' events were seen. Check that wrangler tail was connected.');
   if (bad.length || http5.length) { console.log('\nOver the limit or failing: ' + [...bad, ...http5.map((x) => x.join(' '))].join(', ')); process.exit(1); }
   console.log(`\nAll ${events.length} invocations stayed under ${LIMIT} ms. Full report: cpu-check-report.json`);

@@ -1,8 +1,8 @@
 // Yakyard: Cloudflare Worker (API + auth + files) and the Hub Durable Object (live updates).
 import { unfurl, safeFetchUrl, safeFetch } from './unfurl.js';
 import { slackRoutes, slackApi, importJob } from './slackimport.js';
-import { sendPushes, featureApi, hydrateExtras, openDm, v6, arm, jobArm, jobAlarm, sweep, housekeeping, sendScheduled, sendReminder, pushBatch, PUSHES_PER_JOB, dbQuotaError, QUOTA_MSG } from './features.js';
-import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceJob, fmtDur, VOICE_MAX } from './voice.js';
+import { sendPushes, featureApi, hydrateExtras, openDm, v6, arm, routes, runRoutes, jobArm, jobAlarm, sweep, housekeeping, sendScheduled, sendReminder, pushBatch, PUSHES_PER_JOB, dbQuotaError, QUOTA_MSG } from './features.js';
+import { parseVoiceMeta, transcribe, patchMessage, voiceJob, fmtDur, VOICE_MAX } from './voice.js';
 import { DurableObject } from 'cloudflare:workers';
 import { cacheGet, cachePut, cacheCleanup } from './cache.js';
 
@@ -522,19 +522,9 @@ async function postMessage(env, ctx, user, ch, body) {
     event.followers = fol.results.map((r) => r.user_id).filter((u) => u !== user.id && memberSet.has(u));
   }
   await broadcast(env, event, members);
-  const direct = mentionedIds(text).filter((u) => members.includes(u));
-  const job = (async () => {
-    let pmsg = full;
-    const vfiles = full.files.filter((x) => x.voice);
-    if (vfiles.length && !text.trim()) {
-      // Phone notification shows what was said. Wait a little for the transcript, never block the send.
-      const got = vfiles.some((x) => x.t === 'pending') ? await waitTranscripts(env, vfiles.map((x) => x.key)) : Object.fromEntries(vfiles.map((x) => [x.key, x.transcript || '']));
-      const v = vfiles[0], said = (got && got[v.key]) || '';
-      pmsg = { ...full, text: `🎙 Voice note ${fmtDur(v.voice?.dur)}${said ? ': ' + said.slice(0, 160) + (said.length > 160 ? '…' : '') : ''}` };
-    }
-    return sendPushes(env, { msg: pmsg, ch, sender: user, members, direct, wide: /<!(channel|here|everyone)>/.test(text), followers: event.followers || [], parent });
-  })();
-  if (ctx?.waitUntil) ctx.waitUntil(job.catch((e) => console.log('push failed', e))); else await job.catch(() => {});
+  // Phone notifications are worked out and sent by background jobs, so the send itself stays small.
+  await arm(env, 'fanout', msg.id, now(), { ch: { id: ch.id, kind: ch.kind, name: ch.name }, sender: { id: user.id, name: user.name }, members,
+    direct: mentionedIds(text).filter((u) => members.includes(u)), wide: /<!(channel|here|everyone)>/.test(text), followers: event.followers || [], at: msg.ts });
   return json(full);
 
 }
@@ -543,518 +533,557 @@ async function postMessage(env, ctx, user, ch, body) {
 async function api(req, env, user, path, ctx) {
   const method = req.method;
   const body = method === 'GET' || method === 'DELETE' ? null : await req.json().catch(() => ({}));
-  let m;
   const fx = await featureApi(req, env, user, path, method, body, { postMessage, hydrateMessages, broadcast, isMember, channelMembers, audience, ctx });
   if (fx) return fx;
   const sx = await slackApi(req, env, user, path, method, body, ctx);
   if (sx) return sx;
+  return (await runRoutes(API_ROUTES, { req, env, user, path, ctx, method, body })) || err(404, 'Not found');
+}
 
-  // ----- bootstrap: everything the sidebar needs
-  if (path === '/api/bootstrap' && method === 'GET') {
-    // Team clocks are opt-in: the workspace turns them on (TEAM_LOCATION) and each person chooses to share.
-    // Only then is the city and time zone of the connection stored. Coordinates are kept, rounded to
-    // about 10 km, only when weather is on (WEATHER), because the weather lookup needs them.
-    const cf = req.cf || {};
-    if (locationOn(env) && user.share_location && cf.timezone && (cf.timezone !== user.tz || cf.city !== user.city)) {
-      const r1 = (v) => (weatherOn(env) && v != null && v !== '' ? Math.round(+v * 10) / 10 : null);
-      await env.DB.prepare('UPDATE users SET city=?, region=?, country=?, tz=?, lat=?, lon=?, loc_at=? WHERE id=?')
-        .bind(cf.city || '', cf.region || '', cf.country || '', cf.timezone, r1(cf.latitude), r1(cf.longitude), now(), user.id).run();
-      Object.assign(user, { city: cf.city || '', country: cf.country || '', tz: cf.timezone });
-    } else {
-      // The browser's own time zone, kept private, so do-not-disturb hours work for everyone.
-      const btz = new URL(req.url).searchParams.get('tz') || '';
-      let valid = false;
-      try { valid = /^[\w+\-\/]{1,64}$/.test(btz) && !!new Intl.DateTimeFormat('en', { timeZone: btz }); } catch {}
-      if (valid && btz !== user.tz) { await env.DB.prepare('UPDATE users SET tz=? WHERE id=?').bind(btz, user.id).run(); user.tz = btz; }
-    }
-    const loc = (c) => (locationOn(env) ? `CASE WHEN u.share_location=1 THEN u.${c} ELSE '' END AS ${c}` : `'' AS ${c}`);
-    const ucols = `u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,${loc('city')},${loc('country')},${loc('tz')},u.status_emoji,u.status_text,u.status_until,u.dnd_until,u.dnd_start,u.dnd_end,u.away`;
-    const [usersR, savedR, pushR, chans, dmR, sections, ceR] = await env.DB.batch([
-      user.role === 'guest'
-        ? env.DB.prepare(`SELECT DISTINCT ${ucols} FROM users u WHERE u.id=? OR u.role='owner' OR u.id IN (SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?)`).bind(user.id, user.id)
-        : env.DB.prepare(`SELECT ${ucols} FROM users u`),
-      env.DB.prepare('SELECT message_id FROM saved WHERE user_id=? AND done=0').bind(user.id),
-      env.DB.prepare('SELECT COUNT(*) n FROM push_subs WHERE user_id=?').bind(user.id),
-      env.DB.prepare(
-        `SELECT c.*, m.last_read, m.section_id, m.muted, m.starred, m.hidden,
-          (SELECT COUNT(*) FROM messages x WHERE x.channel_id=c.id AND x.thread_id IS NULL AND x.ts > m.last_read AND x.user_id != ? AND x.deleted=0) AS unread,
-          (SELECT COUNT(*) FROM mentions n WHERE n.channel_id=c.id AND n.user_id=? AND n.ts > m.last_read) AS mentions
-         FROM members m JOIN channels c ON c.id = m.channel_id WHERE m.user_id = ? AND c.archived = 0`).bind(user.id, user.id, user.id),
-      env.DB.prepare(`SELECT x.channel_id, x.user_id FROM members x JOIN members me ON me.channel_id = x.channel_id AND me.user_id = ?
-        JOIN channels c ON c.id = x.channel_id WHERE c.kind = 'dm'`).bind(user.id),
-      env.DB.prepare('SELECT * FROM sections WHERE user_id=? ORDER BY position').bind(user.id),
-      env.DB.prepare("SELECT value FROM settings WHERE key='custom_emoji'"),
-    ]);
-    const users = usersR, savedIds = savedR.results.map((r) => r.message_id), pushOn = pushR.results[0]?.n || 0;
-    const dmMembers = {};
-    for (const x of dmR.results) (dmMembers[x.channel_id] ||= []).push(x.user_id);
-    const ce = ceR.results[0];
-    return json({
-      emoji: ce ? JSON.parse(ce.value) : {},
-      me: pickMe(user),
-      workspace: { name: env.WORKSPACE_NAME || 'Yakyard', location: locationOn(env), weather: locationOn(env) && weatherOn(env) },
-      users: users.results,
-      channels: chans.results.map((c) => ({ ...c, members: dmMembers[c.id] })),
-      sections: sections.results,
-      saved: savedIds, push_key: env.VAPID_PUBLIC || '', push_devices: pushOn,
-    });
+// Routes: each handler is its own function, so a request compiles only the one it uses.
+const API_ROUTES = routes([
+  ['GET', '/api/bootstrap', api_bootstrap_GET],
+  ['GET', '/api/channels', api_channels_GET],
+  ['POST', '/api/channels', api_channels_POST],
+  ['POST', '/api/dm', api_dm_POST],
+  [null, /^\/api\/channels\/([^/]+)(\/.*)?$/, api_channels_id],
+  [null, /^\/api\/messages\/([^/]+)(\/.*)?$/, api_messages_id],
+  ['POST', '/api/sections', api_sections_POST],
+  [null, /^\/api\/sections\/([^/]+)$/, api_sections_id],
+  ['GET', '/api/mentions', api_mentions_GET],
+  ['GET', '/api/activity/reactions', api_activity_reactions_GET],
+  ['PATCH', '/api/me', api_me_PATCH],
+  ['POST', '/api/me/password', api_me_password_POST],
+  ['GET', '/api/team/places', api_team_places_GET],
+  ['GET', '/api/unfurl', api_unfurl_GET],
+  ['GET', '/api/img', api_img_GET],
+  ['GET', '/api/ice', api_ice_GET],
+  [null, /^\/api\/admin\//, api_admin],
+  ['POST', '/api/invite', api_invite_POST],
+]);
+async function api_bootstrap_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  // Team clocks are opt-in: the workspace turns them on (TEAM_LOCATION) and each person chooses to share.
+  // Only then is the city and time zone of the connection stored. Coordinates are kept, rounded to
+  // about 10 km, only when weather is on (WEATHER), because the weather lookup needs them.
+  const cf = req.cf || {};
+  if (locationOn(env) && user.share_location && cf.timezone && (cf.timezone !== user.tz || cf.city !== user.city)) {
+    const r1 = (v) => (weatherOn(env) && v != null && v !== '' ? Math.round(+v * 10) / 10 : null);
+    await env.DB.prepare('UPDATE users SET city=?, region=?, country=?, tz=?, lat=?, lon=?, loc_at=? WHERE id=?')
+      .bind(cf.city || '', cf.region || '', cf.country || '', cf.timezone, r1(cf.latitude), r1(cf.longitude), now(), user.id).run();
+    Object.assign(user, { city: cf.city || '', country: cf.country || '', tz: cf.timezone });
+  } else {
+    // The browser's own time zone, kept private, so do-not-disturb hours work for everyone.
+    const btz = new URL(req.url).searchParams.get('tz') || '';
+    let valid = false;
+    try { valid = /^[\w+\-\/]{1,64}$/.test(btz) && !!new Intl.DateTimeFormat('en', { timeZone: btz }); } catch {}
+    if (valid && btz !== user.tz) { await env.DB.prepare('UPDATE users SET tz=? WHERE id=?').bind(btz, user.id).run(); user.tz = btz; }
   }
+  const loc = (c) => (locationOn(env) ? `CASE WHEN u.share_location=1 THEN u.${c} ELSE '' END AS ${c}` : `'' AS ${c}`);
+  const ucols = `u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,${loc('city')},${loc('country')},${loc('tz')},u.status_emoji,u.status_text,u.status_until,u.dnd_until,u.dnd_start,u.dnd_end,u.away`;
+  const [usersR, savedR, pushR, chans, dmR, sections, ceR] = await env.DB.batch([
+    user.role === 'guest'
+      ? env.DB.prepare(`SELECT DISTINCT ${ucols} FROM users u WHERE u.id=? OR u.role='owner' OR u.id IN (SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?)`).bind(user.id, user.id)
+      : env.DB.prepare(`SELECT ${ucols} FROM users u`),
+    env.DB.prepare('SELECT message_id FROM saved WHERE user_id=? AND done=0').bind(user.id),
+    env.DB.prepare('SELECT COUNT(*) n FROM push_subs WHERE user_id=?').bind(user.id),
+    env.DB.prepare(
+      `SELECT c.*, m.last_read, m.section_id, m.muted, m.starred, m.hidden,
+        (SELECT COUNT(*) FROM messages x WHERE x.channel_id=c.id AND x.thread_id IS NULL AND x.ts > m.last_read AND x.user_id != ? AND x.deleted=0) AS unread,
+        (SELECT COUNT(*) FROM mentions n WHERE n.channel_id=c.id AND n.user_id=? AND n.ts > m.last_read) AS mentions
+       FROM members m JOIN channels c ON c.id = m.channel_id WHERE m.user_id = ? AND c.archived = 0`).bind(user.id, user.id, user.id),
+    env.DB.prepare(`SELECT x.channel_id, x.user_id FROM members x JOIN members me ON me.channel_id = x.channel_id AND me.user_id = ?
+      JOIN channels c ON c.id = x.channel_id WHERE c.kind = 'dm'`).bind(user.id),
+    env.DB.prepare('SELECT * FROM sections WHERE user_id=? ORDER BY position').bind(user.id),
+    env.DB.prepare("SELECT value FROM settings WHERE key='custom_emoji'"),
+  ]);
+  const users = usersR, savedIds = savedR.results.map((r) => r.message_id), pushOn = pushR.results[0]?.n || 0;
+  const dmMembers = {};
+  for (const x of dmR.results) (dmMembers[x.channel_id] ||= []).push(x.user_id);
+  const ce = ceR.results[0];
+  return json({
+    emoji: ce ? JSON.parse(ce.value) : {},
+    me: pickMe(user),
+    workspace: { name: env.WORKSPACE_NAME || 'Yakyard', location: locationOn(env), weather: locationOn(env) && weatherOn(env) },
+    users: users.results,
+    channels: chans.results.map((c) => ({ ...c, members: dmMembers[c.id] })),
+    sections: sections.results,
+    saved: savedIds, push_key: env.VAPID_PUBLIC || '', push_devices: pushOn,
+  });
+}
 
-  // ----- browse all public channels
-  if (path === '/api/channels' && method === 'GET') {
-    const r = await env.DB.prepare(
-      `SELECT c.id,c.name,c.topic,c.private,c.archived,(SELECT COUNT(*) FROM members m WHERE m.channel_id=c.id) members,
-        EXISTS(SELECT 1 FROM members m WHERE m.channel_id=c.id AND m.user_id=?) joined
-       FROM channels c WHERE c.kind='channel' AND ((c.private=0 AND ?<>'guest') OR EXISTS(SELECT 1 FROM members m WHERE m.channel_id=c.id AND m.user_id=?))
-       ORDER BY c.archived, c.name`
-    ).bind(user.id, user.role, user.id).all();
-    return json(r.results);
+// ----- browse all public channels
+async function api_channels_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const r = await env.DB.prepare(
+    `SELECT c.id,c.name,c.topic,c.private,c.archived,(SELECT COUNT(*) FROM members m WHERE m.channel_id=c.id) members,
+      EXISTS(SELECT 1 FROM members m WHERE m.channel_id=c.id AND m.user_id=?) joined
+     FROM channels c WHERE c.kind='channel' AND ((c.private=0 AND ?<>'guest') OR EXISTS(SELECT 1 FROM members m WHERE m.channel_id=c.id AND m.user_id=?))
+     ORDER BY c.archived, c.name`
+  ).bind(user.id, user.role, user.id).all();
+  return json(r.results);
+}
+
+// ----- create channel
+async function api_channels_POST(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  if (user.role === 'guest') return err(403, "Guests can't create channels.");
+  const name = String(body.name || '').toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  if (!name) return err(400, 'Add a name first.');
+  if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first()) return err(409, 'That name is taken. Pick another one.');
+  const id = uid('C');
+  await env.DB.prepare('INSERT INTO channels (id,kind,name,topic,private,created_by,created_at,last_ts) VALUES (?,?,?,?,?,?,?,?)')
+    .bind(id, 'channel', name, String(body.topic || '').slice(0, 250), body.private ? 1 : 0, user.id, now(), now()).run();
+  await env.DB.prepare('INSERT INTO members (channel_id,user_id,last_read,joined_at,section_id) VALUES (?,?,?,?,?)')
+    .bind(id, user.id, now(), now(), body.section_id || null).run();
+  const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(id).first();
+  await broadcast(env, { type: 'channel_created', channel: ch }, body.private ? [user.id] : await nonGuestIds(env));
+  return json({ ...ch, last_read: now(), section_id: body.section_id || null, unread: 0, mentions: 0 });
+}
+
+// ----- DM open (1:1 or group)
+async function api_dm_POST(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const others = [...new Set((Array.isArray(body.user_ids) ? body.user_ids : []).map(String))].filter((x) => x !== user.id);
+  if (others.length > 8) return err(400, 'Pick 1 to 8 people');
+  if (others.length) {
+    // Only real, active people. Guests can only message people they already share a conversation with (and the owner).
+    const ph = others.map(() => '?').join(',');
+    const valid = user.role === 'guest'
+      ? await env.DB.prepare(`SELECT id FROM users u WHERE active=1 AND id IN (${ph}) AND (role='owner' OR id IN (SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?))`).bind(...others, user.id).all()
+      : await env.DB.prepare(`SELECT id FROM users WHERE active=1 AND id IN (${ph})`).bind(...others).all();
+    if (valid.results.length !== others.length) return err(400, 'Unknown person');
   }
+  const ids = [user.id, ...others].sort();
+  const key = ids.join(',');
+  const ch = await openDm(env, ids, user.id);
+  return json({ ...ch, members: ids, last_read: now(), unread: 0, mentions: 0 });
+}
 
-  // ----- create channel
-  if (path === '/api/channels' && method === 'POST') {
-    if (user.role === 'guest') return err(403, "Guests can't create channels.");
-    const name = String(body.name || '').toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-    if (!name) return err(400, 'Add a name first.');
-    if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first()) return err(409, 'That name is taken. Pick another one.');
-    const id = uid('C');
-    await env.DB.prepare('INSERT INTO channels (id,kind,name,topic,private,created_by,created_at,last_ts) VALUES (?,?,?,?,?,?,?,?)')
-      .bind(id, 'channel', name, String(body.topic || '').slice(0, 250), body.private ? 1 : 0, user.id, now(), now()).run();
-    await env.DB.prepare('INSERT INTO members (channel_id,user_id,last_read,joined_at,section_id) VALUES (?,?,?,?,?)')
-      .bind(id, user.id, now(), now(), body.section_id || null).run();
-    const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(id).first();
-    await broadcast(env, { type: 'channel_created', channel: ch }, body.private ? [user.id] : await nonGuestIds(env));
-    return json({ ...ch, last_read: now(), section_id: body.section_id || null, unread: 0, mentions: 0 });
+async function api_channels_id(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const cid = m[1];
+  const sub = m[2] || '';
+  const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(cid).first();
+  if (!ch) return err(404, "That channel isn't here anymore.");
+  const member = await isMember(env, cid, user.id);
+  const priv = ch.private || ch.kind === 'dm';
+
+  if (sub === '/join' && method === 'POST') {
+    if (priv && !member) return err(403, 'Private channel');
+    if (user.role === 'guest') return err(403, 'Guests need an invite');
+    await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at,section_id) VALUES (?,?,?,?,?)')
+      .bind(cid, user.id, 0, now(), body.section_id || null).run();
+    await broadcast(env, { type: 'member_joined', channel_id: cid, user_id: user.id }, await channelMembers(env, cid));
+    return json({ ...ch, last_read: 0, section_id: body.section_id || null, unread: 0, mentions: 0 });
   }
+  if (!member && !(sub === '/messages' && method === 'GET' && !priv && user.role !== 'guest')) return err(403, "You're not in this channel.");
 
-  // ----- DM open (1:1 or group)
-  if (path === '/api/dm' && method === 'POST') {
-    const others = [...new Set((Array.isArray(body.user_ids) ? body.user_ids : []).map(String))].filter((x) => x !== user.id);
-    if (others.length > 8) return err(400, 'Pick 1 to 8 people');
-    if (others.length) {
-      // Only real, active people. Guests can only message people they already share a conversation with (and the owner).
-      const ph = others.map(() => '?').join(',');
-      const valid = user.role === 'guest'
-        ? await env.DB.prepare(`SELECT id FROM users u WHERE active=1 AND id IN (${ph}) AND (role='owner' OR id IN (SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?))`).bind(...others, user.id).all()
-        : await env.DB.prepare(`SELECT id FROM users WHERE active=1 AND id IN (${ph})`).bind(...others).all();
-      if (valid.results.length !== others.length) return err(400, 'Unknown person');
-    }
-    const ids = [user.id, ...others].sort();
-    const key = ids.join(',');
-    const ch = await openDm(env, ids, user.id);
-    return json({ ...ch, members: ids, last_read: now(), unread: 0, mentions: 0 });
-  }
-
-  if ((m = path.match(/^\/api\/channels\/([^/]+)(\/.*)?$/))) {
-    const cid = m[1];
-    const sub = m[2] || '';
-    const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(cid).first();
-    if (!ch) return err(404, "That channel isn't here anymore.");
-    const member = await isMember(env, cid, user.id);
-    const priv = ch.private || ch.kind === 'dm';
-
-    if (sub === '/join' && method === 'POST') {
-      if (priv && !member) return err(403, 'Private channel');
-      if (user.role === 'guest') return err(403, 'Guests need an invite');
-      await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at,section_id) VALUES (?,?,?,?,?)')
-        .bind(cid, user.id, 0, now(), body.section_id || null).run();
-      await broadcast(env, { type: 'member_joined', channel_id: cid, user_id: user.id }, await channelMembers(env, cid));
-      return json({ ...ch, last_read: 0, section_id: body.section_id || null, unread: 0, mentions: 0 });
-    }
-    if (!member && !(sub === '/messages' && method === 'GET' && !priv && user.role !== 'guest')) return err(403, "You're not in this channel.");
-
-    if (sub === '/leave' && method === 'POST') {
-      await env.DB.prepare('DELETE FROM members WHERE channel_id=? AND user_id=?').bind(cid, user.id).run();
-      return json({ ok: true });
-    }
-    if (sub === '/members' && method === 'GET') return json(await channelMembers(env, cid));
-    if (sub === '/members' && method === 'POST') {
-      if (ch.kind === 'dm') return err(403, 'Start a new group message instead');
-      if (user.role === 'guest') return err(403, "Guests can't add people.");
-      const ids = [...new Set((body.user_ids || []).map(String))].slice(0, 50);
-      const ok = ids.length ? (await env.DB.prepare(`SELECT id FROM users WHERE active=1 AND id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results.map((r) => r.id) : [];
-      if (ok.length) await env.DB.batch(ok.map((u) => env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(cid, u, 0, now())));
-      body.user_ids = ok;
-      const all = await channelMembers(env, cid);
-      await broadcast(env, { type: 'channel_added', channel: ch, user_ids: body.user_ids || [] }, body.user_ids || []);
-      return json(all);
-    }
-    if (sub === '' && method === 'PATCH') {
-      if (user.role === 'guest') return err(403, "Guests can't change the topic.");
-      if (ch.archived && ch.kind !== 'dm') return err(403, 'This channel is archived. Nobody can post here.');
-      const topic = body.topic != null ? String(body.topic).slice(0, 250) : ch.topic;
-      await env.DB.prepare('UPDATE channels SET topic=? WHERE id=?').bind(topic, cid).run();
-      await broadcast(env, { type: 'channel_updated', channel: { ...ch, topic } }, await channelMembers(env, cid));
-      return json({ ok: true });
-    }
-    if (sub === '/read' && method === 'POST') {
-      const ts = Math.max(0, Number(body.ts) || now());
-      await env.DB.prepare(body.force ? 'UPDATE members SET last_read=? WHERE channel_id=? AND user_id=?' : 'UPDATE members SET last_read=MAX(last_read,?) WHERE channel_id=? AND user_id=?').bind(ts, cid, user.id).run();
-      await broadcast(env, { type: 'read', channel_id: cid, ts }, [user.id]);
-      return json({ ok: true });
-    }
-    if (sub === '/prefs' && method === 'POST') {
-      const fields = [];
-      const vals = [];
-      if ('section_id' in body) { fields.push('section_id=?'); vals.push(body.section_id || null); }
-      if ('muted' in body) { fields.push('muted=?'); vals.push(body.muted ? 1 : 0); }
-      if ('starred' in body) { fields.push('starred=?'); vals.push(body.starred ? 1 : 0); }
-      if ('hidden' in body) { fields.push('hidden=?'); vals.push(body.hidden ? 1 : 0); }
-      if (fields.length) await env.DB.prepare(`UPDATE members SET ${fields.join(',')} WHERE channel_id=? AND user_id=?`).bind(...vals, cid, user.id).run();
-      return json({ ok: true });
-    }
-    if (sub === '/messages' && method === 'GET') {
-      const url = new URL(req.url);
-      const around = Number(url.searchParams.get('around')), after = Number(url.searchParams.get('after'));
-      if (around || after) {
-        const older = around ? (await env.DB.prepare(`SELECT * FROM messages WHERE channel_id=? AND (thread_id IS NULL OR also_channel=1) AND ts <= ? ORDER BY ts DESC LIMIT 30`).bind(cid, around).all()).results.reverse() : [];
-        const newer = (await env.DB.prepare(`SELECT * FROM messages WHERE channel_id=? AND (thread_id IS NULL OR also_channel=1) AND ts > ? ORDER BY ts ASC LIMIT 40`).bind(cid, around || after).all()).results;
-        return json({ messages: await hydrateMessages(env, [...older, ...newer]), has_more: around ? older.length === 30 : undefined, has_newer: newer.length === 40 });
-      }
-      const before = Number(url.searchParams.get('before')) || 9e15;
-      const r = await env.DB.prepare(
-        `SELECT * FROM messages WHERE channel_id=? AND (thread_id IS NULL OR also_channel=1) AND ts < ? ORDER BY ts DESC LIMIT ?`
-      ).bind(cid, before, PAGE).all();
-      const rows = r.results.reverse();
-      return json({ messages: await hydrateMessages(env, rows), has_more: r.results.length === PAGE });
-    }
-    if (sub === '/messages' && method === 'POST') return postMessage(env, ctx, user, ch, body);
-    return err(404, 'Not found');
-  }
-
-  if ((m = path.match(/^\/api\/messages\/([^/]+)(\/.*)?$/))) {
-    const mid = m[1];
-    const sub = m[2] || '';
-    const msg = await env.DB.prepare('SELECT * FROM messages WHERE id=?').bind(mid).first();
-    if (!msg) return err(404, "That message isn't here anymore.");
-    if (!(await isMember(env, msg.channel_id, user.id))) {
-      const ch = await env.DB.prepare('SELECT private, kind FROM channels WHERE id=?').bind(msg.channel_id).first();
-      if (!ch || ch.private || ch.kind === 'dm' || user.role === 'guest' || method !== 'GET') return err(403, "You're not in this channel.");
-    }
-    const members = () => channelMembers(env, msg.channel_id);
-
-    if (sub === '/thread' && method === 'GET') {
-      const r = await env.DB.prepare('SELECT * FROM messages WHERE thread_id=? ORDER BY ts').bind(mid).all();
-      return json({ parent: (await hydrateMessages(env, [msg]))[0], replies: await hydrateMessages(env, r.results) });
-    }
-    if (sub === '/reactions' && method === 'POST') {
-      const emoji = String(body.emoji || '').slice(0, 64);
-      if (!emoji) return err(400, 'Emoji required');
-      const has = await env.DB.prepare('SELECT 1 FROM reactions WHERE message_id=? AND user_id=? AND emoji=?').bind(mid, user.id, emoji).first();
-      if (has) await env.DB.prepare('DELETE FROM reactions WHERE message_id=? AND user_id=? AND emoji=?').bind(mid, user.id, emoji).run();
-      else await env.DB.prepare('INSERT INTO reactions (message_id,user_id,emoji) VALUES (?,?,?)').bind(mid, user.id, emoji).run();
-      const [full] = await hydrateMessages(env, [msg]);
-      await broadcast(env, { type: 'message_changed', message: full }, await members());
-      return json(full);
-    }
-    const arch = async () => (await env.DB.prepare("SELECT archived, kind FROM channels WHERE id=?").bind(msg.channel_id).first()) || {};
-    if (sub === '' && method === 'PATCH') {
-      if (msg.deleted) return err(400, 'Deleted');
-      const a = await arch();
-      if (a.archived && a.kind !== 'dm') return err(403, 'This channel is archived. Nobody can post here.');
-      if (msg.user_id !== user.id) return err(403, 'Only the person who wrote it can edit it.');
-      const text = String(body.text || '').slice(0, 40000);
-      await env.DB.prepare('UPDATE messages SET text=?, edited_ts=? WHERE id=?').bind(text, now(), mid).run();
-      const [full] = await hydrateMessages(env, [{ ...msg, text, edited_ts: now() }]);
-      await broadcast(env, { type: 'message_changed', message: full }, await members());
-      return json(full);
-    }
-    if (sub === '' && method === 'DELETE') {
-      if (msg.user_id !== user.id && !['owner', 'admin'].includes(user.role)) return err(403, 'Not allowed');
-      await env.DB.prepare("UPDATE messages SET deleted=1, text='', files='[]' WHERE id=?").bind(mid).run();
-      if (msg.thread_id && !msg.deleted) await env.DB.prepare('UPDATE messages SET reply_count=MAX(0,reply_count-1) WHERE id=?').bind(msg.thread_id).run();
-      // Deleting a message deletes its files too, so old links stop working.
-      const keys = JSON.parse(msg.files || '[]').map((f) => f.key).filter(Boolean);
-      if (keys.length) { await env.FILES.delete(keys); await env.DB.prepare(`DELETE FROM files WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).run(); }
-      const [full] = await hydrateMessages(env, [{ ...msg, deleted: 1, text: '', files: '[]' }]);
-      await broadcast(env, { type: 'message_changed', message: full }, await members());
-      return json(full);
-    }
-    return err(404, 'Not found');
-  }
-
-  // ----- sections (per person, like Slack)
-  if (path === '/api/sections' && method === 'POST') {
-    const max = await env.DB.prepare('SELECT COALESCE(MAX(position),-1)+1 p FROM sections WHERE user_id=?').bind(user.id).first();
-    const s = { id: uid('S'), user_id: user.id, name: String(body.name || 'New section').slice(0, 60), position: max.p, collapsed: 0 };
-    await env.DB.prepare('INSERT INTO sections (id,user_id,name,position) VALUES (?,?,?,?)').bind(s.id, user.id, s.name, s.position).run();
-    return json(s);
-  }
-  if ((m = path.match(/^\/api\/sections\/([^/]+)$/))) {
-    const s = await env.DB.prepare('SELECT * FROM sections WHERE id=? AND user_id=?').bind(m[1], user.id).first();
-    if (!s) return err(404, 'Section not found');
-    if (method === 'PATCH') {
-      await env.DB.prepare('UPDATE sections SET name=?, collapsed=?, position=? WHERE id=?')
-        .bind(body.name != null ? String(body.name).slice(0, 60) : s.name, body.collapsed != null ? (body.collapsed ? 1 : 0) : s.collapsed,
-          body.position != null ? Number(body.position) : s.position, s.id).run();
-      return json({ ok: true });
-    }
-    if (method === 'DELETE') {
-      await env.DB.batch([
-        env.DB.prepare('UPDATE members SET section_id=NULL WHERE user_id=? AND section_id=?').bind(user.id, s.id),
-        env.DB.prepare('DELETE FROM sections WHERE id=?').bind(s.id),
-      ]);
-      return json({ ok: true });
-    }
-  }
-
-  // ----- mentions inbox
-  if (path === '/api/mentions' && method === 'GET') {
-    const r = await env.DB.prepare(
-      `SELECT x.* FROM mentions n JOIN messages x ON x.id=n.message_id JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
-       WHERE n.user_id=? AND x.deleted=0 ORDER BY n.ts DESC LIMIT 50`
-    ).bind(user.id, user.id).all();
-    return json(await hydrateMessages(env, r.results));
-  }
-
-  // ----- activity: reactions to my messages
-  if (path === '/api/activity/reactions' && method === 'GET') {
-    const r = await env.DB.prepare(
-      `SELECT x.*, r.emoji AS r_emoji, r.user_id AS r_user FROM reactions r JOIN messages x ON x.id=r.message_id
-       JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
-       WHERE x.user_id=? AND r.user_id<>? AND x.deleted=0 ORDER BY x.ts DESC LIMIT 60`).bind(user.id, user.id, user.id).all();
-    const rows = await hydrateMessages(env, r.results);
-    return json(rows.map((m, i) => ({ ...m, r_emoji: r.results[i].r_emoji, r_user: r.results[i].r_user })));
-  }
-  // ----- profile
-  if (path === '/api/me' && method === 'PATCH') {
-    const name = body.name != null ? String(body.name).slice(0, 80) : user.name;
-    const title = body.title != null ? String(body.title).slice(0, 80) : user.title;
-    const pick = (k, f) => (k in body ? f(body[k]) : user[k]);
-    const upd = {
-      name, title,
-      status_emoji: pick('status_emoji', (v) => String(v || '').slice(0, 64)),
-      status_text: pick('status_text', (v) => String(v || '').slice(0, 100)),
-      status_until: pick('status_until', (v) => Math.max(0, +v || 0)),
-      dnd_until: pick('dnd_until', (v) => Math.max(0, +v || 0)),
-      dnd_start: pick('dnd_start', (v) => (/^\d\d:\d\d$/.test(v) ? v : '')),
-      dnd_end: pick('dnd_end', (v) => (/^\d\d:\d\d$/.test(v) ? v : '')),
-      notify_level: pick('notify_level', (v) => (['all', 'mentions', 'none'].includes(v) ? v : 'mentions')),
-      away: pick('away', (v) => (v ? 1 : 0)),
-      vips: pick('vips', (v) => JSON.stringify((Array.isArray(v) ? v : []).map(String).slice(0, 30))),
-      share_location: pick('share_location', (v) => (v ? 1 : 0)),
-    };
-    if ('share_location' in body && !upd.share_location) {
-      // Stop sharing: forget the stored place right away.
-      await env.DB.prepare("UPDATE users SET city='', region='', country='', lat=NULL, lon=NULL, loc_at=NULL WHERE id=?").bind(user.id).run();
-      await broadcast(env, { type: 'user_updated', user: { id: user.id, city: '', country: '', tz: '' } }, await audience(env, user.id));
-    }
-    await env.DB.prepare('UPDATE users SET name=?, title=?, status_emoji=?, status_text=?, status_until=?, dnd_until=?, dnd_start=?, dnd_end=?, notify_level=?, vips=?, away=?, share_location=? WHERE id=?')
-      .bind(upd.name, upd.title, upd.status_emoji, upd.status_text, upd.status_until, upd.dnd_until, upd.dnd_start, upd.dnd_end, upd.notify_level, upd.vips || '[]', upd.away || 0, upd.share_location || 0, user.id).run();
-    const pub = { id: user.id, name, title, status_emoji: upd.status_emoji, status_text: upd.status_text, status_until: upd.status_until, dnd_until: upd.dnd_until, dnd_start: upd.dnd_start, dnd_end: upd.dnd_end, away: upd.away };
-    await broadcast(env, { type: 'user_updated', user: pub }, await audience(env, user.id));
+  if (sub === '/leave' && method === 'POST') {
+    await env.DB.prepare('DELETE FROM members WHERE channel_id=? AND user_id=?').bind(cid, user.id).run();
     return json({ ok: true });
   }
-
-  // ----- change password: the browser sends the current key (and the password once, for old accounts) and the new key
-  if (path === '/api/me/password' && method === 'POST') {
-    const row = await env.DB.prepare('SELECT hash, salt FROM credentials WHERE user_id=?').bind(user.id).first();
-    if (!row) return err(400, 'You sign in with Google, so there is no password to change.');
-    if ((await bump(env, 'pw:' + user.id)) > 10) return err(429, 'Too many tries. Wait 15 minutes, then try again.');
-    if (isOld(row)) return err(400, OLD_PASSWORD);
-    if (!(await checkKey(row, String(body.key || '')))) return err(400, "That's not your current password.");
-    const nk = newKey(new Map([['key', body.new_key], ['salt', body.new_salt], ['len', body.len]]));
-    if (!nk) return err(400, `Pick a new password of at least ${MIN_PW} characters.`);
-    const keep = await sha256hex(cookie(req, SESSION_COOKIE) || '');
-    await env.DB.batch([
-      env.DB.prepare('UPDATE credentials SET hash=?, salt=?, updated_at=? WHERE user_id=?').bind(await keyHash(nk.key, nk.salt), nk.salt, now(), user.id),
-      // Signed out everywhere else, in case someone else knew the old password.
-      env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND id<>?').bind(user.id, keep),
-    ]);
+  if (sub === '/members' && method === 'GET') return json(await channelMembers(env, cid));
+  if (sub === '/members' && method === 'POST') {
+    if (ch.kind === 'dm') return err(403, 'Start a new group message instead');
+    if (user.role === 'guest') return err(403, "Guests can't add people.");
+    const ids = [...new Set((body.user_ids || []).map(String))].slice(0, 50);
+    const ok = ids.length ? (await env.DB.prepare(`SELECT id FROM users WHERE active=1 AND id IN (${ids.map(() => '?').join(',')})`).bind(...ids).all()).results.map((r) => r.id) : [];
+    if (ok.length) await env.DB.batch(ok.map((u) => env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(cid, u, 0, now())));
+    body.user_ids = ok;
+    const all = await channelMembers(env, cid);
+    await broadcast(env, { type: 'channel_added', channel: ch, user_ids: body.user_ids || [] }, body.user_ids || []);
+    return json(all);
+  }
+  if (sub === '' && method === 'PATCH') {
+    if (user.role === 'guest') return err(403, "Guests can't change the topic.");
+    if (ch.archived && ch.kind !== 'dm') return err(403, 'This channel is archived. Nobody can post here.');
+    const topic = body.topic != null ? String(body.topic).slice(0, 250) : ch.topic;
+    await env.DB.prepare('UPDATE channels SET topic=? WHERE id=?').bind(topic, cid).run();
+    await broadcast(env, { type: 'channel_updated', channel: { ...ch, topic } }, await channelMembers(env, cid));
     return json({ ok: true });
   }
-
-  // ----- team places: only people who chose to share, and only if the workspace allows it
-  if (path === '/api/team/places' && method === 'GET') {
-    if (!locationOn(env)) return json([]);
-    const r = await env.DB.prepare(`SELECT id, city, region, country, tz, lat, lon FROM users
-      WHERE active=1 AND share_location=1 AND tz IS NOT NULL AND tz<>''`).all();
-    const places = {};
-    for (const u of r.results) {
-      const k = `${u.city}|${u.country}|${u.tz}`;
-      (places[k] ||= { city: u.city, region: u.region, country: u.country, tz: u.tz, lat: u.lat, lon: u.lon, people: [] }).people.push(u.id);
-    }
-    const list = Object.values(places);
-    const withPos = list.filter((p) => p.lat != null && p.lon != null);
-    if (weatherOn(env) && withPos.length) {
-      const list = withPos;
-      const key = 'weather/' + (await sha256hex(list.map((p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`).join(';')));
-      let wx = await cacheGet(env, key).then((x) => x && x.json()).catch(() => null);
-      if (!wx) {
-        try {
-          const q = `latitude=${list.map((p) => p.lat.toFixed(3)).join(',')}&longitude=${list.map((p) => p.lon.toFixed(3)).join(',')}`;
-          const res = await fetch(`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,weather_code,is_day&timezone=auto`);
-          const j = await res.json(); wx = Array.isArray(j) ? j : [j];
-          await cachePut(env, key, JSON.stringify(wx), 1200e3, 'application/json');
-        } catch (e) { wx = []; }
-      }
-      list.forEach((p, i) => { const c = wx[i]?.current; if (c) Object.assign(p, { temp: c.temperature_2m, code: c.weather_code, day: c.is_day }); });
-    }
-    for (const p of list) { delete p.lat; delete p.lon; }
-    return json(list);
+  if (sub === '/read' && method === 'POST') {
+    const ts = Math.max(0, Number(body.ts) || now());
+    await env.DB.prepare(body.force ? 'UPDATE members SET last_read=? WHERE channel_id=? AND user_id=?' : 'UPDATE members SET last_read=MAX(last_read,?) WHERE channel_id=? AND user_id=?').bind(ts, cid, user.id).run();
+    await broadcast(env, { type: 'read', channel_id: cid, ts }, [user.id]);
+    return json({ ok: true });
   }
-
-  if (path === '/api/unfurl' && method === 'GET') {
-    const target = new URL(req.url).searchParams.get('url') || '';
-    if (user.role === 'guest') return json({});
-    if (!safeFetchUrl(target)) return err(400, 'Bad url');
-    const key = 'unfurl/' + (await sha256hex(target)), jh = { 'content-type': 'application/json', 'cache-control': 'private, max-age=86400' };
-    const hit = await cacheGet(env, key);
-    if (hit) return new Response(hit.body, { headers: jh });
-    const r = await Promise.race([unfurl(target), new Promise((res) => setTimeout(() => res({ ok: false }), 5000))]);
-    const out = JSON.stringify(r.ok ? r.value : {});
-    await cachePut(env, key, out, r.ok ? 864e5 : 3600e3, 'application/json');
-    return new Response(out, { headers: jh });
+  if (sub === '/prefs' && method === 'POST') {
+    const fields = [];
+    const vals = [];
+    if ('section_id' in body) { fields.push('section_id=?'); vals.push(body.section_id || null); }
+    if ('muted' in body) { fields.push('muted=?'); vals.push(body.muted ? 1 : 0); }
+    if ('starred' in body) { fields.push('starred=?'); vals.push(body.starred ? 1 : 0); }
+    if ('hidden' in body) { fields.push('hidden=?'); vals.push(body.hidden ? 1 : 0); }
+    if (fields.length) await env.DB.prepare(`UPDATE members SET ${fields.join(',')} WHERE channel_id=? AND user_id=?`).bind(...vals, cid, user.id).run();
+    return json({ ok: true });
   }
-
-  // Pictures from other sites: see imgProxy.
-  if (path === '/api/img' && method === 'GET') {
-    const target = new URL(req.url).searchParams.get('u') || '';
-    if (!safeFetchUrl(target)) return err(400, 'Bad url');
-    return imgProxy(env, target);
+  if (sub === '/messages' && method === 'GET') {
+    const url = new URL(req.url);
+    const around = Number(url.searchParams.get('around')), after = Number(url.searchParams.get('after'));
+    if (around || after) {
+      const older = around ? (await env.DB.prepare(`SELECT * FROM messages WHERE channel_id=? AND (thread_id IS NULL OR also_channel=1) AND ts <= ? ORDER BY ts DESC LIMIT 30`).bind(cid, around).all()).results.reverse() : [];
+      const newer = (await env.DB.prepare(`SELECT * FROM messages WHERE channel_id=? AND (thread_id IS NULL OR also_channel=1) AND ts > ? ORDER BY ts ASC LIMIT 40`).bind(cid, around || after).all()).results;
+      return json({ messages: await hydrateMessages(env, [...older, ...newer]), has_more: around ? older.length === 30 : undefined, has_newer: newer.length === 40 });
+    }
+    const before = Number(url.searchParams.get('before')) || 9e15;
+    const r = await env.DB.prepare(
+      `SELECT * FROM messages WHERE channel_id=? AND (thread_id IS NULL OR also_channel=1) AND ts < ? ORDER BY ts DESC LIMIT ?`
+    ).bind(cid, before, PAGE).all();
+    const rows = r.results.reverse();
+    return json({ messages: await hydrateMessages(env, rows), has_more: r.results.length === PAGE });
   }
-
-  if (path === '/api/ice' && method === 'GET') {
-    const servers = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
-    if (env.TURN_KEY_ID && env.TURN_KEY_TOKEN) {
-      try {
-        const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
-          method: 'POST', headers: { authorization: `Bearer ${env.TURN_KEY_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ ttl: 86400 }),
-        }).then((x) => x.json());
-        if (r.iceServers) return json(r.iceServers);
-      } catch (e) {}
-    }
-    return json(servers);
-  }
-
-  // ---------------- admin dashboard (owner + admins)
-  if (path.startsWith('/api/admin/')) {
-    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can do this.');
-    if (path === '/api/admin/people' && method === 'GET') {
-      const r = await env.DB.prepare(`SELECT u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,u.deactivated,u.created_at,
-          EXISTS(SELECT 1 FROM credentials c WHERE c.user_id=u.id) has_password,
-          (SELECT MAX(expires_at) FROM invites i WHERE i.user_id=u.id) invite_expires,
-          (SELECT MAX(created_at) FROM sessions s WHERE s.user_id=u.id) last_seen,
-          (SELECT COUNT(*) FROM members m WHERE m.user_id=u.id) channels,
-          (SELECT COUNT(*) FROM pending_members p WHERE p.user_id=u.id) pending_channels,
-          (SELECT COUNT(*) FROM messages x WHERE x.user_id=u.id) messages,
-          (SELECT MAX(ts) FROM messages x WHERE x.user_id=u.id) last_post
-        FROM users u WHERE u.email NOT LIKE '%@bot.local' ORDER BY u.name COLLATE NOCASE`).all();
-      return json(r.results.map((u) => ({ ...u,
-        status: u.deactivated ? 'deactivated' : u.active && (u.has_password || u.last_seen) ? 'active' : u.invite_expires > now() ? 'invited' : 'not_invited' })));
-    }
-    if ((m = path.match(/^\/api\/admin\/users\/([\w]+)$/)) && method === 'PATCH') {
-      const t = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(m[1]).first();
-      if (!t) return err(404, 'Not found');
-      if (t.role === 'owner') return err(403, 'The owner cannot be changed');
-      if (body.role !== undefined) {
-        if (!['admin', 'member', 'guest'].includes(body.role)) return err(400, 'Bad role');
-        if ((body.role === 'admin' || t.role === 'admin') && user.role !== 'owner') return err(403, 'Only the owner can change admins');
-        await env.DB.prepare('UPDATE users SET role=? WHERE id=?').bind(body.role, t.id).run();
-      }
-      if (body.deactivated === true) {
-        if (t.role === 'admin' && user.role !== 'owner') return err(403, 'Only the owner can deactivate admins');
-        await env.DB.batch([
-          env.DB.prepare('UPDATE users SET active=0, deactivated=1 WHERE id=?').bind(t.id),
-          env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(t.id),
-          env.DB.prepare('DELETE FROM invites WHERE user_id=?').bind(t.id),
-        ]);
-        await kick(env, t.id);
-      } else if (body.deactivated === false) {
-        if (t.role === 'admin' && user.role !== 'owner') return err(403, 'Only the owner can reactivate admins.');
-        await env.DB.prepare('UPDATE users SET deactivated=0, active=1 WHERE id=?').bind(t.id).run();
-      }
-      const nu = await env.DB.prepare('SELECT id,email,name,title,avatar,color,role,active FROM users WHERE id=?').bind(t.id).first();
-      await broadcast(env, { type: 'user_updated', user: nu }, await nonGuestIds(env)).catch(() => {});
-      return json(nu);
-    }
-    if ((m = path.match(/^\/api\/admin\/users\/([\w]+)\/channels$/))) {
-      if (method === 'GET') {
-        const r = await env.DB.prepare(`SELECT c.id,c.name,c.private,c.archived,
-            EXISTS(SELECT 1 FROM members x WHERE x.channel_id=c.id AND x.user_id=?) member,
-            EXISTS(SELECT 1 FROM pending_members p WHERE p.channel_id=c.id AND p.user_id=?) pending
-          FROM channels c WHERE c.kind='channel' ORDER BY c.archived, c.name`).bind(m[1], m[1]).all();
-        return json(r.results);
-      }
-      if (method === 'POST') {
-        const t = await env.DB.prepare('SELECT id,active FROM users WHERE id=?').bind(m[1]).first();
-        if (!t) return err(404, 'Not found');
-        const target = await env.DB.prepare("SELECT kind, private FROM channels WHERE id=?").bind(body.channel_id).first();
-        if (!target || target.kind !== 'channel') return err(400, 'Channels only');
-        // Private stays private: only people already in a private channel can change who is in it.
-        if (target.private && !(await isMember(env, body.channel_id, user.id))) return err(403, 'Only people in that private channel can change who is in it. Ask one of them.');
-        const table = t.active ? 'members' : 'pending_members';
-        if (body.member) {
-          if (t.active) await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(body.channel_id, t.id, now(), now()).run();
-          else await env.DB.prepare('INSERT OR IGNORE INTO pending_members (channel_id,user_id) VALUES (?,?)').bind(body.channel_id, t.id).run();
-        } else {
-          await env.DB.prepare(`DELETE FROM ${table} WHERE channel_id=? AND user_id=?`).bind(body.channel_id, t.id).run();
-        }
-        if (t.active) await broadcast(env, { type: 'channel_added', channel_id: body.channel_id }, [t.id]).catch(() => {});
-        return json({ ok: true });
-      }
-    }
-    if (path === '/api/admin/channels' && method === 'GET') {
-      const r = await env.DB.prepare(`SELECT c.id,c.name,c.topic,c.private,c.archived,c.created_at,c.last_ts,
-          (SELECT COUNT(*) FROM members x WHERE x.channel_id=c.id) members,
-          (SELECT COUNT(*) FROM messages x WHERE x.channel_id=c.id) messages
-        FROM channels c WHERE c.kind='channel' ORDER BY c.archived, c.name`).all();
-      return json(r.results);
-    }
-    if (path === '/api/admin/stats' && method === 'GET') {
-      const r = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM messages) messages,
-          (SELECT COUNT(*) FROM messages WHERE files<>'[]') with_files,
-          (SELECT COUNT(*) FROM messages WHERE ts > ?) messages_7d,
-          (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE created_at > ?) active_7d,
-          (SELECT CAST(value AS INTEGER) FROM settings WHERE key='storage_bytes') storage,
-          (SELECT COALESCE(SUM(json_extract(voice,'$.dur')),0) FROM files WHERE t_status='done' AND t_at >= ?) voice_secs_today,
-          (SELECT value FROM settings WHERE key='ai_paused_until') ai_paused_until`).bind(now() - 7 * 864e5, now() - 7 * 864e5, new Date().setUTCHours(0, 0, 0, 0)).first();
-      // Rough usage against the free plan, for the Usage card. Request counts live only in the Cloudflare dashboard.
-      return json({ ...r, storage_limit: (+env.STORAGE_TOTAL_GB || 9) * GB, voice_free_secs: 214 * 60, ai_paused_until: +r.ai_paused_until > now() ? +r.ai_paused_until : 0 });
-    }
-    return err(404, 'Not found');
-  }
-
-  if (path === '/api/invite' && method === 'POST') {
-    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can invite people.');
-    const email = String(body.email || '').toLowerCase().trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, 'Enter a full email address, like name@company.com.');
-    const exists = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
-    if (exists) {
-      if (exists.role === 'owner' && user.role !== 'owner') return err(403, 'Not allowed');
-      const hasPw = await env.DB.prepare('SELECT 1 FROM credentials WHERE user_id=?').bind(exists.id).first();
-      // A new link sets a new password, so it takes over the account. Admins may only do that for
-      // people who have never signed in. Anyone else (Google sign-in users, admins, deactivated
-      // accounts, Slack placeholders) needs the owner.
-      if (user.role !== 'owner') {
-        const seen = await env.DB.prepare('SELECT 1 FROM sessions WHERE user_id=? LIMIT 1').bind(exists.id).first()
-          || await env.DB.prepare('SELECT 1 FROM signins WHERE user_id=?').bind(exists.id).first().catch(() => null);
-        const sensitive = hasPw || seen || exists.slack_id || exists.role === 'admin' || exists.deactivated || !exists.active || exists.email.endsWith('@bot.local');
-        if (sensitive) return err(403, 'Only the owner can reset this account');
-      }
-      if (hasPw) { await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(exists.id).run(); await kick(env, exists.id); }
-      await env.DB.prepare('UPDATE users SET active=1, deactivated=0 WHERE id=?').bind(exists.id).run();
-      return json({ ...exists, link: await makeInviteLink(env, new URL(req.url).origin, exists.id), existing: true });
-    }
-    const role = body.guest ? 'guest' : 'member';
-    if (role === 'guest' && !(Array.isArray(body.channel_ids) && body.channel_ids.length)) return err(400, 'Pick at least one channel for a guest.');
-    const id = uid('U');
-    await env.DB.prepare('INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,?,?,?,?,1,?)')
-      .bind(id, email, String(body.name || email.split('@')[0]), '', '', colorFor(email), role, now()).run();
-    // Channels only: never a DM, and only ids that exist.
-    const want = [...new Set((Array.isArray(body.channel_ids) ? body.channel_ids : []).map(String))].slice(0, 100);
-    const okc = want.length ? (await env.DB.prepare(`SELECT id FROM channels WHERE kind='channel' AND id IN (${want.map(() => '?').join(',')})`).bind(...want).all()).results.map((r) => r.id) : [];
-    for (const c of okc) {
-      await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(c, id, 0, now()).run();
-    }
-    if (role === 'member') { await joinDefaultChannels(env, id); await ensureDefaultSections(env, id); }
-    const nu = { id, email, name: String(body.name || email.split('@')[0]), title: '', avatar: '', color: colorFor(email), role, active: 1 };
-    await broadcast(env, { type: 'user_updated', user: nu }, await nonGuestIds(env)).catch(() => {});
-    return json({ ...nu, link: await makeInviteLink(env, new URL(req.url).origin, id) });
-  }
-
+  if (sub === '/messages' && method === 'POST') return postMessage(env, ctx, user, ch, body);
   return err(404, 'Not found');
 }
+
+async function api_messages_id(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const mid = m[1];
+  const sub = m[2] || '';
+  const msg = await env.DB.prepare('SELECT * FROM messages WHERE id=?').bind(mid).first();
+  if (!msg) return err(404, "That message isn't here anymore.");
+  if (!(await isMember(env, msg.channel_id, user.id))) {
+    const ch = await env.DB.prepare('SELECT private, kind FROM channels WHERE id=?').bind(msg.channel_id).first();
+    if (!ch || ch.private || ch.kind === 'dm' || user.role === 'guest' || method !== 'GET') return err(403, "You're not in this channel.");
+  }
+  const members = () => channelMembers(env, msg.channel_id);
+
+  if (sub === '/thread' && method === 'GET') {
+    const r = await env.DB.prepare('SELECT * FROM messages WHERE thread_id=? ORDER BY ts').bind(mid).all();
+    return json({ parent: (await hydrateMessages(env, [msg]))[0], replies: await hydrateMessages(env, r.results) });
+  }
+  if (sub === '/reactions' && method === 'POST') {
+    const emoji = String(body.emoji || '').slice(0, 64);
+    if (!emoji) return err(400, 'Emoji required');
+    const has = await env.DB.prepare('SELECT 1 FROM reactions WHERE message_id=? AND user_id=? AND emoji=?').bind(mid, user.id, emoji).first();
+    if (has) await env.DB.prepare('DELETE FROM reactions WHERE message_id=? AND user_id=? AND emoji=?').bind(mid, user.id, emoji).run();
+    else await env.DB.prepare('INSERT INTO reactions (message_id,user_id,emoji) VALUES (?,?,?)').bind(mid, user.id, emoji).run();
+    const [full] = await hydrateMessages(env, [msg]);
+    await broadcast(env, { type: 'message_changed', message: full }, await members());
+    return json(full);
+  }
+  const arch = async () => (await env.DB.prepare("SELECT archived, kind FROM channels WHERE id=?").bind(msg.channel_id).first()) || {};
+  if (sub === '' && method === 'PATCH') {
+    if (msg.deleted) return err(400, 'Deleted');
+    const a = await arch();
+    if (a.archived && a.kind !== 'dm') return err(403, 'This channel is archived. Nobody can post here.');
+    if (msg.user_id !== user.id) return err(403, 'Only the person who wrote it can edit it.');
+    const text = String(body.text || '').slice(0, 40000);
+    await env.DB.prepare('UPDATE messages SET text=?, edited_ts=? WHERE id=?').bind(text, now(), mid).run();
+    const [full] = await hydrateMessages(env, [{ ...msg, text, edited_ts: now() }]);
+    await broadcast(env, { type: 'message_changed', message: full }, await members());
+    return json(full);
+  }
+  if (sub === '' && method === 'DELETE') {
+    if (msg.user_id !== user.id && !['owner', 'admin'].includes(user.role)) return err(403, 'Not allowed');
+    await env.DB.prepare("UPDATE messages SET deleted=1, text='', files='[]' WHERE id=?").bind(mid).run();
+    if (msg.thread_id && !msg.deleted) await env.DB.prepare('UPDATE messages SET reply_count=MAX(0,reply_count-1) WHERE id=?').bind(msg.thread_id).run();
+    // Deleting a message deletes its files too, so old links stop working.
+    const keys = JSON.parse(msg.files || '[]').map((f) => f.key).filter(Boolean);
+    if (keys.length) { await env.FILES.delete(keys); await env.DB.prepare(`DELETE FROM files WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).run(); }
+    const [full] = await hydrateMessages(env, [{ ...msg, deleted: 1, text: '', files: '[]' }]);
+    await broadcast(env, { type: 'message_changed', message: full }, await members());
+    return json(full);
+  }
+  return err(404, 'Not found');
+}
+
+// ----- sections (per person, like Slack)
+async function api_sections_POST(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const max = await env.DB.prepare('SELECT COALESCE(MAX(position),-1)+1 p FROM sections WHERE user_id=?').bind(user.id).first();
+  const s = { id: uid('S'), user_id: user.id, name: String(body.name || 'New section').slice(0, 60), position: max.p, collapsed: 0 };
+  await env.DB.prepare('INSERT INTO sections (id,user_id,name,position) VALUES (?,?,?,?)').bind(s.id, user.id, s.name, s.position).run();
+  return json(s);
+}
+
+async function api_sections_id(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const s = await env.DB.prepare('SELECT * FROM sections WHERE id=? AND user_id=?').bind(m[1], user.id).first();
+  if (!s) return err(404, 'Section not found');
+  if (method === 'PATCH') {
+    await env.DB.prepare('UPDATE sections SET name=?, collapsed=?, position=? WHERE id=?')
+      .bind(body.name != null ? String(body.name).slice(0, 60) : s.name, body.collapsed != null ? (body.collapsed ? 1 : 0) : s.collapsed,
+        body.position != null ? Number(body.position) : s.position, s.id).run();
+    return json({ ok: true });
+  }
+  if (method === 'DELETE') {
+    await env.DB.batch([
+      env.DB.prepare('UPDATE members SET section_id=NULL WHERE user_id=? AND section_id=?').bind(user.id, s.id),
+      env.DB.prepare('DELETE FROM sections WHERE id=?').bind(s.id),
+    ]);
+    return json({ ok: true });
+  }
+}
+
+// ----- mentions inbox
+async function api_mentions_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const r = await env.DB.prepare(
+    `SELECT x.* FROM mentions n JOIN messages x ON x.id=n.message_id JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
+     WHERE n.user_id=? AND x.deleted=0 ORDER BY n.ts DESC LIMIT 50`
+  ).bind(user.id, user.id).all();
+  return json(await hydrateMessages(env, r.results));
+}
+
+// ----- activity: reactions to my messages
+async function api_activity_reactions_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const r = await env.DB.prepare(
+    `SELECT x.*, r.emoji AS r_emoji, r.user_id AS r_user FROM reactions r JOIN messages x ON x.id=r.message_id
+     JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
+     WHERE x.user_id=? AND r.user_id<>? AND x.deleted=0 ORDER BY x.ts DESC LIMIT 60`).bind(user.id, user.id, user.id).all();
+  const rows = await hydrateMessages(env, r.results);
+  return json(rows.map((m, i) => ({ ...m, r_emoji: r.results[i].r_emoji, r_user: r.results[i].r_user })));
+}
+
+// ----- profile
+async function api_me_PATCH(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const name = body.name != null ? String(body.name).slice(0, 80) : user.name;
+  const title = body.title != null ? String(body.title).slice(0, 80) : user.title;
+  const pick = (k, f) => (k in body ? f(body[k]) : user[k]);
+  const upd = {
+    name, title,
+    status_emoji: pick('status_emoji', (v) => String(v || '').slice(0, 64)),
+    status_text: pick('status_text', (v) => String(v || '').slice(0, 100)),
+    status_until: pick('status_until', (v) => Math.max(0, +v || 0)),
+    dnd_until: pick('dnd_until', (v) => Math.max(0, +v || 0)),
+    dnd_start: pick('dnd_start', (v) => (/^\d\d:\d\d$/.test(v) ? v : '')),
+    dnd_end: pick('dnd_end', (v) => (/^\d\d:\d\d$/.test(v) ? v : '')),
+    notify_level: pick('notify_level', (v) => (['all', 'mentions', 'none'].includes(v) ? v : 'mentions')),
+    away: pick('away', (v) => (v ? 1 : 0)),
+    vips: pick('vips', (v) => JSON.stringify((Array.isArray(v) ? v : []).map(String).slice(0, 30))),
+    share_location: pick('share_location', (v) => (v ? 1 : 0)),
+  };
+  if ('share_location' in body && !upd.share_location) {
+    // Stop sharing: forget the stored place right away.
+    await env.DB.prepare("UPDATE users SET city='', region='', country='', lat=NULL, lon=NULL, loc_at=NULL WHERE id=?").bind(user.id).run();
+    await broadcast(env, { type: 'user_updated', user: { id: user.id, city: '', country: '', tz: '' } }, await audience(env, user.id));
+  }
+  await env.DB.prepare('UPDATE users SET name=?, title=?, status_emoji=?, status_text=?, status_until=?, dnd_until=?, dnd_start=?, dnd_end=?, notify_level=?, vips=?, away=?, share_location=? WHERE id=?')
+    .bind(upd.name, upd.title, upd.status_emoji, upd.status_text, upd.status_until, upd.dnd_until, upd.dnd_start, upd.dnd_end, upd.notify_level, upd.vips || '[]', upd.away || 0, upd.share_location || 0, user.id).run();
+  const pub = { id: user.id, name, title, status_emoji: upd.status_emoji, status_text: upd.status_text, status_until: upd.status_until, dnd_until: upd.dnd_until, dnd_start: upd.dnd_start, dnd_end: upd.dnd_end, away: upd.away };
+  await broadcast(env, { type: 'user_updated', user: pub }, await audience(env, user.id));
+  return json({ ok: true });
+}
+
+// ----- change password: the browser sends the current key (and the password once, for old accounts) and the new key
+async function api_me_password_POST(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const row = await env.DB.prepare('SELECT hash, salt FROM credentials WHERE user_id=?').bind(user.id).first();
+  if (!row) return err(400, 'You sign in with Google, so there is no password to change.');
+  if ((await bump(env, 'pw:' + user.id)) > 10) return err(429, 'Too many tries. Wait 15 minutes, then try again.');
+  if (isOld(row)) return err(400, OLD_PASSWORD);
+  if (!(await checkKey(row, String(body.key || '')))) return err(400, "That's not your current password.");
+  const nk = newKey(new Map([['key', body.new_key], ['salt', body.new_salt], ['len', body.len]]));
+  if (!nk) return err(400, `Pick a new password of at least ${MIN_PW} characters.`);
+  const keep = await sha256hex(cookie(req, SESSION_COOKIE) || '');
+  await env.DB.batch([
+    env.DB.prepare('UPDATE credentials SET hash=?, salt=?, updated_at=? WHERE user_id=?').bind(await keyHash(nk.key, nk.salt), nk.salt, now(), user.id),
+    // Signed out everywhere else, in case someone else knew the old password.
+    env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND id<>?').bind(user.id, keep),
+  ]);
+  return json({ ok: true });
+}
+
+// ----- team places: only people who chose to share, and only if the workspace allows it
+async function api_team_places_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  if (!locationOn(env)) return json([]);
+  const r = await env.DB.prepare(`SELECT id, city, region, country, tz, lat, lon FROM users
+    WHERE active=1 AND share_location=1 AND tz IS NOT NULL AND tz<>''`).all();
+  const places = {};
+  for (const u of r.results) {
+    const k = `${u.city}|${u.country}|${u.tz}`;
+    (places[k] ||= { city: u.city, region: u.region, country: u.country, tz: u.tz, lat: u.lat, lon: u.lon, people: [] }).people.push(u.id);
+  }
+  const list = Object.values(places);
+  const withPos = list.filter((p) => p.lat != null && p.lon != null);
+  if (weatherOn(env) && withPos.length) {
+    const list = withPos;
+    const key = 'weather/' + (await sha256hex(list.map((p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`).join(';')));
+    let wx = await cacheGet(env, key).then((x) => x && x.json()).catch(() => null);
+    if (!wx) {
+      try {
+        const q = `latitude=${list.map((p) => p.lat.toFixed(3)).join(',')}&longitude=${list.map((p) => p.lon.toFixed(3)).join(',')}`;
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,weather_code,is_day&timezone=auto`);
+        const j = await res.json(); wx = Array.isArray(j) ? j : [j];
+        await cachePut(env, key, JSON.stringify(wx), 1200e3, 'application/json');
+      } catch (e) { wx = []; }
+    }
+    list.forEach((p, i) => { const c = wx[i]?.current; if (c) Object.assign(p, { temp: c.temperature_2m, code: c.weather_code, day: c.is_day }); });
+  }
+  for (const p of list) { delete p.lat; delete p.lon; }
+  return json(list);
+}
+
+async function api_unfurl_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const target = new URL(req.url).searchParams.get('url') || '';
+  if (user.role === 'guest') return json({});
+  if (!safeFetchUrl(target)) return err(400, 'Bad url');
+  const key = 'unfurl/' + (await sha256hex(target)), jh = { 'content-type': 'application/json', 'cache-control': 'private, max-age=86400' };
+  const hit = await cacheGet(env, key);
+  if (hit) return new Response(hit.body, { headers: jh });
+  const r = await Promise.race([unfurl(target), new Promise((res) => setTimeout(() => res({ ok: false }), 5000))]);
+  const out = JSON.stringify(r.ok ? r.value : {});
+  await cachePut(env, key, out, r.ok ? 864e5 : 3600e3, 'application/json');
+  return new Response(out, { headers: jh });
+}
+
+// Pictures from other sites: see imgProxy.
+async function api_img_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const target = new URL(req.url).searchParams.get('u') || '';
+  if (!safeFetchUrl(target)) return err(400, 'Bad url');
+  return imgProxy(env, target);
+}
+
+async function api_ice_GET(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  const servers = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+  if (env.TURN_KEY_ID && env.TURN_KEY_TOKEN) {
+    try {
+      const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
+        method: 'POST', headers: { authorization: `Bearer ${env.TURN_KEY_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ ttl: 86400 }),
+      }).then((x) => x.json());
+      if (r.iceServers) return json(r.iceServers);
+    } catch (e) {}
+  }
+  return json(servers);
+}
+
+// ---------------- admin dashboard (owner + admins)
+async function api_admin(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can do this.');
+  if (path === '/api/admin/people' && method === 'GET') {
+    const r = await env.DB.prepare(`SELECT u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,u.deactivated,u.created_at,
+        EXISTS(SELECT 1 FROM credentials c WHERE c.user_id=u.id) has_password,
+        (SELECT MAX(expires_at) FROM invites i WHERE i.user_id=u.id) invite_expires,
+        (SELECT MAX(created_at) FROM sessions s WHERE s.user_id=u.id) last_seen,
+        (SELECT COUNT(*) FROM members m WHERE m.user_id=u.id) channels,
+        (SELECT COUNT(*) FROM pending_members p WHERE p.user_id=u.id) pending_channels,
+        (SELECT COUNT(*) FROM messages x WHERE x.user_id=u.id) messages,
+        (SELECT MAX(ts) FROM messages x WHERE x.user_id=u.id) last_post
+      FROM users u WHERE u.email NOT LIKE '%@bot.local' ORDER BY u.name COLLATE NOCASE`).all();
+    return json(r.results.map((u) => ({ ...u,
+      status: u.deactivated ? 'deactivated' : u.active && (u.has_password || u.last_seen) ? 'active' : u.invite_expires > now() ? 'invited' : 'not_invited' })));
+  }
+  if ((m = path.match(/^\/api\/admin\/users\/([\w]+)$/)) && method === 'PATCH') {
+    const t = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(m[1]).first();
+    if (!t) return err(404, 'Not found');
+    if (t.role === 'owner') return err(403, 'The owner cannot be changed');
+    if (body.role !== undefined) {
+      if (!['admin', 'member', 'guest'].includes(body.role)) return err(400, 'Bad role');
+      if ((body.role === 'admin' || t.role === 'admin') && user.role !== 'owner') return err(403, 'Only the owner can change admins');
+      await env.DB.prepare('UPDATE users SET role=? WHERE id=?').bind(body.role, t.id).run();
+    }
+    if (body.deactivated === true) {
+      if (t.role === 'admin' && user.role !== 'owner') return err(403, 'Only the owner can deactivate admins');
+      await env.DB.batch([
+        env.DB.prepare('UPDATE users SET active=0, deactivated=1 WHERE id=?').bind(t.id),
+        env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(t.id),
+        env.DB.prepare('DELETE FROM invites WHERE user_id=?').bind(t.id),
+      ]);
+      await kick(env, t.id);
+    } else if (body.deactivated === false) {
+      if (t.role === 'admin' && user.role !== 'owner') return err(403, 'Only the owner can reactivate admins.');
+      await env.DB.prepare('UPDATE users SET deactivated=0, active=1 WHERE id=?').bind(t.id).run();
+    }
+    const nu = await env.DB.prepare('SELECT id,email,name,title,avatar,color,role,active FROM users WHERE id=?').bind(t.id).first();
+    await broadcast(env, { type: 'user_updated', user: nu }, await nonGuestIds(env)).catch(() => {});
+    return json(nu);
+  }
+  if ((m = path.match(/^\/api\/admin\/users\/([\w]+)\/channels$/))) {
+    if (method === 'GET') {
+      const r = await env.DB.prepare(`SELECT c.id,c.name,c.private,c.archived,
+          EXISTS(SELECT 1 FROM members x WHERE x.channel_id=c.id AND x.user_id=?) member,
+          EXISTS(SELECT 1 FROM pending_members p WHERE p.channel_id=c.id AND p.user_id=?) pending
+        FROM channels c WHERE c.kind='channel' ORDER BY c.archived, c.name`).bind(m[1], m[1]).all();
+      return json(r.results);
+    }
+    if (method === 'POST') {
+      const t = await env.DB.prepare('SELECT id,active FROM users WHERE id=?').bind(m[1]).first();
+      if (!t) return err(404, 'Not found');
+      const target = await env.DB.prepare("SELECT kind, private FROM channels WHERE id=?").bind(body.channel_id).first();
+      if (!target || target.kind !== 'channel') return err(400, 'Channels only');
+      // Private stays private: only people already in a private channel can change who is in it.
+      if (target.private && !(await isMember(env, body.channel_id, user.id))) return err(403, 'Only people in that private channel can change who is in it. Ask one of them.');
+      const table = t.active ? 'members' : 'pending_members';
+      if (body.member) {
+        if (t.active) await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(body.channel_id, t.id, now(), now()).run();
+        else await env.DB.prepare('INSERT OR IGNORE INTO pending_members (channel_id,user_id) VALUES (?,?)').bind(body.channel_id, t.id).run();
+      } else {
+        await env.DB.prepare(`DELETE FROM ${table} WHERE channel_id=? AND user_id=?`).bind(body.channel_id, t.id).run();
+      }
+      if (t.active) await broadcast(env, { type: 'channel_added', channel_id: body.channel_id }, [t.id]).catch(() => {});
+      return json({ ok: true });
+    }
+  }
+  if (path === '/api/admin/channels' && method === 'GET') {
+    const r = await env.DB.prepare(`SELECT c.id,c.name,c.topic,c.private,c.archived,c.created_at,c.last_ts,
+        (SELECT COUNT(*) FROM members x WHERE x.channel_id=c.id) members,
+        (SELECT COUNT(*) FROM messages x WHERE x.channel_id=c.id) messages
+      FROM channels c WHERE c.kind='channel' ORDER BY c.archived, c.name`).all();
+    return json(r.results);
+  }
+  if (path === '/api/admin/stats' && method === 'GET') {
+    const r = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM messages) messages,
+        (SELECT COUNT(*) FROM messages WHERE files<>'[]') with_files,
+        (SELECT COUNT(*) FROM messages WHERE ts > ?) messages_7d,
+        (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE created_at > ?) active_7d,
+        (SELECT CAST(value AS INTEGER) FROM settings WHERE key='storage_bytes') storage,
+        (SELECT COALESCE(SUM(json_extract(voice,'$.dur')),0) FROM files WHERE t_status='done' AND t_at >= ?) voice_secs_today,
+        (SELECT value FROM settings WHERE key='ai_paused_until') ai_paused_until`).bind(now() - 7 * 864e5, now() - 7 * 864e5, new Date().setUTCHours(0, 0, 0, 0)).first();
+    // Rough usage against the free plan, for the Usage card. Request counts live only in the Cloudflare dashboard.
+    return json({ ...r, storage_limit: (+env.STORAGE_TOTAL_GB || 9) * GB, voice_free_secs: 214 * 60, ai_paused_until: +r.ai_paused_until > now() ? +r.ai_paused_until : 0 });
+  }
+  return err(404, 'Not found');
+}
+
+async function api_invite_POST(c, m) {
+  const { req, env, user, path, ctx, method, body } = c;
+  if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can invite people.');
+  const email = String(body.email || '').toLowerCase().trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, 'Enter a full email address, like name@company.com.');
+  const exists = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(email).first();
+  if (exists) {
+    if (exists.role === 'owner' && user.role !== 'owner') return err(403, 'Not allowed');
+    const hasPw = await env.DB.prepare('SELECT 1 FROM credentials WHERE user_id=?').bind(exists.id).first();
+    // A new link sets a new password, so it takes over the account. Admins may only do that for
+    // people who have never signed in. Anyone else (Google sign-in users, admins, deactivated
+    // accounts, Slack placeholders) needs the owner.
+    if (user.role !== 'owner') {
+      const seen = await env.DB.prepare('SELECT 1 FROM sessions WHERE user_id=? LIMIT 1').bind(exists.id).first()
+        || await env.DB.prepare('SELECT 1 FROM signins WHERE user_id=?').bind(exists.id).first().catch(() => null);
+      const sensitive = hasPw || seen || exists.slack_id || exists.role === 'admin' || exists.deactivated || !exists.active || exists.email.endsWith('@bot.local');
+      if (sensitive) return err(403, 'Only the owner can reset this account');
+    }
+    if (hasPw) { await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(exists.id).run(); await kick(env, exists.id); }
+    await env.DB.prepare('UPDATE users SET active=1, deactivated=0 WHERE id=?').bind(exists.id).run();
+    return json({ ...exists, link: await makeInviteLink(env, new URL(req.url).origin, exists.id), existing: true });
+  }
+  const role = body.guest ? 'guest' : 'member';
+  if (role === 'guest' && !(Array.isArray(body.channel_ids) && body.channel_ids.length)) return err(400, 'Pick at least one channel for a guest.');
+  const id = uid('U');
+  await env.DB.prepare('INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,?,?,?,?,1,?)')
+    .bind(id, email, String(body.name || email.split('@')[0]), '', '', colorFor(email), role, now()).run();
+  // Channels only: never a DM, and only ids that exist.
+  const want = [...new Set((Array.isArray(body.channel_ids) ? body.channel_ids : []).map(String))].slice(0, 100);
+  const okc = want.length ? (await env.DB.prepare(`SELECT id FROM channels WHERE kind='channel' AND id IN (${want.map(() => '?').join(',')})`).bind(...want).all()).results.map((r) => r.id) : [];
+  for (const c of okc) {
+    await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(c, id, 0, now()).run();
+  }
+  if (role === 'member') { await joinDefaultChannels(env, id); await ensureDefaultSections(env, id); }
+  const nu = { id, email, name: String(body.name || email.split('@')[0]), title: '', avatar: '', color: colorFor(email), role, active: 1 };
+  await broadcast(env, { type: 'user_updated', user: nu }, await nonGuestIds(env)).catch(() => {});
+  return json({ ...nu, link: await makeInviteLink(env, new URL(req.url).origin, id) });
+}
+
 
 // ---------------------------------------------------------------- files (R2)
 // Storage caps keep one person (or a runaway script) from filling the free 10 GB of R2.
@@ -1234,8 +1263,7 @@ async function handle0(req, env0, ctx) {
     }
     return route(req, env, ctx, url, path);
 }
-async function route(req, env, ctx, url, path) {
-
+async function authRoute(req, env, url, path) {
     if (path === '/auth/login' && req.method === 'POST') {
       const o = req.headers.get('origin');
       if (o && o !== url.origin) return err(403, 'Bad origin');
@@ -1274,7 +1302,11 @@ async function route(req, env, ctx, url, path) {
       }
       return new Response(null, { status: 303, headers: { location: '/', 'set-cookie': setCookie(SESSION_COOKIE, '', 0, isSecure(req)) } });
     }
-
+    return loginPage(env);
+}
+async function route(req, env, ctx, url, path) {
+    // Sign-in pages have their own function, so app requests don't compile them.
+    if (path.startsWith('/auth/') || path.startsWith('/join/')) return authRoute(req, env, url, path);
     const isStatic = !path.startsWith('/files/') && /\.(css|js|woff2|png|svg|ico|webmanifest|json)$/.test(path);
     if (isStatic) return env.ASSETS.fetch(req);
 
@@ -1540,12 +1572,29 @@ export class Job extends DurableObject {
   alarm() { return jobAlarm(this.ctx.storage, (job) => runJob(this.env, this.ctx, job)); }
 }
 const voiceDeps = { hydrateMessages, broadcast, channelMembers };
+// Who gets a phone buzz for a new message, then one push job per device (sendPushes). A voice note without text
+// waits up to 20 seconds for its transcript, by sleeping between runs, so the notification can show the words.
+async function fanoutJob(env, id, d) {
+  const row = await env.DB.prepare('SELECT id, text, files, thread_id, deleted FROM messages WHERE id=?').bind(id).first();
+  if (!row || row.deleted) return null;
+  const msg = { ...row, files: JSON.parse(row.files || '[]') };
+  const v = msg.files.find((x) => x.voice);
+  if (v && !msg.text.trim()) {
+    const f = await env.DB.prepare('SELECT transcript, t_status FROM files WHERE key=?').bind(v.key).first();
+    if (f?.t_status === 'pending' || f?.t_status === 'working') { if (now() - d.at < 20e3) return now() + 3000; }
+    const said = f?.t_status === 'done' ? f.transcript || '' : '';
+    msg.text = `🎙 Voice note ${fmtDur(v.voice?.dur)}${said ? ': ' + said.slice(0, 160) + (said.length > 160 ? '…' : '') : ''}`;
+  }
+  await sendPushes(env, { msg, ch: d.ch, sender: d.sender, members: d.members, direct: d.direct, wide: d.wide, followers: d.followers });
+  return null;
+}
 function runJob(env, ctx, { kind, id, data }) {
   if (kind === 'sched') return sendScheduled(env, ctx, id, postMessage);
   if (kind === 'rem') return sendReminder(env, ctx, id, postMessage);
   if (kind === 'voice') return voiceJob(env, id, voiceDeps);
   if (kind === 'import') return importJob(env, id);
   if (kind === 'push') return pushBatch(env, data);
+  if (kind === 'fanout') return fanoutJob(env, id, data);
   if (kind === 'house') return Promise.all([housekeeping(env), cacheCleanup(env)]).then(() => null);
   return null;
 }

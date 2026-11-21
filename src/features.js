@@ -1,6 +1,6 @@
 // Yakyard features: phone push, status, do-not-disturb, saved, pins, reminders,
 // scheduled sends, full-text search, files browser, and the once-a-minute clock.
-import { buildPushHTTPRequest } from '@pushforge/builder';
+import { pushRequest } from './webpush.js';
 
 const now = () => Date.now();
 const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
@@ -47,10 +47,9 @@ async function activeUsers(env) {
 
 export async function pushOne(env, sub, payload) {
   if (!env.VAPID_PRIVATE) return 0;
-  const { endpoint, headers, body } = await buildPushHTTPRequest({
-    privateJWK: JSON.parse(env.VAPID_PRIVATE),
-    subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-    message: { payload, adminContact: env.VAPID_SUBJECT || env.APP_URL || 'mailto:admin@example.com', options: { ttl: 3600, urgency: 'high', topic: String(payload.tag || '').slice(0, 32).replace(/[^\w-]/g, '') || undefined } },
+  const { endpoint, headers, body } = await pushRequest({
+    privateJwk: env.VAPID_PRIVATE, subject: env.VAPID_SUBJECT || env.APP_URL || 'mailto:admin@example.com',
+    subscription: sub, payload, topic: String(payload.tag || '').slice(0, 32).replace(/[^\w-]/g, '') || undefined,
   });
   // Only for tests: PUSH_TEST_URL (localhost only) receives what would go to the push service.
   const test = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(env.PUSH_TEST_URL || '') ? env.PUSH_TEST_URL + encodeURIComponent(new URL(endpoint).pathname) : '';
@@ -59,9 +58,9 @@ export async function pushOne(env, sub, payload) {
   return r.ok ? 1 : 0;
 }
 
-// Each push costs about 1.5 ms of CPU (encryption and signing), so they go out 4 to a job: each batch runs
-// in its own invocation with its own CPU budget (see arm below), however many people get the message.
-export const PUSHES_PER_JOB = 4;
+// Each push costs a few ms of CPU (encryption and signing, plus compiling that code on a fresh isolate), so each
+// device gets its own job: its own invocation and CPU budget (see arm below), however many people get the message.
+export const PUSHES_PER_JOB = 1;
 export async function pushToUsers(env, userIds, payload) {
   if (!userIds.length) return 0;
   const want = new Set(userIds);
@@ -294,273 +293,396 @@ export async function housekeeping(env, t = now()) {
 }
 
 // ---------------------------------------------------------------- API routes
-export async function featureApi(req, env, user, path, method, body, x) {
-  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
-  let m;
-  const url = new URL(req.url);
-
-  // push devices
-  if (path === '/api/push/subscribe' && method === 'POST') {
-    const ep = String(body.endpoint || ''), k = body.keys || {};
-    // Only the browsers' own push services, so the worker can't be pointed at any other address.
-    const host = (() => { try { const u = new URL(ep); return u.protocol === 'https:' ? u.hostname : ''; } catch { return ''; } })();
-    if (!/(^|\.)(fcm\.googleapis\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com)$/.test(host) || !k.p256dh || !k.auth) return err(400, 'Bad subscription');
-    await env.DB.prepare('INSERT OR REPLACE INTO push_subs (endpoint,user_id,p256dh,auth,ua,created_at) VALUES (?,?,?,?,?,?)')
-      .bind(ep, user.id, String(k.p256dh), String(k.auth), String(req.headers.get('user-agent') || '').slice(0, 200), now()).run();
-    return json({ ok: true });
+// Route tables: exact paths in a Map, patterns in order. Only the handler that runs is compiled, which keeps the
+// first request on a fresh isolate small. A handler that returns nothing lets the next match try.
+export function routes(list) {
+  const exact = new Map(), patterns = [];
+  for (const [method, p, fn] of list) {
+    if (typeof p === 'string') { const k = (method || '*') + ' ' + p; if (!exact.has(k)) exact.set(k, []); exact.get(k).push(fn); }
+    else patterns.push([method, p, fn]);
   }
-  if (path === '/api/push/unsubscribe' && method === 'POST') {
-    await env.DB.prepare('DELETE FROM push_subs WHERE endpoint=? AND user_id=?').bind(String(body.endpoint || ''), user.id).run();
-    return json({ ok: true });
+  return { exact, patterns };
+}
+export async function runRoutes(t, c) {
+  for (const fn of [...(t.exact.get(c.method + ' ' + c.path) || []), ...(t.exact.get('* ' + c.path) || [])]) { const r = await fn(c, true); if (r) return r; }
+  for (const [method, re, fn] of t.patterns) {
+    if (method && method !== c.method) continue;
+    const m = c.path.match(re);
+    if (m) { const r = await fn(c, m); if (r) return r; }
   }
-  if (path === '/api/push/test' && method === 'POST') {
-    const n = await pushToUsers(env, [user.id], { title: 'Yakyard', body: 'Notifications are on. This is how they will look.', tag: 'test', icon: '/brand/app-icon-192.png', data: { url: '/' } });
-    return json({ sent: n });
-  }
-  if (path === '/api/prefs' && method === 'GET') {
-    const devices = (await env.DB.prepare('SELECT ua, created_at FROM push_subs WHERE user_id=? ORDER BY created_at DESC').bind(user.id).all()).results;
-    return json({ vips: user.vips || '[]', notify_level: user.notify_level || 'mentions', dnd_until: user.dnd_until || 0, dnd_start: user.dnd_start || '', dnd_end: user.dnd_end || '', devices });
-  }
-
-  // saved for later
-  if ((m = path.match(/^\/api\/messages\/([^/]+)\/save$/)) && method === 'POST') {
-    const has = await env.DB.prepare('SELECT done FROM saved WHERE user_id=? AND message_id=?').bind(user.id, m[1]).first();
-    if (has && !has.done && !body.done) { await env.DB.prepare('DELETE FROM saved WHERE user_id=? AND message_id=?').bind(user.id, m[1]).run(); return json({ saved: false }); }
-    if (body.done) { await env.DB.prepare('UPDATE saved SET done=1 WHERE user_id=? AND message_id=?').bind(user.id, m[1]).run(); return json({ saved: false, done: true }); }
-    const msg = await env.DB.prepare('SELECT channel_id FROM messages WHERE id=?').bind(m[1]).first();
-    if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
-    await env.DB.prepare('INSERT OR REPLACE INTO saved (user_id,message_id,created_at,done) VALUES (?,?,?,0)').bind(user.id, m[1], now()).run();
-    return json({ saved: true });
-  }
-
-  // pins
-  if ((m = path.match(/^\/api\/messages\/([^/]+)\/pin$/)) && method === 'POST') {
-    const msg = await env.DB.prepare('SELECT * FROM messages WHERE id=?').bind(m[1]).first();
-    if (!msg || msg.deleted) return err(404, "That message isn't here anymore.");
-    if (!(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
-    if (user.role === 'guest') return err(403, "Guests can't pin messages.");
-    const has = await env.DB.prepare('SELECT 1 FROM pins WHERE message_id=?').bind(msg.id).first();
-    if (has) await env.DB.prepare('DELETE FROM pins WHERE message_id=?').bind(msg.id).run();
-    else await env.DB.prepare('INSERT INTO pins (channel_id,message_id,user_id,created_at) VALUES (?,?,?,?)').bind(msg.channel_id, msg.id, user.id, now()).run();
-    const [full] = await hydrate(env, [msg]);
-    await broadcast(env, { type: 'message_changed', message: full }, await x.channelMembers(env, msg.channel_id));
-    return json(full);
-  }
-  if ((m = path.match(/^\/api\/channels\/([^/]+)\/pins$/)) && method === 'GET') {
-    if (!(await isMember(env, m[1], user.id))) return err(403, "You're not in this channel.");
-    const r = await env.DB.prepare('SELECT x.* FROM pins p JOIN messages x ON x.id=p.message_id WHERE p.channel_id=? AND x.deleted=0 ORDER BY p.created_at DESC').bind(m[1]).all();
-    return json(await hydrate(env, r.results));
-  }
-
-  // Later: saved + reminders + scheduled in one page
-  if (path === '/api/later' && method === 'GET') {
-    const sv = await env.DB.prepare(`SELECT x.*, s.created_at AS saved_at FROM saved s JOIN messages x ON x.id=s.message_id JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
-      WHERE s.user_id=? AND s.done=0 AND x.deleted=0 ORDER BY s.created_at DESC LIMIT 100`).bind(user.id, user.id).all();
-    const rm = await env.DB.prepare('SELECT * FROM reminders WHERE user_id=? AND done=0 ORDER BY due_at').bind(user.id).all();
-    const sc = await env.DB.prepare('SELECT * FROM scheduled WHERE user_id=? ORDER BY send_at').bind(user.id).all();
-    const saved = await hydrate(env, sv.results);
-    saved.forEach((s, i) => (s.saved_at = sv.results[i].saved_at));
-    return json({ saved, reminders: rm.results, scheduled: sc.results.map((s) => ({ ...s, files: JSON.parse(s.files || '[]') })) });
-  }
-  if (path === '/api/reminders' && method === 'POST') {
-    const due = +body.due_at;
-    if (!due || due < now() - 60e3) return err(400, 'Pick a time in the future.');
-    if (body.message_id) {
-      const msg = await env.DB.prepare('SELECT channel_id FROM messages WHERE id=?').bind(String(body.message_id)).first();
-      if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
-    }
-    const r = { id: uid('R'), user_id: user.id, message_id: body.message_id || null, text: String(body.text || '').slice(0, 500), due_at: due, done: 0 };
-    await env.DB.prepare('INSERT INTO reminders (id,user_id,message_id,text,due_at) VALUES (?,?,?,?,?)').bind(r.id, r.user_id, r.message_id, r.text, r.due_at).run();
-    await arm(env, 'rem', r.id, r.due_at);
-    return json(r);
-  }
-  if ((m = path.match(/^\/api\/reminders\/([^/]+)$/))) {
-    if (method === 'DELETE') { await env.DB.prepare('DELETE FROM reminders WHERE id=? AND user_id=?').bind(m[1], user.id).run(); return json({ ok: true }); }
-    if (method === 'PATCH') {
-      const due = +body.due_at || now();
-      const r = await env.DB.prepare('UPDATE reminders SET due_at=? WHERE id=? AND user_id=? AND done=0').bind(due, m[1], user.id).run();
-      if (r.meta?.changes) await arm(env, 'rem', m[1], due);
-      return json({ ok: true });
-    }
-  }
-  if (path === '/api/scheduled' && method === 'POST') {
-    const at = +body.send_at;
-    if (!at || at < now() + 30e3) return err(400, 'Pick a time in the future.');
-    const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(String(body.channel_id || '')).first();
-    if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
-    const text = String(body.text || '').slice(0, 40000);
-    const files = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
-    if (!text.trim() && !files.length) return err(400, 'Write something first.');
-    const s = { id: uid('Q'), user_id: user.id, channel_id: ch.id, thread_id: body.thread_id || null, text, files: JSON.stringify(files), also_channel: body.also_channel ? 1 : 0, send_at: at, created_at: now() };
-    await env.DB.prepare('INSERT INTO scheduled (id,user_id,channel_id,thread_id,text,files,also_channel,send_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      .bind(s.id, s.user_id, s.channel_id, s.thread_id, s.text, s.files, s.also_channel, s.send_at, s.created_at).run();
-    await arm(env, 'sched', s.id, s.send_at);
-    return json({ ...s, files });
-  }
-  if ((m = path.match(/^\/api\/scheduled\/([^/]+)$/))) {
-    const s = await env.DB.prepare('SELECT * FROM scheduled WHERE id=? AND user_id=?').bind(m[1], user.id).first();
-    if (!s) return err(404, 'Already sent or deleted');
-    if (method === 'DELETE') { await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run(); return json({ ok: true }); }
-    if (method === 'PATCH') {
-      if (body.send_now) {
-        const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
-        if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
-        // Claimed like the job does, so "Send now" and the timer can't both send it.
-        if (!(await env.DB.prepare('DELETE FROM scheduled WHERE id=? RETURNING id').bind(s.id).first())) return err(404, 'Already sent or deleted');
-        return postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel });
-      }
-      const at = +body.send_at || s.send_at;
-      await env.DB.prepare('UPDATE scheduled SET send_at=?, text=? WHERE id=?').bind(at, body.text != null ? String(body.text).slice(0, 40000) : s.text, s.id).run();
-      if (at !== s.send_at) await arm(env, 'sched', s.id, at);
-      return json({ ok: true });
-    }
-  }
-
-  // search with filters: from:@name in:#channel has:file|link|image|pin before:/after:/on:YYYY-MM-DD
-  if (path === '/api/search' && method === 'GET') {
-    const q = (url.searchParams.get('q') || '').trim();
-    if (q.length < 2) return json([]);
-    try { return json(await search(env, user, q, hydrate)); }
-    catch (e) {
-      console.log('fts failed, falling back', e);
-      const like = '%' + q.replace(/[%_]/g, '') + '%';
-      const r = await env.DB.prepare(`SELECT x.* FROM messages x JOIN members m ON m.channel_id=x.channel_id AND m.user_id=? WHERE x.deleted=0 AND x.text LIKE ? ORDER BY x.ts DESC LIMIT 40`).bind(user.id, like).all();
-      return json(await hydrate(env, r.results));
-    }
-  }
-
-  // threads I started or replied to (one pass, no per-row subquery)
-  if (path === '/api/threads' && method === 'GET') {
-    const r = await env.DB.prepare(
-      `WITH mine AS (SELECT DISTINCT thread_id AS id FROM messages WHERE user_id=? AND thread_id IS NOT NULL
-         UNION SELECT id FROM messages WHERE user_id=? AND reply_count>0)
-       SELECT p.* FROM messages p JOIN mine ON mine.id=p.id JOIN members me ON me.channel_id=p.channel_id AND me.user_id=?
-       WHERE p.reply_count>0 AND p.deleted=0 ORDER BY p.last_reply_ts DESC LIMIT 25`).bind(user.id, user.id, user.id).all();
-    const parents = await hydrate(env, r.results);
-    if (parents.length) {
-      const ids = parents.map((p) => p.id);
-      const rr = await env.DB.prepare(`SELECT * FROM (SELECT x.*, ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY ts DESC) rn FROM messages x
-        WHERE x.thread_id IN (${ids.map(() => '?').join(',')}) AND x.deleted=0) WHERE rn<=2`).bind(...ids).all();
-      const replies = await hydrate(env, rr.results);
-      for (const p of parents) p.latest = replies.filter((x) => x.thread_id === p.id).sort((a, b) => a.ts - b.ts);
-    }
-    return json(parents);
-  }
-
-  // files browser
-  if (path === '/api/files' && method === 'GET') {
-    const before = +url.searchParams.get('before') || 9e15;
-    const type = url.searchParams.get('type') || '';
-    const cid = url.searchParams.get('channel') || '';
-    const q = (url.searchParams.get('q') || '').toLowerCase();
-    const mine = url.searchParams.get('mine') === '1';
-    const where = ["x.files != '[]'", 'x.deleted=0', 'x.ts < ?'], args = [user.id, before];
-    if (cid) { where.push('x.channel_id=?'); args.push(cid); }
-    if (mine) { where.push('x.user_id=?'); args.push(user.id); }
-    if (q) { where.push('lower(x.files) LIKE ?'); args.push('%' + q.replace(/[%_]/g, '') + '%'); }
-    const r = await env.DB.prepare(`SELECT x.id,x.channel_id,x.user_id,x.ts,x.thread_id,x.files FROM messages x JOIN members m ON m.channel_id=x.channel_id AND m.user_id=?
-      WHERE ${where.join(' AND ')} ORDER BY x.ts DESC LIMIT 60`).bind(...args).all();
-    const out = [];
-    for (const row of r.results) {
-      for (const f of JSON.parse(row.files || '[]')) {
-        const kind = /^image\//.test(f.type) ? 'image' : /^video\//.test(f.type) ? 'video' : /^audio\//.test(f.type) ? 'audio' : /pdf|word|document|sheet|excel|presentation|powerpoint|text\//.test(f.type) || /\.(pdf|docx?|xlsx?|pptx?|csv|txt|key|numbers|pages)$/i.test(f.name) ? 'doc' : 'other';
-        if (type && type !== kind) continue;
-        if (q && !String(f.name).toLowerCase().includes(q)) continue;
-        out.push({ ...f, kind, message_id: row.id, channel_id: row.channel_id, user_id: row.user_id, ts: row.ts, thread_id: row.thread_id });
-      }
-    }
-    return json({ files: out, next: r.results.length === 60 ? r.results[r.results.length - 1].ts : null });
-  }
-
-
-  // ---------- channel management (admins, owners, or whoever created the channel)
-  if ((m = path.match(/^\/api\/channels\/([^/]+)\/manage$/)) && method === 'POST') {
-    const ch = await env.DB.prepare("SELECT * FROM channels WHERE id=? AND kind='channel'").bind(m[1]).first();
-    if (!ch) return err(404, "That channel isn't here anymore.");
-    const admin = ['owner', 'admin'].includes(user.role);
-    if (!admin && ch.created_by !== user.id) return err(403, 'Only admins or the person who made this channel can change it');
-    if (ch.name === 'general' && (body.archived || body.delete || body.name)) return err(403, '#general stays as it is');
-    if (body.delete) {
-      if (!admin) return err(403, 'Only admins can delete channels');
-      const mem = await x.channelMembers(env, ch.id);
-      // Its files go too (rows and stored objects), so nothing is left that nobody can open.
-      const keys = (await env.DB.prepare('SELECT key FROM files WHERE channel_id=?').bind(ch.id).all()).results.map((r) => r.key);
-      for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000));
-      await env.DB.batch([
-        env.DB.prepare('DELETE FROM files WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE channel_id=?)').bind(ch.id),
-        env.DB.prepare('DELETE FROM mentions WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM pins WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM messages WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM members WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM scheduled WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM pending_members WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM slack_channels WHERE channel_id=?').bind(ch.id),
-        env.DB.prepare('DELETE FROM channels WHERE id=?').bind(ch.id),
-      ]);
-      await broadcast(env, { type: 'channel_removed', channel_id: ch.id }, mem);
-      return json({ ok: true });
-    }
-    if (body.name != null) {
-      const name = String(body.name).toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
-      if (!name) return err(400, 'Add a name first.');
-      if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=? AND id<>?").bind(name, ch.id).first()) return err(409, 'That name is taken. Pick another one.');
-      await env.DB.prepare('UPDATE channels SET name=? WHERE id=?').bind(name, ch.id).run();
-    }
-    if (body.private != null) await env.DB.prepare('UPDATE channels SET private=? WHERE id=?').bind(body.private ? 1 : 0, ch.id).run();
-    if (body.archived != null) await env.DB.prepare('UPDATE channels SET archived=? WHERE id=?').bind(body.archived ? 1 : 0, ch.id).run();
-    const out = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(ch.id).first();
-    const mem = await x.channelMembers(env, ch.id);
-    await broadcast(env, out.archived ? { type: 'channel_removed', channel_id: ch.id } : { type: 'channel_updated', channel: out }, mem);
-    return json(out);
-  }
-  if ((m = path.match(/^\/api\/channels\/([^/]+)\/remove$/)) && method === 'POST') {
-    const ch = await env.DB.prepare("SELECT * FROM channels WHERE id=? AND kind='channel'").bind(m[1]).first();
-    if (!ch) return err(404, "That channel isn't here anymore.");
-    if (!['owner', 'admin'].includes(user.role) && ch.created_by !== user.id) return err(403, 'Only admins or the person who made this channel can remove people');
-    const who = String(body.user_id || '');
-    await env.DB.prepare('DELETE FROM members WHERE channel_id=? AND user_id=?').bind(ch.id, who).run();
-    await broadcast(env, { type: 'channel_removed', channel_id: ch.id }, [who]);
-    return json(await x.channelMembers(env, ch.id));
-  }
-  // workspace setting: who can create channels
-  if (path === '/api/settings' && method === 'GET') {
-    const r = await env.DB.prepare("SELECT value FROM settings WHERE key='create_channels'").first();
-    return json({ create_channels: r?.value || 'everyone' });
-  }
-  if (path === '/api/settings' && method === 'POST') {
-    if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can do this.');
-    const v = body.create_channels === 'admins' ? 'admins' : 'everyone';
-    await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('create_channels',?)").bind(v).run();
-    return json({ create_channels: v });
-  }
-  if (path === '/api/channels' && method === 'POST' && !['owner', 'admin'].includes(user.role)) {
-    const r = await env.DB.prepare("SELECT value FROM settings WHERE key='create_channels'").first();
-    if (r?.value === 'admins') return err(403, 'Only admins can create channels here. Ask a workspace admin.');
-  }
-  // profile photo
-  if (path === '/api/me/avatar' && method === 'POST') {
-    const fd = await req.formData().catch(() => null);
-    const f = fd?.get('file');
-    if (!f || typeof f === 'string') return err(400, 'Pick a photo');
-    if (!/^image\/(png|jpe?g|gif|webp|heic|heif)$/i.test(f.type)) return err(400, 'Use a JPG, PNG, GIF or WebP photo');
-    if (f.size > 8e6) return err(400, 'That photo is too big (8 MB max)');
-    let bytes = await f.arrayBuffer(), type = f.type, ext = (f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-    if (env.IMAGES && !/gif/i.test(f.type)) {
-      try {
-        const out = await env.IMAGES.input(new Response(bytes).body).transform({ width: 400, height: 400, fit: 'cover' }).output({ format: 'image/webp', quality: 85 });
-        bytes = await out.response().arrayBuffer(); type = 'image/webp'; ext = 'webp';
-      } catch (e) {}
-    }
-    const key = `avatars/${user.id}-${Date.now().toString(36)}.${ext}`;
-    await env.FILES.put(key, bytes, { httpMetadata: { contentType: type } });
-    const avatarUrl = '/files/' + key;
-    await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatarUrl, user.id).run();
-    await x.audience(env, user.id).then((to) => broadcast(env, { type: 'user_updated', user: { id: user.id, avatar: avatarUrl } }, to));
-    return json({ avatar: avatarUrl });
-  }
-
-  // guests don't see team locations
-  if (path === '/api/team/places' && method === 'GET' && user.role === 'guest') return json([]);
   return null;
 }
+export async function featureApi(req, env, user, path, method, body, x) {
+  return runRoutes(FEATURE_ROUTES, { req, env, user, path, method, body, x });
+}
+
+// Routes: each handler is its own function, so a request compiles only the one it uses.
+const FEATURE_ROUTES = routes([
+  ['POST', '/api/push/subscribe', fx_push_subscribe_POST],
+  ['POST', '/api/push/unsubscribe', fx_push_unsubscribe_POST],
+  ['POST', '/api/push/test', fx_push_test_POST],
+  ['GET', '/api/prefs', fx_prefs_GET],
+  ['POST', /^\/api\/messages\/([^/]+)\/save$/, fx_messages_id_save_POST],
+  ['POST', /^\/api\/messages\/([^/]+)\/pin$/, fx_messages_id_pin_POST],
+  ['GET', /^\/api\/channels\/([^/]+)\/pins$/, fx_channels_id_pins_GET],
+  ['GET', '/api/later', fx_later_GET],
+  ['POST', '/api/reminders', fx_reminders_POST],
+  [null, /^\/api\/reminders\/([^/]+)$/, fx_reminders_id],
+  ['POST', '/api/scheduled', fx_scheduled_POST],
+  [null, /^\/api\/scheduled\/([^/]+)$/, fx_scheduled_id],
+  ['GET', '/api/search', fx_search_GET],
+  ['GET', '/api/threads', fx_threads_GET],
+  ['GET', '/api/files', fx_files_GET],
+  ['POST', /^\/api\/channels\/([^/]+)\/manage$/, fx_channels_id_manage_POST],
+  ['POST', /^\/api\/channels\/([^/]+)\/remove$/, fx_channels_id_remove_POST],
+  ['GET', '/api/settings', fx_settings_GET],
+  ['POST', '/api/settings', fx_settings_POST],
+  ['POST', '/api/channels', fx_channels_POST],
+  ['POST', '/api/me/avatar', fx_me_avatar_POST],
+  ['GET', '/api/team/places', fx_team_places_GET],
+]);
+async function fx_push_subscribe_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const ep = String(body.endpoint || ''), k = body.keys || {};
+  // Only the browsers' own push services, so the worker can't be pointed at any other address.
+  const host = (() => { try { const u = new URL(ep); return u.protocol === 'https:' ? u.hostname : ''; } catch { return ''; } })();
+  if (!/(^|\.)(fcm\.googleapis\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com)$/.test(host) || !k.p256dh || !k.auth) return err(400, 'Bad subscription');
+  await env.DB.prepare('INSERT OR REPLACE INTO push_subs (endpoint,user_id,p256dh,auth,ua,created_at) VALUES (?,?,?,?,?,?)')
+    .bind(ep, user.id, String(k.p256dh), String(k.auth), String(req.headers.get('user-agent') || '').slice(0, 200), now()).run();
+  return json({ ok: true });
+}
+
+async function fx_push_unsubscribe_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  await env.DB.prepare('DELETE FROM push_subs WHERE endpoint=? AND user_id=?').bind(String(body.endpoint || ''), user.id).run();
+  return json({ ok: true });
+}
+
+async function fx_push_test_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const n = await pushToUsers(env, [user.id], { title: 'Yakyard', body: 'Notifications are on. This is how they will look.', tag: 'test', icon: '/brand/app-icon-192.png', data: { url: '/' } });
+  return json({ sent: n });
+}
+
+async function fx_prefs_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const devices = (await env.DB.prepare('SELECT ua, created_at FROM push_subs WHERE user_id=? ORDER BY created_at DESC').bind(user.id).all()).results;
+  return json({ vips: user.vips || '[]', notify_level: user.notify_level || 'mentions', dnd_until: user.dnd_until || 0, dnd_start: user.dnd_start || '', dnd_end: user.dnd_end || '', devices });
+}
+
+// saved for later
+async function fx_messages_id_save_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const has = await env.DB.prepare('SELECT done FROM saved WHERE user_id=? AND message_id=?').bind(user.id, m[1]).first();
+  if (has && !has.done && !body.done) { await env.DB.prepare('DELETE FROM saved WHERE user_id=? AND message_id=?').bind(user.id, m[1]).run(); return json({ saved: false }); }
+  if (body.done) { await env.DB.prepare('UPDATE saved SET done=1 WHERE user_id=? AND message_id=?').bind(user.id, m[1]).run(); return json({ saved: false, done: true }); }
+  const msg = await env.DB.prepare('SELECT channel_id FROM messages WHERE id=?').bind(m[1]).first();
+  if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
+  await env.DB.prepare('INSERT OR REPLACE INTO saved (user_id,message_id,created_at,done) VALUES (?,?,?,0)').bind(user.id, m[1], now()).run();
+  return json({ saved: true });
+}
+
+// pins
+async function fx_messages_id_pin_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const msg = await env.DB.prepare('SELECT * FROM messages WHERE id=?').bind(m[1]).first();
+  if (!msg || msg.deleted) return err(404, "That message isn't here anymore.");
+  if (!(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
+  if (user.role === 'guest') return err(403, "Guests can't pin messages.");
+  const has = await env.DB.prepare('SELECT 1 FROM pins WHERE message_id=?').bind(msg.id).first();
+  if (has) await env.DB.prepare('DELETE FROM pins WHERE message_id=?').bind(msg.id).run();
+  else await env.DB.prepare('INSERT INTO pins (channel_id,message_id,user_id,created_at) VALUES (?,?,?,?)').bind(msg.channel_id, msg.id, user.id, now()).run();
+  const [full] = await hydrate(env, [msg]);
+  await broadcast(env, { type: 'message_changed', message: full }, await x.channelMembers(env, msg.channel_id));
+  return json(full);
+}
+
+async function fx_channels_id_pins_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  if (!(await isMember(env, m[1], user.id))) return err(403, "You're not in this channel.");
+  const r = await env.DB.prepare('SELECT x.* FROM pins p JOIN messages x ON x.id=p.message_id WHERE p.channel_id=? AND x.deleted=0 ORDER BY p.created_at DESC').bind(m[1]).all();
+  return json(await hydrate(env, r.results));
+}
+
+// Later: saved + reminders + scheduled in one page
+async function fx_later_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const sv = await env.DB.prepare(`SELECT x.*, s.created_at AS saved_at FROM saved s JOIN messages x ON x.id=s.message_id JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
+    WHERE s.user_id=? AND s.done=0 AND x.deleted=0 ORDER BY s.created_at DESC LIMIT 100`).bind(user.id, user.id).all();
+  const rm = await env.DB.prepare('SELECT * FROM reminders WHERE user_id=? AND done=0 ORDER BY due_at').bind(user.id).all();
+  const sc = await env.DB.prepare('SELECT * FROM scheduled WHERE user_id=? ORDER BY send_at').bind(user.id).all();
+  const saved = await hydrate(env, sv.results);
+  saved.forEach((s, i) => (s.saved_at = sv.results[i].saved_at));
+  return json({ saved, reminders: rm.results, scheduled: sc.results.map((s) => ({ ...s, files: JSON.parse(s.files || '[]') })) });
+}
+
+async function fx_reminders_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const due = +body.due_at;
+  if (!due || due < now() - 60e3) return err(400, 'Pick a time in the future.');
+  if (body.message_id) {
+    const msg = await env.DB.prepare('SELECT channel_id FROM messages WHERE id=?').bind(String(body.message_id)).first();
+    if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
+  }
+  const r = { id: uid('R'), user_id: user.id, message_id: body.message_id || null, text: String(body.text || '').slice(0, 500), due_at: due, done: 0 };
+  await env.DB.prepare('INSERT INTO reminders (id,user_id,message_id,text,due_at) VALUES (?,?,?,?,?)').bind(r.id, r.user_id, r.message_id, r.text, r.due_at).run();
+  await arm(env, 'rem', r.id, r.due_at);
+  return json(r);
+}
+
+async function fx_reminders_id(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  if (method === 'DELETE') { await env.DB.prepare('DELETE FROM reminders WHERE id=? AND user_id=?').bind(m[1], user.id).run(); return json({ ok: true }); }
+  if (method === 'PATCH') {
+    const due = +body.due_at || now();
+    const r = await env.DB.prepare('UPDATE reminders SET due_at=? WHERE id=? AND user_id=? AND done=0').bind(due, m[1], user.id).run();
+    if (r.meta?.changes) await arm(env, 'rem', m[1], due);
+    return json({ ok: true });
+  }
+}
+
+async function fx_scheduled_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const at = +body.send_at;
+  if (!at || at < now() + 30e3) return err(400, 'Pick a time in the future.');
+  const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(String(body.channel_id || '')).first();
+  if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
+  const text = String(body.text || '').slice(0, 40000);
+  const files = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
+  if (!text.trim() && !files.length) return err(400, 'Write something first.');
+  const s = { id: uid('Q'), user_id: user.id, channel_id: ch.id, thread_id: body.thread_id || null, text, files: JSON.stringify(files), also_channel: body.also_channel ? 1 : 0, send_at: at, created_at: now() };
+  await env.DB.prepare('INSERT INTO scheduled (id,user_id,channel_id,thread_id,text,files,also_channel,send_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+    .bind(s.id, s.user_id, s.channel_id, s.thread_id, s.text, s.files, s.also_channel, s.send_at, s.created_at).run();
+  await arm(env, 'sched', s.id, s.send_at);
+  return json({ ...s, files });
+}
+
+async function fx_scheduled_id(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const s = await env.DB.prepare('SELECT * FROM scheduled WHERE id=? AND user_id=?').bind(m[1], user.id).first();
+  if (!s) return err(404, 'Already sent or deleted');
+  if (method === 'DELETE') { await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run(); return json({ ok: true }); }
+  if (method === 'PATCH') {
+    if (body.send_now) {
+      const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
+      if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
+      // Claimed like the job does, so "Send now" and the timer can't both send it.
+      if (!(await env.DB.prepare('DELETE FROM scheduled WHERE id=? RETURNING id').bind(s.id).first())) return err(404, 'Already sent or deleted');
+      return postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel });
+    }
+    const at = +body.send_at || s.send_at;
+    await env.DB.prepare('UPDATE scheduled SET send_at=?, text=? WHERE id=?').bind(at, body.text != null ? String(body.text).slice(0, 40000) : s.text, s.id).run();
+    if (at !== s.send_at) await arm(env, 'sched', s.id, at);
+    return json({ ok: true });
+  }
+}
+
+// search with filters: from:@name in:#channel has:file|link|image|pin before:/after:/on:YYYY-MM-DD
+async function fx_search_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const q = (url.searchParams.get('q') || '').trim();
+  if (q.length < 2) return json([]);
+  try { return json(await search(env, user, q, hydrate)); }
+  catch (e) {
+    console.log('fts failed, falling back', e);
+    const like = '%' + q.replace(/[%_]/g, '') + '%';
+    const r = await env.DB.prepare(`SELECT x.* FROM messages x JOIN members m ON m.channel_id=x.channel_id AND m.user_id=? WHERE x.deleted=0 AND x.text LIKE ? ORDER BY x.ts DESC LIMIT 40`).bind(user.id, like).all();
+    return json(await hydrate(env, r.results));
+  }
+}
+
+// threads I started or replied to (one pass, no per-row subquery)
+async function fx_threads_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const r = await env.DB.prepare(
+    `WITH mine AS (SELECT DISTINCT thread_id AS id FROM messages WHERE user_id=? AND thread_id IS NOT NULL
+       UNION SELECT id FROM messages WHERE user_id=? AND reply_count>0)
+     SELECT p.* FROM messages p JOIN mine ON mine.id=p.id JOIN members me ON me.channel_id=p.channel_id AND me.user_id=?
+     WHERE p.reply_count>0 AND p.deleted=0 ORDER BY p.last_reply_ts DESC LIMIT 25`).bind(user.id, user.id, user.id).all();
+  const parents = await hydrate(env, r.results);
+  if (parents.length) {
+    const ids = parents.map((p) => p.id);
+    const rr = await env.DB.prepare(`SELECT * FROM (SELECT x.*, ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY ts DESC) rn FROM messages x
+      WHERE x.thread_id IN (${ids.map(() => '?').join(',')}) AND x.deleted=0) WHERE rn<=2`).bind(...ids).all();
+    const replies = await hydrate(env, rr.results);
+    for (const p of parents) p.latest = replies.filter((x) => x.thread_id === p.id).sort((a, b) => a.ts - b.ts);
+  }
+  return json(parents);
+}
+
+// files browser
+async function fx_files_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const before = +url.searchParams.get('before') || 9e15;
+  const type = url.searchParams.get('type') || '';
+  const cid = url.searchParams.get('channel') || '';
+  const q = (url.searchParams.get('q') || '').toLowerCase();
+  const mine = url.searchParams.get('mine') === '1';
+  const where = ["x.files != '[]'", 'x.deleted=0', 'x.ts < ?'], args = [user.id, before];
+  if (cid) { where.push('x.channel_id=?'); args.push(cid); }
+  if (mine) { where.push('x.user_id=?'); args.push(user.id); }
+  if (q) { where.push('lower(x.files) LIKE ?'); args.push('%' + q.replace(/[%_]/g, '') + '%'); }
+  const r = await env.DB.prepare(`SELECT x.id,x.channel_id,x.user_id,x.ts,x.thread_id,x.files FROM messages x JOIN members m ON m.channel_id=x.channel_id AND m.user_id=?
+    WHERE ${where.join(' AND ')} ORDER BY x.ts DESC LIMIT 60`).bind(...args).all();
+  const out = [];
+  for (const row of r.results) {
+    for (const f of JSON.parse(row.files || '[]')) {
+      const kind = /^image\//.test(f.type) ? 'image' : /^video\//.test(f.type) ? 'video' : /^audio\//.test(f.type) ? 'audio' : /pdf|word|document|sheet|excel|presentation|powerpoint|text\//.test(f.type) || /\.(pdf|docx?|xlsx?|pptx?|csv|txt|key|numbers|pages)$/i.test(f.name) ? 'doc' : 'other';
+      if (type && type !== kind) continue;
+      if (q && !String(f.name).toLowerCase().includes(q)) continue;
+      out.push({ ...f, kind, message_id: row.id, channel_id: row.channel_id, user_id: row.user_id, ts: row.ts, thread_id: row.thread_id });
+    }
+  }
+  return json({ files: out, next: r.results.length === 60 ? r.results[r.results.length - 1].ts : null });
+}
+
+// ---------- channel management (admins, owners, or whoever created the channel)
+async function fx_channels_id_manage_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const ch = await env.DB.prepare("SELECT * FROM channels WHERE id=? AND kind='channel'").bind(m[1]).first();
+  if (!ch) return err(404, "That channel isn't here anymore.");
+  const admin = ['owner', 'admin'].includes(user.role);
+  if (!admin && ch.created_by !== user.id) return err(403, 'Only admins or the person who made this channel can change it');
+  if (ch.name === 'general' && (body.archived || body.delete || body.name)) return err(403, '#general stays as it is');
+  if (body.delete) {
+    if (!admin) return err(403, 'Only admins can delete channels');
+    const mem = await x.channelMembers(env, ch.id);
+    // Its files go too (rows and stored objects), so nothing is left that nobody can open.
+    const keys = (await env.DB.prepare('SELECT key FROM files WHERE channel_id=?').bind(ch.id).all()).results.map((r) => r.key);
+    for (let i = 0; i < keys.length; i += 1000) await env.FILES.delete(keys.slice(i, i + 1000));
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM files WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE channel_id=?)').bind(ch.id),
+      env.DB.prepare('DELETE FROM mentions WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM pins WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM messages WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM members WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM scheduled WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM pending_members WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM slack_channels WHERE channel_id=?').bind(ch.id),
+      env.DB.prepare('DELETE FROM channels WHERE id=?').bind(ch.id),
+    ]);
+    await broadcast(env, { type: 'channel_removed', channel_id: ch.id }, mem);
+    return json({ ok: true });
+  }
+  if (body.name != null) {
+    const name = String(body.name).toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+    if (!name) return err(400, 'Add a name first.');
+    if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=? AND id<>?").bind(name, ch.id).first()) return err(409, 'That name is taken. Pick another one.');
+    await env.DB.prepare('UPDATE channels SET name=? WHERE id=?').bind(name, ch.id).run();
+  }
+  if (body.private != null) await env.DB.prepare('UPDATE channels SET private=? WHERE id=?').bind(body.private ? 1 : 0, ch.id).run();
+  if (body.archived != null) await env.DB.prepare('UPDATE channels SET archived=? WHERE id=?').bind(body.archived ? 1 : 0, ch.id).run();
+  const out = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(ch.id).first();
+  const mem = await x.channelMembers(env, ch.id);
+  await broadcast(env, out.archived ? { type: 'channel_removed', channel_id: ch.id } : { type: 'channel_updated', channel: out }, mem);
+  return json(out);
+}
+
+async function fx_channels_id_remove_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const ch = await env.DB.prepare("SELECT * FROM channels WHERE id=? AND kind='channel'").bind(m[1]).first();
+  if (!ch) return err(404, "That channel isn't here anymore.");
+  if (!['owner', 'admin'].includes(user.role) && ch.created_by !== user.id) return err(403, 'Only admins or the person who made this channel can remove people');
+  const who = String(body.user_id || '');
+  await env.DB.prepare('DELETE FROM members WHERE channel_id=? AND user_id=?').bind(ch.id, who).run();
+  await broadcast(env, { type: 'channel_removed', channel_id: ch.id }, [who]);
+  return json(await x.channelMembers(env, ch.id));
+}
+
+// workspace setting: who can create channels
+async function fx_settings_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const r = await env.DB.prepare("SELECT value FROM settings WHERE key='create_channels'").first();
+  return json({ create_channels: r?.value || 'everyone' });
+}
+
+async function fx_settings_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  if (!['owner', 'admin'].includes(user.role)) return err(403, 'Only admins can do this.');
+  const v = body.create_channels === 'admins' ? 'admins' : 'everyone';
+  await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('create_channels',?)").bind(v).run();
+  return json({ create_channels: v });
+}
+
+async function fx_channels_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  if (['owner', 'admin'].includes(user.role)) return null;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const r = await env.DB.prepare("SELECT value FROM settings WHERE key='create_channels'").first();
+  if (r?.value === 'admins') return err(403, 'Only admins can create channels here. Ask a workspace admin.');
+}
+
+// profile photo
+async function fx_me_avatar_POST(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  const fd = await req.formData().catch(() => null);
+  const f = fd?.get('file');
+  if (!f || typeof f === 'string') return err(400, 'Pick a photo');
+  if (!/^image\/(png|jpe?g|gif|webp|heic|heif)$/i.test(f.type)) return err(400, 'Use a JPG, PNG, GIF or WebP photo');
+  if (f.size > 8e6) return err(400, 'That photo is too big (8 MB max)');
+  let bytes = await f.arrayBuffer(), type = f.type, ext = (f.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+  if (env.IMAGES && !/gif/i.test(f.type)) {
+    try {
+      const out = await env.IMAGES.input(new Response(bytes).body).transform({ width: 400, height: 400, fit: 'cover' }).output({ format: 'image/webp', quality: 85 });
+      bytes = await out.response().arrayBuffer(); type = 'image/webp'; ext = 'webp';
+    } catch (e) {}
+  }
+  const key = `avatars/${user.id}-${Date.now().toString(36)}.${ext}`;
+  await env.FILES.put(key, bytes, { httpMetadata: { contentType: type } });
+  const avatarUrl = '/files/' + key;
+  await env.DB.prepare('UPDATE users SET avatar=? WHERE id=?').bind(avatarUrl, user.id).run();
+  await x.audience(env, user.id).then((to) => broadcast(env, { type: 'user_updated', user: { id: user.id, avatar: avatarUrl } }, to));
+  return json({ avatar: avatarUrl });
+}
+
+// guests don't see team locations
+async function fx_team_places_GET(c, m) {
+  const { req, env, user, path, method, body, x } = c;
+  if (user.role !== 'guest') return null;
+  const { hydrateMessages: hydrate, broadcast, isMember, postMessage, ctx } = x;
+  const url = new URL(req.url);
+  return json([]);
+}
+

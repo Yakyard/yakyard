@@ -141,17 +141,6 @@ export async function patchMessage(env, key, deps) {
   return true;
 }
 
-// Wait (max a few seconds) for transcripts, so the phone notification can show the words.
-export async function waitTranscripts(env, keys, ms = 20000) {
-  const end = now() + ms;
-  while (now() < end) {
-    const r = await env.DB.prepare(`SELECT key, transcript, t_status FROM files WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).all();
-    if (r.results.every((x) => x.t_status === 'done' || x.t_status === 'failed')) return Object.fromEntries(r.results.map((x) => [x.key, x.transcript || '']));
-    await new Promise((res) => setTimeout(res, 1500));
-  }
-  return null;
-}
-
 // The transcript job (see arm in features.js): one note per run, retried until it is done or out of tries.
 // Returns when to run again, or null when there is nothing left to do.
 export async function voiceJob(env, key, deps) {

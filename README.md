@@ -69,7 +69,7 @@ Yakyard uses Workers, Durable Objects, D1 (database), R2 (files), Workers AI (tr
 
 Yakyard is built to fit Cloudflare's free plan with zero paid features turned on. Free plan limits (November 2026): 10 ms of CPU per request, 100,000 Worker requests a day, 100,000 Durable Object requests a day, 5 million database rows read and 100,000 written a day, 10 GB of files, 10,000 Workers AI neurons a day, 5,000 photo previews a month. Daily limits reset at midnight UTC.
 
-**CPU per request.** Every request, and every background job, has to finish in under 10 ms of CPU. Estimated in Node.js on the code paths that do real work, and checked on Cloudflare itself with `scripts/cpu-check.mjs` (a copy of Yakyard with the 10 ms limit switched on, used end to end, see [SETUP.md](docs/SETUP.md#check-the-cpu-limit)):
+**CPU per request.** Every request, and every background job, has to finish in under 10 ms of CPU, including the first request on a fresh copy of the code, which also pays to compile what it runs. Two checks: `npm run cpu-bench` runs each path as the first thing a fresh process does (a local estimate of a cold start, database time left out), and `scripts/cpu-check.mjs` measures a copy of Yakyard on Cloudflare itself with the 10 ms limit switched on ([SETUP.md](docs/SETUP.md#check-the-cpu-limit)). The API is a table of small handlers, so a request compiles only the one it uses. Per piece of work:
 
 | What | CPU | How it fits |
 |---|---|---|
@@ -77,7 +77,7 @@ Yakyard is built to fit Cloudflare's free plan with zero paid features turned on
 | Sign-in of an account made before browser-side stretching | 0.05 ms | The server never runs the old 18 ms hash. The person is asked to set a new password once, from a sign-in link (see [Old accounts](#old-accounts)). |
 | Unknown email at sign-in | 0.05 ms | Same work as a real account, so the reply doesn't reveal who has one. |
 | Opening a conversation (50 messages) | 0.05 ms | Database time doesn't count as CPU. |
-| One phone notification | 1.5 ms | Encryption and signing. Notifications go out four to a background job, so a message to 30 people is 8 small jobs, never one big request. |
+| One phone notification | about 1 ms | Encryption (Web Push, written out in `src/webpush.js`, no library), with the signed VAPID token reused for 12 hours. Sending a message only starts a background job; that job works out who gets a buzz and starts one more job per device. |
 | Slack import, one page of 50 messages | 2 ms | Each import is a chain of background jobs: 3 pages (150 messages) per job, the next job 4 seconds later. |
 | Voice note to transcript, per minute of audio | under 1 ms | Native base64. Each note gets its own background job, which retries if Workers AI is busy and waits for tomorrow if today's free time is used up. |
 | Link previews and outside pictures | small | Page parsing is native (HTMLRewriter), capped at 512 KB. Pictures are streamed, 5 MB max. |
