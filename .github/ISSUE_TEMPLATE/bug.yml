@@ -1,0 +1,66 @@
+name: Bug report
+description: Something in Yakyard doesn't work the way it should.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go to the **Security** tab, **Report a vulnerability**, never here.
+        Please check [When something fails](https://github.com/yakyard/yakyard/blob/main/docs/SETUP.md#when-something-fails) first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, and what did you see?
+      placeholder: I sent a voice note in #general and the transcript never showed…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to see it again
+      placeholder: |
+        1. Open…
+        2. Click…
+        3. See…
+  - type: textarea
+    id: logs
+    attributes:
+      label: Red lines from wrangler tail
+      description: Run `npx wrangler tail` while you repeat the problem and paste any errors. Remove anything private first.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Yakyard version
+      description: The commit or release you deployed, if you know it.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Setup or deploy
+        - Browser on a computer
+        - Installed app on a computer
+        - iPhone or iPad
+        - Android
+        - Slack import
+        - Calls
+        - Voice notes
+        - Notifications
+  - type: dropdown
+    id: plan
+    attributes:
+      label: Cloudflare plan
+      options:
+        - Free
+        - Workers Paid
+        - Not sure

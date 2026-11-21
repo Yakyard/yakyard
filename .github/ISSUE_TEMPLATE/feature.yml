@@ -1,0 +1,32 @@
+name: Feature request
+description: An idea that would make Yakyard better for your team.
+title: "Idea: "
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Yakyard has to fit Cloudflare's free plan (10 ms of CPU per request) and keep working with zero paid features turned on. Some good ideas don't fit. That's fine, tell us anyway.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What's hard or missing today? Describe the situation, not the solution yet.
+      placeholder: When a client joins as a guest, they can't…
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today instead
+  - type: input
+    id: team
+    attributes:
+      label: Team size
+      description: Roughly how many people use your Yakyard.

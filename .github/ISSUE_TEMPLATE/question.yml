@@ -1,0 +1,20 @@
+name: Question
+description: Ask how something works, or about a commercial license.
+title: "Question: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The [FAQ](https://github.com/yakyard/yakyard/blob/main/docs/FAQ.md) and the [setup guide](https://github.com/yakyard/yakyard/blob/main/docs/SETUP.md) answer a lot. If yours isn't there, ask away.
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything that helps us answer
+      description: What you tried, what you read, your Cloudflare plan, your team size.
