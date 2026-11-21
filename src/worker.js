@@ -212,11 +212,10 @@ const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
 // SHA-256(salt + key), marked "c1:". Older rows (server-side PBKDF2, 100,000 rounds, no marker)
 // are upgraded on the next sign-in that sends the password once more.
 const KDF_ITER = 600000;
+// Old accounts only: the server-side hash from before the browser did the stretching.
 async function hashPassword(password, saltB64) {
-  const salt = saltB64 ? unb64(saltB64) : crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 }, key, 256);
-  return { hash: b64(bits), salt: b64(salt) };
+  return b64(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unb64(saltB64), iterations: 100000 }, key, 256));
 }
 const goodB64 = (t, n) => { try { return typeof t === 'string' && t.length < 64 && unb64(t).length === n; } catch { return false; } };
 async function keyHash(key, saltB64) {
@@ -229,7 +228,7 @@ async function checkKey(row, key, password) {
   if (!row || !goodB64(key, 32)) { await keyHash(goodB64(key, 32) ? key : 'A'.repeat(43) + '=', 'AAAAAAAAAAAAAAAAAAAAAA=='); if (password) await hashPassword(password, 'AAAAAAAAAAAAAAAAAAAAAA=='); return { ok: false }; }
   if (row.hash.startsWith('c1:')) return { ok: sameText(await keyHash(key, row.salt), row.hash) };
   if (!password) return { ok: false };
-  const ok = sameText((await hashPassword(password, row.salt)).hash, row.hash);
+  const ok = sameText(await hashPassword(password, row.salt), row.hash);
   return { ok, upgrade: ok ? await keyHash(key, row.salt) : null };
 }
 // One random server secret, made on first use, so unknown emails get a stable fake salt.
@@ -249,7 +248,7 @@ async function hmac(keyBytes, text) {
 // the response time doesn't either.
 async function saltFor(req, env) {
   const email = String((await req.json().catch(() => ({}))).email || '').toLowerCase().trim().slice(0, 200);
-  if ((await bump(env, 'salt:' + clientIp(req))) > 100) return json({ error: 'Too many tries. Wait 15 minutes.' }, 429);
+  if ((await bump(env, 'salt:' + clientIp(req))) > 100) return json({ error: 'Too many sign-in tries from this network. Wait 15 minutes.' }, 429);
   const [row, anyOld] = await Promise.all([
     env.DB.prepare('SELECT c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first(),
     env.DB.prepare("SELECT 1 FROM credentials WHERE hash NOT LIKE 'c1:%' LIMIT 1").first(),
@@ -846,7 +845,7 @@ async function api(req, env, user, path, ctx) {
   if (path === '/api/me/password' && method === 'POST') {
     const row = await env.DB.prepare('SELECT hash, salt FROM credentials WHERE user_id=?').bind(user.id).first();
     if (!row) return err(400, 'You sign in with Google, so there is no password to change.');
-    if ((await bump(env, 'pw:' + user.id)) > 10) return err(429, 'Too many tries. Wait 15 minutes.');
+    if ((await bump(env, 'pw:' + user.id)) > 10) return err(429, 'Too many tries. Wait 15 minutes, then try again.');
     const { ok } = await checkKey(row, String(body.key || ''), String(body.password || ''));
     if (!ok) return err(400, "That's not your current password.");
     const nk = newKey(new Map([['key', body.new_key], ['salt', body.new_salt], ['len', body.len]]));
@@ -1196,6 +1195,7 @@ async function serveFile(req, env, key) {
 export default {
   // One heavy job per tick, so a tick stays under the free plan's 10 ms CPU: due messages and reminders
   // first; when none were due, a Slack import slice on even minutes and a transcript on odd ones.
+  // shortcut: a queue with something due every single minute holds imports and transcripts back; fine for a team, split into two crons if it ever matters.
   async scheduled(event, env, ctx) {
     if (await cronTick(env, ctx, postMessage)) return;
     if (new Date(event.scheduledTime).getUTCMinutes() % 2) await voiceCron(env, { hydrateMessages, broadcast, channelMembers }).catch((e) => console.log('voice cron', e));

@@ -146,12 +146,22 @@ Each person can copy their own Slack messages (DMs, group DMs, private channels)
 
 ## Updates
 
-When a new version comes out:
+When a new version comes out, first save a backup (see **Backups** below). Then:
 
 - **With Git:** in the Yakyard folder, type `git pull`, then `npm run deploy`.
 - **With the ZIP:** download the new ZIP, unzip it, copy your old `wrangler.toml` into the new folder, then run `npm run deploy` from the new folder.
 
+It worked when the last line says `Deployed version` and a number.
+
 `npm run deploy` also updates your database (new tables and columns) before the new version goes live. Open apps show **New version of Yakyard** and update in one tap.
+
+After an update, sign in, send a message and open a voice note. If something is broken, go back to the version before:
+
+```
+npx wrangler rollback
+```
+
+It asks which version to go back to. Pick the one just before. Database updates only add tables and columns, so the older version keeps working with them. You can also do this in the Cloudflare dashboard: **Workers & Pages**, your `yakyard` Worker, **Deployments**.
 
 ## Backups
 
@@ -163,7 +173,15 @@ To keep your own copy, type:
 npx wrangler d1 export DB --remote --output yakyard-backup.sql
 ```
 
-It saves a file called `yakyard-backup.sql` in the Yakyard folder. Do it once a month and keep the file somewhere safe. To bring the database back to an earlier moment, see Cloudflare's [Time Travel guide](https://developers.cloudflare.com/d1/reference/time-travel/).
+It saves a file called `yakyard-backup.sql` in the Yakyard folder. Open it in a text editor: it should start with lines like `CREATE TABLE`. Do it once a month, and before every update, and keep the file somewhere safe.
+
+To bring the database back to an earlier moment (last 7 days), type the date and time in UTC:
+
+```
+npx wrangler d1 time-travel restore DB --timestamp=2026-11-20T09:00:00.000+00:00
+```
+
+Messages and changes made after that moment disappear, so pick the latest time that was still fine. The command prints a bookmark: keep it, it brings them back if you picked the wrong time. More in Cloudflare's [Time Travel guide](https://developers.cloudflare.com/d1/reference/time-travel/).
 
 Files and voice notes stay in R2. Cloudflare stores them on several machines, so a lost file is very unlikely.
 
@@ -208,9 +226,11 @@ The README section **Free plan** has the full math. If Yakyard gets slow to answ
 
 **"Turn on JavaScript to sign in".** Yakyard stretches your password in the browser, so sign-in needs JavaScript. Turn it back on in the browser settings, or try another browser.
 
+**"Too many tries" or "Too many sign-in tries".** Someone typed a wrong password many times, or many people sign in from one office network at once. Wait 15 minutes. If it keeps happening, an admin can send the person a new link.
+
 **Someone forgot their password.** An owner or admin opens **Admin**, finds the person, clicks the three dots, then **Reset password (new link)**, and sends them the new link.
 
-**Error 1102 or "Worker exceeded CPU".** A single action needed more computer time than the free plan allows. Tell us what you were doing. Accounts made with an older Yakyard (before this version) can see it once at their first sign-in: send that person a new link from **Admin**.
+**Error 1102 or "Worker exceeded CPU".** A single action needed more computer time than the free plan allows. Run `npx wrangler tail`, do the same thing again, and copy the red lines when you ask for help. Accounts made with an older Yakyard (before this version) can see it once at their first sign-in: send that person a new link from **Admin**.
 
 **"Your team used up today's free database allowance".** Cloudflare's free database has a daily limit. It resets at midnight UTC. If it happens often, upgrade to Workers Paid ($5 a month).
 

@@ -63,3 +63,16 @@ test('migrations add only the columns an old database is missing', async () => {
   db.exec(sql);
   assert.ok(db.prepare('PRAGMA table_info(users)').all().some((r) => r.name === 'share_location'));
 });
+
+// The cron does one heavy job per tick: at most 3 sends, and it reports how many so imports and transcripts wait.
+test('cron sends at most 3 due messages per tick and says how many', async () => {
+  const { cronTick } = await import('../src/features.js');
+  const { db, DB } = d1();
+  db.exec("INSERT INTO users (id,email,name,created_at) VALUES ('u1','a@b.c','A',0); INSERT INTO channels (id,name,created_at) VALUES ('c1','general',0); INSERT INTO members (channel_id,user_id,joined_at) VALUES ('c1','u1',0)");
+  for (let i = 0; i < 5; i++) db.prepare("INSERT INTO scheduled (id,user_id,channel_id,text,send_at,created_at) VALUES (?, 'u1', 'c1', 'hi', 1, 0)").run('s' + i);
+  const sent = []; const post = async (env, ctx, u, ch, m) => sent.push(m.text);
+  assert.equal(await cronTick({ DB }, {}, post), 3);
+  assert.equal(await cronTick({ DB }, {}, post), 2);
+  assert.equal(await cronTick({ DB }, {}, post), 0);
+  assert.equal(sent.length, 5);
+});

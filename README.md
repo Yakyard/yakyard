@@ -23,7 +23,7 @@ Team chat gets expensive fast, and your company history ends up on someone else'
 
 **Talking**
 - Channels (public and private), threads, direct and group messages
-- Rich message box: bold, italic, lists, quotes, code, links. No markdown typing needed
+- Rich message box: bold, italic, lists, quotes, code and links from buttons or shortcuts, so nobody has to type markdown
 - Emoji picker with search and skin tones. Reactions, with "who reacted" cards
 - Files, photos and videos up to 1 GB, with link previews
 - Edit, delete, pin, save for later, reminders, scheduled send
@@ -76,12 +76,12 @@ Yakyard is built to fit Cloudflare's free plan with zero paid features turned on
 | Sign-in of an account made before this version | 18 ms, once | The old server-side hash (100,000 rounds) runs one last time, then the account moves to the new kind. If it fails with error 1102 on the free plan, send that person a new link. |
 | Unknown email at sign-in | 0.05 ms | Same work as a real account, so the reply doesn't reveal who has one. |
 | Opening a conversation (50 messages) | 0.05 ms | Database time doesn't count as CPU. |
-| One phone notification | 1.5 ms | Encryption and signing. Two go out right away; the rest go out four at a time from the hub (a Durable Object alarm), so a message to 30 people never piles up in one request. |
+| One phone notification | 1.5 ms | Encryption and signing. Two go out right away. The rest go out four at a time from the hub (a Durable Object alarm), so a message to 30 people never piles up in one request. |
 | Slack import, one page of 50 messages | 2 ms | The background job runs once a minute and does one heavy thing per run: up to 3 due messages or reminders, else an import run (3 pages, 150 messages) or a transcript, in turn. So an import moves about 75 messages a minute. |
 | Voice note to transcript, per minute of audio | under 1 ms | Native base64. One transcript every other minute from the background job. |
-| Link previews and outside pictures | small | Page parsing is native (HTMLRewriter), capped at 512 KB; pictures are streamed, 5 MB max. |
+| Link previews and outside pictures | small | Page parsing is native (HTMLRewriter), capped at 512 KB. Pictures are streamed, 5 MB max. |
 
-Calls (Pop in) go browser to browser; the server only relays the short setup messages.
+Calls (Pop in) go browser to browser. The server only relays the short setup messages.
 
 **How many people.** Rough daily numbers for one active person: 40 messages sent, 150 conversations opened, 5 app opens.
 
@@ -97,14 +97,14 @@ Calls (Pop in) go browser to browser; the server only relays the short setup mes
 The tightest line is about 245 people. Real teams are bursty and some people are heavy users, so plan on a fifth of that: **up to about 50 people**, comfortably. The first things a busy team feels are voice transcripts (about 4 minutes per person a day for 50 people) and photo previews (5,000 a month).
 
 **When something runs out, nothing breaks:**
-- Voice transcripts: notes still send and play; the transcript says it comes tomorrow and the background job fills it in after midnight UTC.
+- Voice transcripts: notes still send and play. The transcript says it comes tomorrow and the background job fills it in after midnight UTC.
 - Photo previews: photos show at full size for an hour, then Yakyard tries again.
 - Database: pages and the app show "Your team used up today's free database allowance" instead of an error page, until midnight UTC.
 - File storage: uploads stop with a clear message at 2 GB per person or 9 GB for the team. Change both with `STORAGE_PER_PERSON_GB` and `STORAGE_TOTAL_GB`.
 
 Admins see storage and today's voice minutes on the **Usage** card in Admin. Requests and database use are in the Cloudflare dashboard.
 
-**When to pay $5 a month (Workers Paid).** More than about 50 busy people, more than about 3 hours of voice notes a day, or if you see "free database allowance" or error 1102 more than once. Upgrade in the Cloudflare dashboard; nothing in Yakyard changes.
+**When to pay $5 a month (Workers Paid).** More than about 50 busy people, more than about 3 hours of voice notes a day, or if you see "free database allowance" or error 1102 more than once. Upgrade in the Cloudflare dashboard. Nothing in Yakyard changes.
 
 ## Try it on your computer first
 
@@ -161,7 +161,7 @@ On iPhone, people add Yakyard to the Home Screen first (Share, Add to Home Scree
 |---|---|
 | Sign in with Google | Create an OAuth client in Google Cloud (redirect `https://YOUR-URL/auth/callback`). Set `GOOGLE_CLIENT_ID`, `GOOGLE_ENABLED = "1"`, secret `GOOGLE_CLIENT_SECRET`. `ALLOWED_DOMAINS` lets anyone with your company email in. |
 | Calls on strict networks | Create a TURN key in Cloudflare Realtime. Secrets `TURN_KEY_ID` and `TURN_KEY_TOKEN`. |
-| Slack import | Create a Slack app with user scopes `channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read users:read.email files:read reactions:read`, redirect `https://YOUR-URL/slack/callback`. Set `SLACK_CLIENT_ID` and `SLACK_TEAM_ID` (your Slack workspace id, starts with `T`), secrets `SLACK_CLIENT_SECRET` and `TOKEN_KEY`. `TOKEN_KEY` must be exactly 32 random bytes written as base64: make one with `openssl rand -base64 32` and paste the whole line into `npx wrangler secret put TOKEN_KEY`. Instead of the `SLACK_CLIENT_SECRET` secret, the owner can paste the Client Secret on the import page; it is stored encrypted with `TOKEN_KEY`. Guests can't import. |
+| Slack import | Create a Slack app with user scopes `channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read users:read.email files:read reactions:read`, redirect `https://YOUR-URL/slack/callback`. Set `SLACK_CLIENT_ID` and `SLACK_TEAM_ID` (your Slack workspace id, starts with `T`), secrets `SLACK_CLIENT_SECRET` and `TOKEN_KEY`. `TOKEN_KEY` must be exactly 32 random bytes written as base64: make one with `openssl rand -base64 32` and paste the whole line into `npx wrangler secret put TOKEN_KEY`. Instead of the `SLACK_CLIENT_SECRET` secret, the owner can paste the Client Secret on the import page. It is stored encrypted with `TOKEN_KEY`. Guests can't import. |
 | Team clocks | `TEAM_LOCATION = "1"`. See "Team clocks and privacy". |
 | Weather on team clocks | `WEATHER = "1"` as well. See "Team clocks and privacy". |
 | Better transcripts | `VOICE_LANGUAGE` (e.g. `en`, `fr`, `es`) and `VOICE_HINT` with names and words to spell right. |
@@ -206,11 +206,13 @@ npm run deploy
 
 `npm run deploy` updates the database before the new code goes live (`scripts/migrate.mjs`): it adds any column an existing table is missing, then creates any new tables and indexes from `schema.sql`. Safe to run again and again. Compare `wrangler.toml.example` with your `wrangler.toml` for new settings, since your own file is never overwritten.
 
-Open apps show "New version of Yakyard" and update in one tap.
+Open apps show "New version of Yakyard" and update in one tap. If the new version misbehaves, `npx wrangler rollback` puts the previous one back. The database changes only add, so it keeps working (details in [SETUP.md](docs/SETUP.md#updates)).
 
 ## Sign-in throttling
 
-Sign-in allows 30 tries per network address and 25 per account in 15 minutes, from anywhere. That means someone who keeps guessing at one person's email can keep that person locked out of password sign-in for a while. Google sign-in and a new link from an admin still work. Admins can only send new links to people who never signed in; the owner can send one to anyone.
+Sign-in allows 30 tries per network address and 25 per account in 15 minutes, from anywhere. That means someone who keeps guessing at one person's email can keep that person locked out of password sign-in for a while. Google sign-in and a new link from an admin still work. Admins can only send new links to people who never signed in. The owner can send one to anyone.
+
+The step before sign-in (the browser asking for its password salt) allows 100 requests per address in 15 minutes. Changing a password allows 10 tries per person.
 
 ## Tests
 
@@ -229,6 +231,7 @@ No framework and no build step. Plain JavaScript in `public/app.js`, a Cloudflar
 | API, sign-in, files | `src/worker.js` |
 | Live updates, presence, calls signaling | `Hub` Durable Object in `src/worker.js` |
 | Push, status, search, reminders, scheduled send | `src/features.js` |
+| Once-a-minute job (one heavy task per run) | `scheduled()` in `src/worker.js`, `cronTick` in `src/features.js` |
 | Voice notes and transcripts | `src/voice.js` |
 | Slack import | `src/slackimport.js` |
 | Link previews | `src/unfurl.js` |

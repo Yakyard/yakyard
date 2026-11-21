@@ -657,11 +657,11 @@ function makePlayer(f) {
       } else if (nf.t === 'done') {
         tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No speech heard'));
       } else if (nf.t === 'failed') {
-        tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No transcript yet. ', h('button', { class: 'vn-link', onclick: (e) => { e.target.disabled = true; tBox.replaceChildren(h('div', { class: 'vn-muted vn-wait' }, 'Turning your yak into words…')); last = null; api('/api/voice/transcribe', { method: 'POST', body: { key: nf.key, retry: true } }).catch((er) => toast(er.message)); } }, 'Try again')));
+        tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No transcript yet. ', h('button', { class: 'vn-link', onclick: (e) => { e.target.disabled = true; tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'Turning your yak into words…')); last = null; api('/api/voice/transcribe', { method: 'POST', body: { key: nf.key, retry: true } }).catch((er) => toast(er.message)); } }, 'Try again')));
       } else if (nf.t === 'later') {
         tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'The transcript comes tomorrow. Today\'s free transcribing time is used up.'));
       } else {
-        tBox.replaceChildren(h('div', { class: 'vn-muted vn-wait' }, 'Turning your yak into words…'));
+        tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'Turning your yak into words…'));
       }
     },
   };
@@ -1889,9 +1889,10 @@ function renderAdmin() {
     kpi(counts.active || 0, 'Signed in'), kpi((counts.invited || 0), 'Invites waiting'), kpi(counts.not_invited || 0, 'Not invited yet'),
     kpi((st.messages || 0).toLocaleString(), 'Messages'), kpi((st.messages_7d || 0).toLocaleString(), 'Messages this week'));
   // Usage today against Cloudflare's free plan. Rough: requests and database reads are only in the Cloudflare dashboard.
-  const gb = (b) => (b < 1024 ** 3 ? Math.ceil(b / 1024 ** 2) + ' MB' : (b / 1024 ** 3).toFixed(1) + ' GB');
-  const meter = (label, used, max, text) => h('div', { class: 'use-row' }, h('div', { class: 'use-top' }, h('span', {}, label), h('span', { class: 'use-num' }, text)),
-    h('div', { class: 'use-bar', role: 'meter', 'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-valuenow': Math.min(used, max) }, h('i', { style: { width: Math.min(100, (used / max) * 100 || 0) + '%' } })));
+  const gb = (b) => (b < 1024 ** 3 ? Math.ceil(b / 1024 ** 2) + '\u00a0MB' : (b / 1024 ** 3).toFixed(1) + '\u00a0GB');
+  // Over 90%: the bar turns warning orange and the numbers say "nearly full", so it's never color alone.
+  const meter = (label, used, max, text) => { const hot = used / max > 0.9; if (hot) text += ', nearly full'; return h('div', { class: 'use-row' + (hot ? ' hot' : '') }, h('div', { class: 'use-top' }, h('span', {}, label), h('span', { class: 'use-num' }, text)),
+    h('div', { class: 'use-bar', role: 'meter', 'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-valuenow': Math.min(used, max), 'aria-valuetext': text }, h('i', { style: { width: Math.min(100, (used / max) * 100 || 0) + '%' } }))); };
   const usage = h('section', { class: 'card usage' }, h('h3', {}, 'Usage'),
     meter('File storage', st.storage || 0, st.storage_limit || 1, `${gb(st.storage || 0)} of ${gb(st.storage_limit || 0)}`),
     meter('Voice transcripts today', st.voice_secs_today || 0, st.voice_free_secs || 1, `${Math.round((st.voice_secs_today || 0) / 60)} of about ${Math.round((st.voice_free_secs || 0) / 60)} free minutes`),
@@ -2126,13 +2127,13 @@ const isStandalone = () => matchMedia('(display-mode: standalone)').matches || n
 const GUIDE_URL = 'https://github.com/yakyard/yakyard/blob/main/docs/GUIDE.md';
 function openHelp() {
   const tips = [
-    ['Start a conversation', 'Plus next to Channels or Direct messages. Ctrl/⌘ + K jumps anywhere.'],
+    ['Start a conversation', 'Click + next to Channels or Direct messages. Ctrl\u2060/\u2060⌘\u00a0+\u00a0K jumps anywhere.'],
     ['Reply in a thread', 'Hover a message (or long-press on a phone) and pick Reply.'],
     ['Mention someone', 'Type @ and a name. @here reaches everyone in the channel.'],
     ['Send a voice note', 'Tap the mic, talk, then send. The transcript shows up under it.'],
     ['Find something', 'Search takes filters: from:@ana in:#sales has:voice before:2026-12-01'],
     ['Send later', 'The clock next to Send schedules a message. Find it in Later.'],
-    ['Quiet hours', 'Status and notifications: pause, set do not disturb, pick a theme.'],
+    ['Quiet hours', 'In Status and notifications, pause alerts or set do not disturb hours.'],
   ];
   modal('Help', h('div', { class: 'help' },
     h('dl', {}, ...tips.flatMap(([t, d]) => [h('dt', {}, t), h('dd', {}, d)])),
@@ -2867,10 +2868,13 @@ async function openFiles(channelId = '', type = '', q = '', mine = false) {
 // ---------- preferences: status, notifications, do not disturb
 // Change password. The browser does the slow stretching (public/auth.js), the server stores a quick hash of it.
 function passwordSection(section) {
-  const cur = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', 'aria-label': 'Current password', placeholder: 'Current password' });
-  const nw = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', minlength: 10, 'aria-label': 'New password', placeholder: 'New password, at least 10 characters' });
+  const cur = h('input', { class: 'input', type: 'password', name: 'current', autocomplete: 'current-password', required: true });
+  const nw = h('input', { class: 'input', type: 'password', name: 'new', autocomplete: 'new-password', minlength: 10, required: true });
   const msg = h('p', { class: 'login-error', role: 'alert', hidden: true });
-  const btn = h('button', { class: 'btn primary sm', onclick: async () => {
+  const btn = h('button', { class: 'btn primary sm', type: 'submit' }, 'Change password');
+  // A real form: Enter submits, and password managers see the account (hidden username) and save the new password.
+  const form = h('form', { class: 'pw-form', onsubmit: async (e) => {
+    e.preventDefault();
     msg.hidden = true;
     if (nw.value.length < 10) { msg.textContent = 'Pick a new password of at least 10 characters.'; msg.hidden = false; nw.focus(); return; }
     btn.disabled = true; btn.textContent = 'One moment…';
@@ -2878,10 +2882,12 @@ function passwordSection(section) {
       const k = window.yyKdf, s = await k.saltOf(S.me.email), salt = k.newSalt();
       await api('/api/me/password', { method: 'POST', body: { key: await k.derive(cur.value, s.salt, s.iter), ...(s.legacy ? { password: cur.value } : {}), new_key: await k.derive(nw.value, salt), new_salt: salt, len: nw.value.length } });
       cur.value = nw.value = ''; toast('Password changed. You were signed out on your other devices.');
-    } catch (e) { msg.textContent = e.message; msg.hidden = false; }
+    } catch (e) { msg.textContent = e.message || "Can't reach your server. Try again."; msg.hidden = false; (/current/.test(msg.textContent) ? cur : nw).focus(); }
     btn.disabled = false; btn.textContent = 'Change password';
-  } }, 'Change password');
-  return section('Password', 'Changing it signs you out everywhere else.', h('div', { class: 'pw-row' }, cur, nw), msg, h('div', { class: 'pref-btns' }, btn));
+  } },
+    h('input', { type: 'email', name: 'username', autocomplete: 'username', value: S.me.email, hidden: true, readonly: true }),
+    h('div', { class: 'pw-row' }, h('label', {}, 'Current password', cur), h('label', {}, 'New password, at least 10 characters', nw)), msg, h('div', { class: 'pref-btns' }, btn));
+  return section('Password', 'Changing it signs you out everywhere else.', form);
 }
 async function openPrefs() {
   const list = pageShell('prefs', 'Status and notifications', 'How and when Yakyard gets your attention.');
