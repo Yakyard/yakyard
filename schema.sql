@@ -1,5 +1,7 @@
--- Yakyard database. Run once on a new D1 database:
+-- Yakyard database. Run on a new D1 database, and again after each update (safe to repeat):
 --   npx wrangler d1 execute yakyard --remote --file=schema.sql
+-- Every statement is CREATE ... IF NOT EXISTS. New features add new tables rather than new columns,
+-- so upgrading an existing database needs no ALTER TABLE.
 
 CREATE TABLE IF NOT EXISTS channels (
   id TEXT PRIMARY KEY,
@@ -109,6 +111,14 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Slack private channel (team id + channel id) -> Yakyard channel. Imports match on this, never on the name.
+CREATE TABLE IF NOT EXISTS slack_channels (slack_key TEXT PRIMARY KEY, channel_id TEXT NOT NULL);
+
+CREATE INDEX IF NOT EXISTS slack_channels_channel ON slack_channels(channel_id);
+
+-- People who have signed in at least once. Only the owner can send such accounts a new sign-in link.
+CREATE TABLE IF NOT EXISTS signins (user_id TEXT PRIMARY KEY, first_at INTEGER NOT NULL);
 
 CREATE TABLE IF NOT EXISTS slack_imports (user_id TEXT PRIMARY KEY, status TEXT NOT NULL, token_enc TEXT NOT NULL DEFAULT '', slack_user TEXT, state TEXT NOT NULL DEFAULT '{}', msgs INTEGER NOT NULL DEFAULT 0, files INTEGER NOT NULL DEFAULT 0, convs_total INTEGER NOT NULL DEFAULT 0, convs_done INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT '', started_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0, finished_at INTEGER NOT NULL DEFAULT 0, lock_until INTEGER NOT NULL DEFAULT 0);
 

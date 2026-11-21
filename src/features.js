@@ -54,6 +54,7 @@ export async function pushToUsers(env, userIds, payload) {
 // DMs, @mentions and replies in threads you're in. "All messages" adds every channel message.
 // Muted channels only buzz for a direct @mention. Do-not-disturb and people looking at Yakyard get nothing.
 export async function sendPushes(env, { msg, ch, sender, members, direct, wide, followers, parent }) {
+  followers = followers.filter((u) => members.includes(u)); // never notify people who left
   const cand = new Set([...members, ...followers]); cand.delete(sender.id);
   if (!cand.size) return;
   // Only people with a phone or computer signed up for pushes (a small list), so no long IN() lists.
@@ -212,6 +213,8 @@ export async function cronTick(env, ctx, postMessage, runImports) {
       env.DB.prepare('DELETE FROM invites WHERE expires_at < ?').bind(t),
       env.DB.prepare("UPDATE users SET status_emoji='', status_text='', status_until=0 WHERE status_until > 0 AND status_until < ?").bind(t),
       env.DB.prepare('UPDATE users SET dnd_until=0 WHERE dnd_until > 0 AND dnd_until < ?').bind(t),
+      // Sign-in counters only matter for the current 15-minute window.
+      env.DB.prepare('DELETE FROM login_attempts WHERE k NOT LIKE ?').bind('%|' + Math.floor(t / (15 * 60e3))),
     ]);
   }
 }
@@ -225,7 +228,9 @@ export async function featureApi(req, env, user, path, method, body, x) {
   // push devices
   if (path === '/api/push/subscribe' && method === 'POST') {
     const ep = String(body.endpoint || ''), k = body.keys || {};
-    if (!/^https:\/\//.test(ep) || !k.p256dh || !k.auth) return err(400, 'Bad subscription');
+    // Only the browsers' own push services, so the worker can't be pointed at any other address.
+    const host = (() => { try { const u = new URL(ep); return u.protocol === 'https:' ? u.hostname : ''; } catch { return ''; } })();
+    if (!/(^|\.)(fcm\.googleapis\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com)$/.test(host) || !k.p256dh || !k.auth) return err(400, 'Bad subscription');
     await env.DB.prepare('INSERT OR REPLACE INTO push_subs (endpoint,user_id,p256dh,auth,ua,created_at) VALUES (?,?,?,?,?,?)')
       .bind(ep, user.id, String(k.p256dh), String(k.auth), String(req.headers.get('user-agent') || '').slice(0, 200), now()).run();
     return json({ ok: true });
@@ -275,7 +280,8 @@ export async function featureApi(req, env, user, path, method, body, x) {
 
   // Later: saved + reminders + scheduled in one page
   if (path === '/api/later' && method === 'GET') {
-    const sv = await env.DB.prepare(`SELECT x.*, s.created_at AS saved_at FROM saved s JOIN messages x ON x.id=s.message_id WHERE s.user_id=? AND s.done=0 AND x.deleted=0 ORDER BY s.created_at DESC LIMIT 100`).bind(user.id).all();
+    const sv = await env.DB.prepare(`SELECT x.*, s.created_at AS saved_at FROM saved s JOIN messages x ON x.id=s.message_id JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
+      WHERE s.user_id=? AND s.done=0 AND x.deleted=0 ORDER BY s.created_at DESC LIMIT 100`).bind(user.id, user.id).all();
     const rm = await env.DB.prepare('SELECT * FROM reminders WHERE user_id=? AND done=0 ORDER BY due_at').bind(user.id).all();
     const sc = await env.DB.prepare('SELECT * FROM scheduled WHERE user_id=? ORDER BY send_at').bind(user.id).all();
     const saved = await hydrate(env, sv.results);
@@ -316,8 +322,9 @@ export async function featureApi(req, env, user, path, method, body, x) {
     if (method === 'DELETE') { await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run(); return json({ ok: true }); }
     if (method === 'PATCH') {
       if (body.send_now) {
-        await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run();
         const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
+        if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, 'Not a member');
+        await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run();
         return postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel });
       }
       await env.DB.prepare('UPDATE scheduled SET send_at=?, text=? WHERE id=?').bind(+body.send_at || s.send_at, body.text != null ? String(body.text).slice(0, 40000) : s.text, s.id).run();

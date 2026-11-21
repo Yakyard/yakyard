@@ -58,8 +58,20 @@ function isValidContentType(contentType) {
  * @param {string} url - The URL to unfurl.
  * @returns {Promise<Result<UnfurledData, UnfurlError>>} - A promise that resolves to an object containing the extracted metadata, or null if an error occurs.
  */
+// Link previews may only fetch public web pages: http(s), normal ports, no private or local hosts.
+const PRIVATE_HOST = /^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\[)|\.local$|\.internal$|\.localhost$|^\d+$|^[\d.]+$/i;
+export function safeFetchUrl(u) {
+  let p;
+  try { p = new URL(u); } catch { return false; }
+  if (!/^https?:$/.test(p.protocol) || p.username || p.password) return false;
+  if (PRIVATE_HOST.test(p.hostname) || !p.hostname.includes('.')) return false;
+  if (p.port && !["80", "443"].includes(p.port)) return false;
+  return true;
+}
+const MAX_HTML = 512 * 1024;
+
 export async function unfurl(url) {
-  if (typeof url !== "string" || !url.match(/^https?:\/\//)) {
+  if (typeof url !== "string" || !safeFetchUrl(url)) {
     return { ok: false, error: "bad-param" };
   }
 
@@ -80,7 +92,17 @@ export async function unfurl(url) {
       "user-agent",
       "Mozilla/5.0 (compatible; YakyardBot/1.0; link preview)"
     );
-    const res = await fetch(url, { headers });
+    // Follow redirects by hand so every hop is checked again.
+    let res, u = url;
+    for (let hop = 0; ; hop++) {
+      if (hop > 4 || !safeFetchUrl(u)) return { ok: false, error: "bad-param" };
+      res = await fetch(u, { headers, redirect: "manual" });
+      if (res.status < 300 || res.status >= 400) break;
+      const loc = res.headers.get("location");
+      if (!loc) return { ok: false, error: "failed-fetch" };
+      u = new URL(loc, u).href;
+    }
+    url = u;
     if (!res.ok || !isValidContentType(res.headers.get("content-type") ?? "")) {
       return { ok: false, error: "failed-fetch" };
     }
@@ -93,11 +115,22 @@ export async function unfurl(url) {
         },
       };
     }
+    // Read at most 512 KB of the page; the tags we need are near the top.
+    const reader = res.body.getReader();
+    const chunks = [];
+    let got = 0;
+    while (got < MAX_HTML) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+    }
+    reader.cancel().catch(() => {});
     await new HTMLRewriter()
       .on("meta", meta$)
       .on("title", title$)
       .on("link", icon$)
-      .transform(res)
+      .transform(new Response(new Blob(chunks), { headers: res.headers }))
       .blob();
   } catch {
     return { ok: false, error: "failed-fetch" };

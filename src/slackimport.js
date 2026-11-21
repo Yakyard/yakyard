@@ -2,7 +2,8 @@
 // and Yakyard copies their DMs, group DMs and private channels in the background.
 // Message ids use the same scheme as the earlier imports, so nothing is ever doubled.
 
-// The Slack workspace people may import from (SLACK_TEAM_ID). Empty = any workspace the user picks.
+// The Slack workspace people may import from (SLACK_TEAM_ID). Required: without it anyone could
+// import from a Slack workspace they made themselves.
 const teamOf = (env) => env.SLACK_TEAM_ID || '';
 const SCOPES = 'im:history,im:read,mpim:history,mpim:read,groups:history,groups:read,channels:read,users:read,files:read,reactions:read';
 const now = () => Date.now();
@@ -21,10 +22,20 @@ const msgId = async (cid, ts) => 'M' + (await sha1hex(cid + ts)).slice(0, 16);
 const tsMs = (ts) => Math.round(parseFloat(ts) * 1000);
 
 // ---- token encryption (AES-GCM with a worker secret)
+// TOKEN_KEY must be base64 of exactly 32 random bytes (16 also works): `openssl rand -base64 32`.
+function keyBytes(env) {
+  try {
+    const raw = Uint8Array.from(atob(String(env.TOKEN_KEY || '').trim()), (c) => c.charCodeAt(0));
+    return raw.length === 32 || raw.length === 16 ? raw : null;
+  } catch { return null; }
+}
+export const tokenKeyOk = (env) => !!keyBytes(env);
 async function key(env) {
-  const raw = Uint8Array.from(atob(env.TOKEN_KEY || ''), (c) => c.charCodeAt(0));
+  const raw = keyBytes(env);
+  if (!raw) throw new Error('TOKEN_KEY must be base64 of 32 random bytes (openssl rand -base64 32)');
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
+const revoke = (token) => (token ? fetch('https://slack.com/api/auth.revoke', { headers: { authorization: 'Bearer ' + token } }).catch(() => {}) : null);
 async function seal(env, text) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(env), new TextEncoder().encode(text)));
@@ -47,7 +58,9 @@ export async function slackRoutes(req, env, user, ctx) {
   const url = new URL(req.url);
   const redirect = `${url.origin}/slack/callback`;
   if (url.pathname === '/slack/connect') {
-    if (!env.SLACK_CLIENT_ID || !(await clientSecret(env))) return Response.redirect(`${url.origin}/#/import?e=setup`, 302);
+    if (user.role === 'guest') return Response.redirect(`${url.origin}/#/import?e=guest`, 302);
+    // Check every setting before Slack issues a token, so a bad setting never leaves a live token behind.
+    if (!env.SLACK_CLIENT_ID || !teamOf(env) || !tokenKeyOk(env) || !(await clientSecret(env))) return Response.redirect(`${url.origin}/#/import?e=setup`, 302);
     const state = rid('st');
     await env.DB.prepare('INSERT INTO oauth_states (state,user_id,created_at) VALUES (?,?,?)').bind(state, user.id, now()).run();
     const q = new URLSearchParams({ client_id: env.SLACK_CLIENT_ID, user_scope: SCOPES, redirect_uri: redirect, state, ...(teamOf(env) ? { team: teamOf(env) } : {}) });
@@ -60,11 +73,13 @@ export async function slackRoutes(req, env, user, ctx) {
     const st = await env.DB.prepare('SELECT * FROM oauth_states WHERE state=?').bind(state).first();
     await env.DB.prepare('DELETE FROM oauth_states WHERE state=? OR created_at < ?').bind(state, now() - 3600e3).run();
     if (!st || st.user_id !== user.id || now() - st.created_at > 15 * 60e3) return back('expired');
+    if (user.role === 'guest') return back('guest');
+    if (!teamOf(env) || !tokenKeyOk(env)) return back('setup');
     const body = new URLSearchParams({ client_id: env.SLACK_CLIENT_ID, client_secret: await clientSecret(env), code, redirect_uri: redirect });
     const r = await fetch((env.SLACK_API || 'https://slack.com/api') + '/oauth.v2.access', { method: 'POST', body }).then((x) => x.json()).catch(() => ({}));
     const au = r.authed_user || {};
     if (!r.ok || !au.access_token) return back('slack');
-    if (teamOf(env) && r.team?.id !== teamOf(env)) return back('workspace');
+    if (r.team?.id !== teamOf(env)) { await revoke(au.access_token); return back('workspace'); }
     // The Slack account must be this person's own.
     const owner = await env.DB.prepare('SELECT id FROM users WHERE slack_id=?').bind(au.id).first();
     if (owner && owner.id !== user.id) {
@@ -75,7 +90,11 @@ export async function slackRoutes(req, env, user, ctx) {
       if (user.slack_id && user.slack_id !== au.id) return back('other');
       await env.DB.prepare('UPDATE users SET slack_id=? WHERE id=?').bind(au.id, user.id).run();
     }
-    const tok = await seal(env, au.access_token);
+    let tok;
+    try { tok = await seal(env, au.access_token); } catch (e) { await revoke(au.access_token); return back('setup'); }
+    // Reconnecting: revoke the token from the earlier run before replacing it.
+    const old = await env.DB.prepare("SELECT token_enc FROM slack_imports WHERE user_id=? AND token_enc<>''").bind(user.id).first();
+    if (old) { const t = await open(env, old.token_enc).catch(() => ''); if (t && t !== au.access_token) await revoke(t); }
     const fresh = JSON.stringify({ phase: 'users', cursor: '', convs: [], i: 0, threads: [], files: [], touched: [] });
     await env.DB.prepare(`INSERT INTO slack_imports (user_id,status,token_enc,slack_user,state,msgs,files,convs_total,convs_done,error,started_at,updated_at,finished_at,lock_until)
       VALUES (?,?,?,?,?,0,0,0,0,'',?,?,0,0)
@@ -92,7 +111,7 @@ export async function slackApi(req, env, user, path, method, body, ctx) {
   if (path === '/api/slack/import' && method === 'GET') {
     let job = await env.DB.prepare('SELECT user_id,status,msgs,files,convs_total,convs_done,error,started_at,finished_at,state FROM slack_imports WHERE user_id=?').bind(user.id).first();
     if (job?.status === 'running') ctx?.waitUntil?.(runSlice(env, user.id).catch((e) => console.log('import slice', e)));
-    const ready = !!(env.SLACK_CLIENT_ID && (env.SLACK_CLIENT_SECRET || (await env.DB.prepare("SELECT 1 FROM settings WHERE key='slack_client_secret'").first())));
+    const ready = !!(env.SLACK_CLIENT_ID && teamOf(env) && tokenKeyOk(env) && user.role !== 'guest' && (env.SLACK_CLIENT_SECRET || (await env.DB.prepare("SELECT 1 FROM settings WHERE key='slack_client_secret'").first())));
     if (job) { const s = JSON.parse(job.state || '{}'); job.phase = s.phase; delete job.state; }
     return json({ ready, job: job || null });
   }
@@ -106,6 +125,7 @@ export async function slackApi(req, env, user, path, method, body, ctx) {
     if (user.role !== 'owner') return err(403, 'Only the owner can do this');
     const v = String(body.secret || '').trim();
     if (!/^[a-f0-9]{32}$/i.test(v)) return err(400, "That doesn't look like the Client Secret. It's 32 letters and numbers.");
+    if (!tokenKeyOk(env)) return err(400, 'Set the TOKEN_KEY secret first (see the README).');
     await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('slack_client_secret',?)").bind(await seal(env, v)).run();
     return json({ ok: true });
   }
@@ -248,7 +268,12 @@ async function stepTail(ctx) {
     const f = S.files.shift();
     ctx.calls++;
     try {
-      const r = await fetch(f.url, { headers: { authorization: 'Bearer ' + ctx.token } });
+      let r = slackFileUrl(f.url) ? await fetch(f.url, { headers: { authorization: 'Bearer ' + ctx.token }, redirect: 'manual' }) : new Response(null, { status: 400 });
+      if (r.status >= 300 && r.status < 400) {
+        // Never let the token follow a redirect. Slack's own file CDN links work without it.
+        const loc = new URL(r.headers.get('location') || '', f.url);
+        r = loc.protocol === 'https:' && /(^|\.)(slack|slack-edge|slack-files)\.com$/.test(loc.hostname) ? await fetch(loc, { redirect: 'manual' }) : new Response(null, { status: 400 });
+      }
       const type = r.headers.get('content-type') || '';
       if (r.ok && !/text\/html/.test(type)) {
         await env.FILES.put(f.key, await r.arrayBuffer(), { httpMetadata: { contentType: f.type || type } });
@@ -282,16 +307,25 @@ async function ensureChannel(ctx, c) {
     await env.DB.batch(uniq.map((u) => env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(ch.id, u, now(), now())));
     return ch.id;
   }
-  // private channel: match by name, else create it private
-  // Only ever match another private channel, so private messages can never land in a public one.
-  let name = (c.name || '').toLowerCase();
-  let ch = await env.DB.prepare("SELECT id FROM channels WHERE kind='channel' AND private=1 AND name=?").bind(name).first();
-  if (!ch && (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first())) name = name + '-private';
-  if (!ch) ch = await env.DB.prepare("SELECT id FROM channels WHERE kind='channel' AND private=1 AND name=?").bind(name).first();
+  // Private channel: matched only by its Slack id (unique, and conversations.list with this person's
+  // own token only lists private channels they are really in). Never by name: that would let anyone
+  // with a same-named Slack channel join an existing Yakyard channel.
+  const skey = `${teamOf(env)}:${c.id}`;
+  const map = await env.DB.prepare("SELECT s.channel_id, c.private, c.kind FROM slack_channels s LEFT JOIN channels c ON c.id=s.channel_id WHERE s.slack_key=?").bind(skey).first();
+  // Only ever reuse a channel that is still private, so private messages never land in a public one.
+  let ch = map && map.kind === 'channel' && map.private === 1 ? { id: map.channel_id } : null;
   if (!ch) {
+    let name = (c.name || 'slack').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 70) || 'slack';
+    while (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first()) name = (name + '-slack').slice(0, 80);
     const id = rid('C');
-    await env.DB.prepare("INSERT INTO channels (id,kind,name,private,archived,created_by,created_at,last_ts) VALUES (?,'channel',?,1,?,?,?,0)").bind(id, name, c.archived ? 1 : 0, user.id, now()).run();
-    ch = { id };
+    // created_by stays empty: importing doesn't give channel manager rights.
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO channels (id,kind,name,private,archived,created_by,created_at,last_ts) VALUES (?,'channel',?,1,?,NULL,?,0)").bind(id, name, c.archived ? 1 : 0, now()),
+      env.DB.prepare(`INSERT OR ${map ? 'REPLACE' : 'IGNORE'} INTO slack_channels (slack_key,channel_id) VALUES (?,?)`).bind(skey, id),
+    ]);
+    const won = await env.DB.prepare('SELECT channel_id FROM slack_channels WHERE slack_key=?').bind(skey).first();
+    if (won && won.channel_id !== id) await env.DB.prepare('DELETE FROM channels WHERE id=?').bind(id).run(); // someone else made it first
+    ch = { id: won ? won.channel_id : id };
   }
   await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(ch.id, user.id, now(), now()).run();
   // Other members join when they sign in (same rule as the first import).
@@ -303,6 +337,11 @@ async function ensureChannel(ctx, c) {
     }
   } catch (e) {}
   return ch.id;
+}
+
+// Only Slack's own file host gets the token.
+function slackFileUrl(u) {
+  try { const p = new URL(u); return p.protocol === 'https:' && p.hostname === 'files.slack.com' && !p.port; } catch { return false; }
 }
 
 function emojiOf(name) { return ':' + name + ':'; }
@@ -322,7 +361,9 @@ async function saveMessages(ctx, cid, list) {
     const files = [];
     for (const f of m.files || []) {
       if (f.mode === 'tombstone' || f.mode === 'hidden_by_limit') continue;
-      const url = f.url_private_download || f.url_private; if (!url) continue;
+      // External and remote files point at other hosts: never send the Slack token there.
+      if (f.is_external || f.external_type || f.mode === 'external') continue;
+      const url = f.url_private_download || f.url_private; if (!url || !slackFileUrl(url)) continue;
       const ym = new Date(tsMs(m.ts)).toISOString().slice(0, 7);
       const k = `slack/${ym}/${f.id}/` + String(f.name || f.id).replace(/[^A-Za-z0-9 ._()\-]/g, '_');
       files.push({ key: k, name: f.name || f.id, size: f.size || 0, type: f.mimetype || 'application/octet-stream' });

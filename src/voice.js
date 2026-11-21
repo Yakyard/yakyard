@@ -1,6 +1,7 @@
 // Voice notes: record in the app, transcript by Whisper (Workers AI). Language from VOICE_LANGUAGE (default English).
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
 const MAX_TRIES = 3;
+export const VOICE_MAX = 25 * 1024 * 1024; // voice notes are read into memory to transcribe
 const now = () => Date.now();
 
 // Meta sent with the upload: length in seconds and a small waveform (0-100 bars).
@@ -47,6 +48,12 @@ export async function transcribe(env, key, deps, force = false) {
   try {
     const obj = await env.FILES.get(key);
     if (!obj) throw new Error('audio missing');
+    if (obj.size > VOICE_MAX) {
+      // Too big to transcribe safely: stop now instead of retrying.
+      await env.DB.prepare("UPDATE files SET t_status='failed', t_tries=?, t_at=? WHERE key=?").bind(MAX_TRIES, now(), key).run();
+      await patchMessage(env, key, deps);
+      return { status: 'failed', transcript: '' };
+    }
     const res = await env.AI.run(MODEL, { audio: b64(await obj.arrayBuffer()), language: env.VOICE_LANGUAGE || 'en', task: 'transcribe', vad_filter: true, initial_prompt: await hint(env) });
     const text = String(res?.text || '').replace(/\s+/g, ' ').trim();
     await env.DB.prepare("UPDATE files SET transcript=?, t_status='done', t_at=? WHERE key=?").bind(text, now(), key).run();

@@ -50,12 +50,13 @@ VOICE_HINT = ""                                 # names and words Whisper should
 GOOGLE_CLIENT_ID = ""                           # optional "Sign in with Google"
 GOOGLE_ENABLED = "0"
 SLACK_CLIENT_ID = ""                            # optional "Moving day" Slack import
-SLACK_TEAM_ID = ""                              # optional: only allow imports from this Slack workspace
+SLACK_TEAM_ID = ""                              # needed for the Slack import: your Slack workspace id (starts with T)
 DEV_LOGIN = "0"
 
 # Secrets (set with `npx wrangler secret put NAME`, never put them in this file):
+#   SETUP_TOKEN           required before the first visit: a long random code for the setup page (openssl rand -hex 24)
 #   VAPID_PRIVATE         phone notifications
-#   TOKEN_KEY             encrypts Slack tokens during import (any long random string)
+#   TOKEN_KEY             encrypts Slack tokens during import: base64 of 32 random bytes, make it with `openssl rand -base64 32`
 #   GOOGLE_CLIENT_SECRET  only with Google sign-in
 #   SLACK_CLIENT_SECRET   only with the Slack import
 #   TURN_KEY_ID, TURN_KEY_TOKEN   Cloudflare Realtime TURN, makes calls work behind strict networks

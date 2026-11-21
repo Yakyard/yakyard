@@ -2124,7 +2124,9 @@ function applyBoot(b) {
 }
 async function signOut() {
   try { Object.keys(localStorage).filter((k) => k === 'pw-boot' || k.startsWith('pw-m-')).forEach((k) => localStorage.removeItem(k)); await caches?.delete('yakyard-shell'); } catch {}
-  location.href = '/auth/logout';
+  // Sign-out is a POST (the server refuses cross-site sign-outs).
+  const f = document.createElement('form'); f.method = 'post'; f.action = '/auth/logout';
+  document.body.append(f); f.submit();
 }
 async function start() {
   await null; // let the rest of this file load first
@@ -3034,7 +3036,7 @@ function meMenu(anchor) {
     row('Files', () => openFiles()),
     row('Install the app', installApp),
     h('hr'),
-    row('Sign out of ' + S.workspace.name, () => (location.href = '/auth/logout'), 'danger'));
+    row('Sign out of ' + S.workspace.name, () => signOut(), 'danger'));
   document.body.append(pop);
   const r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
   pop.style.left = Math.max(8, Math.min(r.right + 8, innerWidth - pr.width - 8)) + 'px';
@@ -3096,7 +3098,7 @@ async function drawImport() {
   const list = $('#main .feed'); if (!list) return;
   const im = S.imp || {}; const j = im.job;
   const e = (location.hash.split('?e=')[1] || '').split('&')[0];
-  const errText = { cancelled: 'You cancelled in Slack. Nothing was copied.', expired: 'That took too long. Please start again.', slack: "Slack didn't confirm. Please try again.", workspace: `That was a different Slack workspace. Pick ${S.workspace.name}.`, other: 'That Slack account belongs to someone else in Yakyard. Sign in to Slack as yourself.', setup: 'The Slack connection is not set up yet.' }[e];
+  const errText = { cancelled: 'You cancelled in Slack. Nothing was copied.', expired: 'That took too long. Please start again.', slack: "Slack didn't confirm. Please try again.", workspace: `That was a different Slack workspace. Pick ${S.workspace.name}.`, other: 'That Slack account belongs to someone else in Yakyard. Sign in to Slack as yourself.', setup: 'The Slack connection is not set up yet.', guest: 'Guests cannot import from Slack.' }[e];
   const sec = (title, ...kids) => h('section', { class: 'pref-sec' }, title ? h('h2', {}, title) : '', ...kids);
   const kids = [];
   if (errText) kids.push(h('div', { class: 'imp-err' }, errText));

@@ -60,7 +60,7 @@ Yakyard uses Workers, Durable Objects, D1 (database), R2 (files), Workers AI (tr
 ```bash
 git clone https://github.com/yakyard/yakyard.git
 cd yakyard
-npm install
+npm ci
 npx wrangler login
 
 # 1. Database and file storage
@@ -71,11 +71,17 @@ npx wrangler r2 bucket create yakyard-files
 cp wrangler.toml.example wrangler.toml   # fill in every line marked CHANGE
 npm run db:init                          # creates the tables
 
-# 3. Go live
+# 3. Setup code (before the first visit)
+openssl rand -hex 24                     # prints a long random code
+npx wrangler secret put SETUP_TOKEN      # paste that code
+
+# 4. Go live
 ./deploy.sh
 ```
 
-Open the URL it prints. The first visit shows **Set up Yakyard**: create the owner account with an email you listed in `OWNER_EMAILS`. Then invite your team from the menu (Invite people).
+Open the URL it prints. The first visit shows **Set up Yakyard**: enter the setup code, then create the owner account with an email you listed in `OWNER_EMAILS`. The setup code makes sure nobody else can claim your new workspace before you do. It only works once. Then invite your team from the menu (Invite people).
+
+To make the files in R2 tidy, add a lifecycle rule to the `yakyard-files` bucket in the Cloudflare dashboard (R2, the bucket, Settings, Object lifecycle rules) that aborts incomplete multipart uploads after 1 day.
 
 ### Notifications (recommended)
 
@@ -94,7 +100,7 @@ On iPhone, people add Yakyard to the Home Screen first (Share, Add to Home Scree
 |---|---|
 | Sign in with Google | Create an OAuth client in Google Cloud (redirect `https://YOUR-URL/auth/callback`). Set `GOOGLE_CLIENT_ID`, `GOOGLE_ENABLED = "1"`, secret `GOOGLE_CLIENT_SECRET`. `ALLOWED_DOMAINS` lets anyone with your company email in. |
 | Calls on strict networks | Create a TURN key in Cloudflare Realtime. Secrets `TURN_KEY_ID` and `TURN_KEY_TOKEN`. |
-| Slack import ("Moving day") | Create a Slack app with user scopes `channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read files:read reactions:read`, redirect `https://YOUR-URL/slack/callback`. Set `SLACK_CLIENT_ID`, optional `SLACK_TEAM_ID`, secrets `SLACK_CLIENT_SECRET` and `TOKEN_KEY` (any long random string). |
+| Slack import ("Moving day") | Create a Slack app with user scopes `channels:read groups:history groups:read im:history im:read mpim:history mpim:read users:read files:read reactions:read`, redirect `https://YOUR-URL/slack/callback`. Set `SLACK_CLIENT_ID` and `SLACK_TEAM_ID` (required: your Slack workspace id, starts with `T`), secrets `SLACK_CLIENT_SECRET` and `TOKEN_KEY`. `TOKEN_KEY` must be exactly 32 random bytes written as base64. Make one with `openssl rand -base64 32` and paste the whole line into `npx wrangler secret put TOKEN_KEY`. Guests can't import. |
 | Better transcripts | `VOICE_LANGUAGE` (e.g. `en`, `fr`, `es`) and `VOICE_HINT` with names and words to spell right. |
 | Your own domain | Add a custom domain to the `yakyard` Worker in the Cloudflare dashboard and update `APP_URL`. |
 
@@ -107,6 +113,8 @@ npm run db:init   # safe to run again, only adds what's missing
 ```
 
 Open apps show "New version of Yakyard" and update in one tap.
+
+If you use the Slack import, `SLACK_TEAM_ID` is now required and `TOKEN_KEY` must be in the format described in the Optional table above.
 
 ## How it's built
 

@@ -11,7 +11,7 @@
     "vapid": "node scripts/vapid.mjs"
   },
   "dependencies": {
-    "@pushforge/builder": "^2.0.5"
+    "@pushforge/builder": "2.0.5"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

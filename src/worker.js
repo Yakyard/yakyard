@@ -1,12 +1,13 @@
-import { unfurl } from './unfurl.js';
+import { unfurl, safeFetchUrl } from './unfurl.js';
 import { slackRoutes, slackApi, runImports } from './slackimport.js';
 import { sendPushes, cronTick, featureApi, hydrateExtras, PUSH_EMPTY } from './features.js';
-import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceCron, fmtDur } from './voice.js';
+import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceCron, fmtDur, VOICE_MAX } from './voice.js';
 // Yakyard: Cloudflare Worker (API + auth + files) and the Hub Durable Object (live updates).
 import { DurableObject } from 'cloudflare:workers';
 
 const SESSION_DAYS = 30;
 const PAGE = 50;
+const MIN_PW = 10; // shortest password allowed for new passwords
 const now = () => Date.now();
 const uid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 
@@ -23,15 +24,36 @@ function setCookie(name, value, maxAgeSec, secure) {
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`;
 }
 const isSecure = (req) => new URL(req.url).protocol === 'https:';
+// Session ids are stored hashed, so a copy of the database can't be used to sign in.
+async function sha256hex(s) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+// Security headers for every HTML page the worker writes itself (sign-in, join, setup).
+const SEC = {
+  'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+  'x-frame-options': 'DENY',
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'same-origin',
+  'strict-transport-security': 'max-age=31536000; includeSubDomains',
+};
+async function nonGuestIds(env) {
+  return (await env.DB.prepare("SELECT id FROM users WHERE role<>'guest' AND active=1").all()).results.map((r) => r.id);
+}
 
 // ---------------------------------------------------------------- auth
 async function currentUser(req, env) {
   const sid = cookie(req, 'pwc_session');
   if (!sid) return null;
-  const row = await env.DB.prepare(
-    `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
-     WHERE s.id = ? AND s.expires_at > ? AND u.active = 1`
-  ).bind(sid, now()).first();
+  const q = `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.id = ? AND s.expires_at > ? AND u.active = 1`;
+  const hid = await sha256hex(sid);
+  let row = await env.DB.prepare(q).bind(hid, now()).first();
+  if (!row && sid.startsWith('sess_')) {
+    // Sessions made before ids were hashed: hash them on first use.
+    row = await env.DB.prepare(q).bind(sid, now()).first();
+    if (row) await env.DB.prepare('UPDATE sessions SET id=? WHERE id=?').bind(hid, sid).run();
+  }
   return row || null;
 }
 
@@ -81,7 +103,7 @@ async function findOrCreateUser(env, { email, name, picture }) {
   }
   await joinDefaultChannels(env, user.id);
   await ensureDefaultSections(env, user.id);
-  await broadcast(env, { type: 'user_updated', user: { id: user.id, email: user.email, name: user.name, title: '', avatar: user.avatar, color: user.color, role: user.role, active: 1 } }).catch(() => {});
+  await broadcast(env, { type: 'user_updated', user: { id: user.id, email: user.email, name: user.name, title: '', avatar: user.avatar, color: user.color, role: user.role, active: 1 } }, await nonGuestIds(env)).catch(() => {});
   return user;
 }
 
@@ -117,7 +139,9 @@ async function ensureDefaultSections(env, userId) {
 async function createSession(env, userId) {
   const sid = uid('sess_') + uid();
   await env.DB.prepare('INSERT INTO sessions (id,user_id,created_at,expires_at) VALUES (?,?,?,?)')
-    .bind(sid, userId, now(), now() + SESSION_DAYS * 864e5).run();
+    .bind(await sha256hex(sid), userId, now(), now() + SESSION_DAYS * 864e5).run();
+  // Remember that this account has signed in at least once (used by invite resets).
+  await env.DB.prepare('INSERT OR IGNORE INTO signins (user_id,first_at) VALUES (?,?)').bind(userId, now()).run().catch(() => {});
   return sid;
 }
 
@@ -155,6 +179,10 @@ async function googleCallback(req, env) {
   // The id_token comes straight from Google over TLS in exchange for our secret, so its claims can be trusted.
   const claims = JSON.parse(atob(tok.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
   if (claims.aud !== env.GOOGLE_CLIENT_ID || !claims.email_verified) return loginPage('Google sign-in failed.');
+  // Joining through ALLOWED_DOMAINS needs a real work account of that domain, not a personal Google account on that address.
+  const dom = String(claims.email).split('@')[1]?.toLowerCase();
+  const known = await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(String(claims.email).toLowerCase()).first();
+  if (!known && allowedEmail(claims.email, env) && !ownerEmail(claims.email, env) && String(claims.hd || '').toLowerCase() !== dom) return loginPage('Use your work Google account.');
   const user = await findOrCreateUser(env, { email: claims.email, name: claims.name, picture: claims.picture });
   if (!user) return loginPage(`${claims.email} doesn't have access. Ask your workspace admin for an invite.`);
   const sid = await createSession(env, user.id);
@@ -196,19 +224,23 @@ async function passwordLogin(req, env) {
   const f = await req.formData();
   const email = String(f.get('email') || '').toLowerCase().trim();
   const password = String(f.get('password') || '');
-  const ip = req.headers.get('cf-connecting-ip') || 'x';
+  // IPv6 addresses count per /64, since one connection usually owns the whole block.
+  const ip0 = req.headers.get('cf-connecting-ip') || 'x';
+  const ip = ip0.includes(':') ? ip0.split(':').slice(0, 4).join(':') + '::/64' : ip0;
   const win = Math.floor(now() / (15 * 60e3));
   const hit = async (k) => (await env.DB.prepare('INSERT INTO login_attempts (k,n) VALUES (?,1) ON CONFLICT(k) DO UPDATE SET n=n+1 RETURNING n').bind(k + '|' + win).first()).n;
-  if ((await hit('ip:' + ip)) > 30 || (await hit('em:' + email + '|' + ip)) > 8) return loginPage('Too many tries. Wait 15 minutes or ask your workspace admin for a new link.', email);
-  const failKey = 'unused', since = 0, count = 0;
+  // Per address, per account from any address, and per account from one address.
+  if ((await hit('ip:' + ip)) > 30 || (await hit('em:' + email)) > 25 || (await hit('em:' + email + '|' + ip)) > 8) return loginPage('Too many tries. Wait 15 minutes or ask your workspace admin for a new link.', email);
   const row = await env.DB.prepare('SELECT u.id, c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first();
-  const ok = row && sameText((await hashPassword(password, row.salt)).hash, row.hash);
+  // Always run the slow hash, so the reply time doesn't tell which emails have an account.
+  const calc = await hashPassword(password, row ? row.salt : 'AAAAAAAAAAAAAAAAAAAAAA==');
+  const ok = !!row && sameText(calc.hash, row.hash);
   if (!ok) return loginPage('Wrong email or password.', email);
   return signedIn(req, await createSession(env, row.id));
 }
 const page = (title, inner) => new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#eef0f3"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard"><p class="login-brands">${escH(globalThis.__wsName || 'Yakyard')}</p>${inner}</main></body></html>`,
-  { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+  { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SEC } });
 const escH = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function joinPage(req, env, token) {
@@ -218,7 +250,7 @@ async function joinPage(req, env, token) {
     const f = await req.formData();
     const name = String(f.get('name') || '').trim().slice(0, 80);
     const password = String(f.get('password') || '');
-    if (!name || password.length < 8) return joinForm(inv, 'Add your name and a password of at least 8 characters.');
+    if (!name || password.length < MIN_PW) return joinForm(inv, `Add your name and a password of at least ${MIN_PW} characters.`);
     const { hash, salt } = await hashPassword(password);
     await env.DB.batch([
       env.DB.prepare('INSERT OR REPLACE INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(inv.id, hash, salt, now()),
@@ -234,28 +266,41 @@ async function joinPage(req, env, token) {
   }
   return joinForm(inv);
 }
-// First run only: the first owner creates their account. Their email must be in OWNER_EMAILS.
+// First run only: the first owner creates their account. Their email must be in OWNER_EMAILS,
+// and they must know the SETUP_TOKEN secret, so nobody else can claim a fresh deploy first.
 async function setupPage(req, env) {
-  if (await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first()) return new Response(null, { status: 302, headers: { location: '/' } });
-  const form = (error = '', email = '') => page('Set up Yakyard', `<h1>Set up Yakyard</h1><p>Create the owner account. Use an email listed in OWNER_EMAILS.</p>
+  const done = () => new Response(null, { status: 302, headers: { location: '/' } });
+  if (await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first()) return done();
+  const ready = !!env.SETUP_TOKEN && env.SETUP_TOKEN.length >= 24;
+  const form = (error = '', email = '') => page('Set up Yakyard', ready ? `<h1>Set up Yakyard</h1><p>Create the owner account. Use an email listed in OWNER_EMAILS.</p>
 ${error ? `<p class="login-error">${escH(error)}</p>` : ''}
 <form method="post" class="login-form">
+<label>Setup code<input class="input" name="token" type="password" required autocomplete="off" placeholder="The SETUP_TOKEN you set"></label>
 <label>Your name<input class="input" name="name" required maxlength="80" autocomplete="name"></label>
 <label>Email<input class="input" name="email" type="email" required autocomplete="username" value="${escH(email)}"></label>
-<label>Choose a password<input class="input" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label>
-<button class="login-btn primary" type="submit">Create workspace</button></form>`);
-  if (req.method !== 'POST') return form();
+<label>Choose a password<input class="input" name="password" type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
+<button class="login-btn primary" type="submit">Create workspace</button></form>` : `<h1>Set up Yakyard</h1>
+<p class="login-error">Set a setup code first.</p>
+<p>Run <code>npx wrangler secret put SETUP_TOKEN</code> and paste a long random code (at least 24 characters, for example from <code>openssl rand -hex 24</code>). Then reload this page.</p>`);
+  if (req.method !== 'POST' || !ready) return form();
   const o = req.headers.get('origin');
   if (o && o !== new URL(req.url).origin) return err(403, 'Bad origin');
   const f = await req.formData();
   const email = String(f.get('email') || '').trim().toLowerCase(), name = String(f.get('name') || '').trim().slice(0, 80), password = String(f.get('password') || '');
+  if (!sameText(String(f.get('token') || ''), env.SETUP_TOKEN)) return form('Wrong setup code.', email);
   if (!(env.OWNER_EMAILS || '').trim()) return form('Set OWNER_EMAILS in wrangler.toml first, then deploy again.', email);
   if (!ownerEmail(email, env)) return form('That email is not in OWNER_EMAILS.', email);
-  if (!name || password.length < 8) return form('Add your name and a password of at least 8 characters.', email);
-  const u = await findOrCreateUser(env, { email, name });
-  if (!u) return form('Could not create the account.', email);
+  if (!name || password.length < MIN_PW) return form(`Add your name and a password of at least ${MIN_PW} characters.`, email);
+  // settings.key is the primary key, so only one request can ever win this insert.
+  const claimed = await env.DB.prepare("INSERT INTO settings (key,value) VALUES ('setup_done',?)").bind(String(now())).run().then(() => true, () => false);
+  if (!claimed) return done();
+  const u = await findOrCreateUser(env, { email, name }).catch(() => null);
+  if (!u) {
+    await env.DB.prepare("DELETE FROM settings WHERE key='setup_done'").run();
+    return form('Could not create the account.', email);
+  }
   const { hash, salt } = await hashPassword(password);
-  await env.DB.prepare('INSERT OR REPLACE INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(u.id, hash, salt, now()).run();
+  await env.DB.prepare('INSERT INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(u.id, hash, salt, now()).run();
   return signedIn(req, await createSession(env, u.id));
 }
 function joinForm(inv, error = '') {
@@ -264,7 +309,7 @@ function joinForm(inv, error = '') {
 ${error ? `<p class="login-error">${escH(error)}</p>` : ''}
 <form method="post" class="login-form">
 <label>Your name<input class="input" name="name" required maxlength="80" autocomplete="name" value="${isNew ? '' : escH(inv.name)}"></label>
-<label>Choose a password<input class="input" name="password" type="password" required minlength="8" autocomplete="new-password" placeholder="At least 8 characters"></label>
+<label>Choose a password<input class="input" name="password" type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
 <button class="login-btn primary" type="submit">Continue</button></form>`);
 }
 
@@ -333,6 +378,8 @@ function mentionedIds(text) {
 
 // One place that posts a message: the composer, scheduled sends and reminders all use it.
 async function postMessage(env, ctx, user, ch, body) {
+  // Every caller goes through here, so this is the one membership check that can't be skipped.
+  if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, 'Not a member');
   // A message in an old, archived conversation brings it back.
   if (ch.archived && ch.kind === 'dm') await env.DB.prepare('UPDATE channels SET archived=0 WHERE id=?').bind(ch.id).run();
   if (ch.kind === 'dm') await env.DB.prepare('UPDATE members SET hidden=0 WHERE channel_id=? AND hidden=1').bind(ch.id).run();
@@ -399,7 +446,9 @@ async function postMessage(env, ctx, user, ch, body) {
     event.parent = (await hydrateMessages(env, [parent]))[0];
     // Everyone in the thread hears about new replies, like Slack.
     const fol = await env.DB.prepare('SELECT DISTINCT user_id FROM messages WHERE thread_id=? UNION SELECT user_id FROM messages WHERE id=?').bind(parent.id, parent.id).all();
-    event.followers = fol.results.map((r) => r.user_id).filter((u) => u !== user.id);
+    // Only people still in the conversation. Someone who left or was removed gets nothing.
+    const memberSet = new Set(members);
+    event.followers = fol.results.map((r) => r.user_id).filter((u) => u !== user.id && memberSet.has(u));
   }
   await broadcast(env, event, members);
   const direct = mentionedIds(text).filter((u) => members.includes(u));
@@ -493,14 +542,23 @@ async function api(req, env, user, path, ctx) {
     await env.DB.prepare('INSERT INTO members (channel_id,user_id,last_read,joined_at,section_id) VALUES (?,?,?,?,?)')
       .bind(id, user.id, now(), now(), body.section_id || null).run();
     const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(id).first();
-    await broadcast(env, { type: 'channel_created', channel: ch }, body.private ? [user.id] : null);
+    await broadcast(env, { type: 'channel_created', channel: ch }, body.private ? [user.id] : await nonGuestIds(env));
     return json({ ...ch, last_read: now(), section_id: body.section_id || null, unread: 0, mentions: 0 });
   }
 
   // ----- DM open (1:1 or group)
   if (path === '/api/dm' && method === 'POST') {
-    const ids = [...new Set([user.id, ...(body.user_ids || [])])].sort();
-    if (ids.length < 1 || ids.length > 9) return err(400, 'Pick 1 to 8 people');
+    const others = [...new Set((Array.isArray(body.user_ids) ? body.user_ids : []).map(String))].filter((x) => x !== user.id);
+    if (others.length > 8) return err(400, 'Pick 1 to 8 people');
+    if (others.length) {
+      // Only real, active people. Guests can only message people they already share a conversation with (and the owner).
+      const ph = others.map(() => '?').join(',');
+      const valid = user.role === 'guest'
+        ? await env.DB.prepare(`SELECT id FROM users u WHERE active=1 AND id IN (${ph}) AND (role='owner' OR id IN (SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?))`).bind(...others, user.id).all()
+        : await env.DB.prepare(`SELECT id FROM users WHERE active=1 AND id IN (${ph})`).bind(...others).all();
+      if (valid.results.length !== others.length) return err(400, 'Unknown person');
+    }
+    const ids = [user.id, ...others].sort();
     const key = ids.join(',');
     let ch = await env.DB.prepare('SELECT * FROM channels WHERE dm_key=?').bind(key).first();
     if (ch && ch.archived) { await env.DB.prepare('UPDATE channels SET archived=0 WHERE id=?').bind(ch.id).run(); ch.archived = 0; }
@@ -663,8 +721,9 @@ async function api(req, env, user, path, ctx) {
   // ----- mentions inbox
   if (path === '/api/mentions' && method === 'GET') {
     const r = await env.DB.prepare(
-      `SELECT x.* FROM mentions n JOIN messages x ON x.id=n.message_id WHERE n.user_id=? AND x.deleted=0 ORDER BY n.ts DESC LIMIT 50`
-    ).bind(user.id).all();
+      `SELECT x.* FROM mentions n JOIN messages x ON x.id=n.message_id JOIN members me ON me.channel_id=x.channel_id AND me.user_id=?
+       WHERE n.user_id=? AND x.deleted=0 ORDER BY n.ts DESC LIMIT 50`
+    ).bind(user.id, user.id).all();
     return json(await hydrateMessages(env, r.results));
   }
 
@@ -756,9 +815,8 @@ async function api(req, env, user, path, ctx) {
 
   if (path === '/api/unfurl' && method === 'GET') {
     const target = new URL(req.url).searchParams.get('url') || '';
-    let host = '';
-    try { host = new URL(target).hostname; } catch { return err(400, 'Bad url'); }
-    if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|\[)|\.local$|\.internal$|^\d+$/i.test(host)) return err(400, 'Bad url');
+    if (user.role === 'guest') return json({});
+    if (!safeFetchUrl(target)) return err(400, 'Bad url');
     const cache = caches.default;
     const key = new Request('https://unfurl.cache/' + encodeURIComponent(target));
     const hit = await cache.match(key);
@@ -819,7 +877,7 @@ async function api(req, env, user, path, ctx) {
         await env.DB.prepare('UPDATE users SET deactivated=0 WHERE id=?').bind(t.id).run();
       }
       const nu = await env.DB.prepare('SELECT id,email,name,title,avatar,color,role,active FROM users WHERE id=?').bind(t.id).first();
-      await broadcast(env, { type: 'user_updated', user: nu }).catch(() => {});
+      await broadcast(env, { type: 'user_updated', user: nu }, await nonGuestIds(env)).catch(() => {});
       return json(nu);
     }
     if ((m = path.match(/^\/api\/admin\/users\/([\w]+)\/channels$/))) {
@@ -879,7 +937,15 @@ async function api(req, env, user, path, ctx) {
     if (exists) {
       if (exists.role === 'owner' && user.role !== 'owner') return err(403, 'Not allowed');
       const hasPw = await env.DB.prepare('SELECT 1 FROM credentials WHERE user_id=?').bind(exists.id).first();
-      if (hasPw && user.role !== 'owner') return err(403, 'Only the owner can reset a password');
+      // A new link sets a new password, so it takes over the account. Admins may only do that for
+      // people who have never signed in. Anyone else (Google sign-in users, admins, deactivated
+      // accounts, Slack placeholders) needs the owner.
+      if (user.role !== 'owner') {
+        const seen = await env.DB.prepare('SELECT 1 FROM sessions WHERE user_id=? LIMIT 1').bind(exists.id).first()
+          || await env.DB.prepare('SELECT 1 FROM signins WHERE user_id=?').bind(exists.id).first().catch(() => null);
+        const sensitive = hasPw || seen || exists.slack_id || exists.role === 'admin' || exists.deactivated || !exists.active || exists.email.endsWith('@bot.local');
+        if (sensitive) return err(403, 'Only the owner can reset this account');
+      }
       if (hasPw) { await env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(exists.id).run(); await kick(env, exists.id); }
       await env.DB.prepare('UPDATE users SET active=1, deactivated=0 WHERE id=?').bind(exists.id).run();
       return json({ ...exists, link: await makeInviteLink(env, new URL(req.url).origin, exists.id), existing: true });
@@ -888,12 +954,15 @@ async function api(req, env, user, path, ctx) {
     const id = uid('U');
     await env.DB.prepare('INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,?,?,?,?,1,?)')
       .bind(id, email, String(body.name || email.split('@')[0]), '', '', colorFor(email), role, now()).run();
-    for (const c of body.channel_ids || []) {
+    // Channels only: never a DM, and only ids that exist.
+    const want = [...new Set((Array.isArray(body.channel_ids) ? body.channel_ids : []).map(String))].slice(0, 100);
+    const okc = want.length ? (await env.DB.prepare(`SELECT id FROM channels WHERE kind='channel' AND id IN (${want.map(() => '?').join(',')})`).bind(...want).all()).results.map((r) => r.id) : [];
+    for (const c of okc) {
       await env.DB.prepare('INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) VALUES (?,?,?,?)').bind(c, id, 0, now()).run();
     }
     if (role === 'member') { await joinDefaultChannels(env, id); await ensureDefaultSections(env, id); }
     const nu = { id, email, name: String(body.name || email.split('@')[0]), title: '', avatar: '', color: colorFor(email), role, active: 1 };
-    await broadcast(env, { type: 'user_updated', user: nu }).catch(() => {});
+    await broadcast(env, { type: 'user_updated', user: nu }, await nonGuestIds(env)).catch(() => {});
     return json({ ...nu, link: await makeInviteLink(env, new URL(req.url).origin, id) });
   }
 
@@ -906,6 +975,8 @@ async function uploadFile(req, env, user) {
   const file = form.get('file');
   if (!file || typeof file === 'string') return err(400, 'No file');
   if (file.size > 100 * 1024 * 1024) return err(413, 'Max 100 MB per file');
+  // Voice notes are transcribed in memory, so keep them small and audio only.
+  if (form.get('voice') === '1' && (file.size > VOICE_MAX || !/^(audio\/|video\/(webm|mp4))/i.test(file.type || ''))) return err(413, 'Voice notes must be audio and under 25 MB');
   const key = `${new Date().toISOString().slice(0, 7)}/${uid('F')}/${file.name.replace(/[^\w.\- ]+/g, '_')}`;
   await env.FILES.put(key, file.stream(), {
     httpMetadata: { contentType: file.type || 'application/octet-stream' },
@@ -918,6 +989,8 @@ async function uploadFile(req, env, user) {
 
 // Big files (up to 1 GB): sent in 20 MB pieces, put back together in R2.
 const BIG_MAX = 1024 * 1024 * 1024;
+const PART_MAX = 30 * 1024 * 1024;
+const MAX_PARTS = Math.ceil(BIG_MAX / (20 * 1024 * 1024)) + 2; // the app sends 20 MB pieces
 async function bigUpload(req, env, user, path, url) {
   const mine = async (key) => { const f = await env.DB.prepare('SELECT uploader, channel_id FROM files WHERE key=?').bind(key).first(); return f && f.uploader === user.id && !f.channel_id; };
   if (path === '/api/upload/start' && req.method === 'POST') {
@@ -931,9 +1004,10 @@ async function bigUpload(req, env, user, path, url) {
   }
   if (path === '/api/upload/part' && req.method === 'PUT') {
     const key = url.searchParams.get('key') || '', id = url.searchParams.get('id') || '', n = parseInt(url.searchParams.get('n') || '0', 10);
-    if (!key || !id || !(n >= 1 && n <= 10000) || !(await mine(key))) return err(403, 'Not allowed');
+    if (!key || !id || !(n >= 1 && n <= MAX_PARTS) || !(await mine(key))) return err(403, 'Not allowed');
+    if (+req.headers.get('content-length') > PART_MAX) return err(413, 'Piece too big');
     const body = await req.arrayBuffer();
-    if (body.byteLength > 30 * 1024 * 1024) return err(413, 'Piece too big');
+    if (body.byteLength > PART_MAX) return err(413, 'Piece too big');
     const part = await env.FILES.resumeMultipartUpload(key, id).uploadPart(n, body);
     return json({ partNumber: part.partNumber, etag: part.etag });
   }
@@ -1041,6 +1115,8 @@ async function route(req, env, ctx, url, path) {
       if (req.method === 'POST' && o && o !== url.origin) return err(403, 'Bad origin');
       return joinPage(req, env, path.slice(6));
     }
+    // Google sign-in only works when it is turned on (GOOGLE_ENABLED = "1"), not just hidden.
+    if ((path === '/auth/google' || path === '/auth/callback') && !globalThis.__googleOn) return loginPage();
     if (path === '/auth/google') return googleStart(req, env);
     if (path === '/auth/callback') return googleCallback(req, env);
     // Local testing only: needs DEV_LOGIN=1 AND a localhost address. Never reachable on the live site.
@@ -1050,9 +1126,17 @@ async function route(req, env, ctx, url, path) {
       return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': setCookie('pwc_session', await createSession(env, u.id), SESSION_DAYS * 86400, false) } });
     }
     if (path === '/auth/logout') {
+      // Sign-out is a same-origin POST, so another site can't sign people out with a link or image.
+      if (req.method !== 'POST') return page('Sign out of Yakyard', `<h1>Sign out</h1><form method="post" action="/auth/logout" class="login-form"><button class="login-btn primary" type="submit">Sign out</button></form><p class="login-note"><a href="/">Back to Yakyard</a></p>`);
+      const o = req.headers.get('origin');
+      if (o && o !== url.origin) return err(403, 'Bad origin');
       const sid = cookie(req, 'pwc_session');
-      if (sid) await env.DB.prepare('DELETE FROM sessions WHERE id=?').bind(sid).run();
-      return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': setCookie('pwc_session', '', 0, isSecure(req)) } });
+      if (sid) {
+        const u = await currentUser(req, env);
+        await env.DB.prepare('DELETE FROM sessions WHERE id=? OR id=?').bind(await sha256hex(sid), sid).run();
+        if (u) await kick(env, u.id); // close open live connections too
+      }
+      return new Response(null, { status: 303, headers: { location: '/', 'set-cookie': setCookie('pwc_session', '', 0, isSecure(req)) } });
     }
 
     const isStatic = !path.startsWith('/files/') && /\.(css|js|woff2|png|svg|ico|webmanifest|json)$/.test(path);
@@ -1073,6 +1157,8 @@ async function route(req, env, ctx, url, path) {
     }
 
     if (path === '/ws') {
+      // Browsers always send Origin on a WebSocket handshake. Only our own pages may connect.
+      if (req.headers.get('origin') !== url.origin) return err(403, 'Bad origin');
       if (req.headers.get('upgrade') !== 'websocket') return err(426, 'WebSocket required');
       const hub = env.HUB.get(env.HUB.idFromName('workspace'));
       const fwd = new Request('https://hub/ws', req);
@@ -1107,8 +1193,10 @@ async function route(req, env, ctx, url, path) {
     // The app shell
     const shell = await env.ASSETS.fetch(new Request(new URL('/', url), req));
     const hs = new Headers(shell.headers);
-    hs.set('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' blob:; connect-src 'self' wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
+    const wsOrigin = (url.protocol === 'https:' ? 'wss://' : 'ws://') + url.host;
+    hs.set('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' blob:; connect-src 'self' ${wsOrigin}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
     hs.set('x-content-type-options', 'nosniff'); hs.set('referrer-policy', 'same-origin');
+    hs.set('strict-transport-security', SEC['strict-transport-security']);
     return new Response(shell.body, { status: shell.status, headers: hs });
 }
 
