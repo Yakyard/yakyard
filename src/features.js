@@ -32,7 +32,7 @@ async function activeUsers(env) {
   try { return new Set(await (await env.HUB.get(env.HUB.idFromName('workspace')).fetch('https://hub/active')).json()); } catch { return new Set(); }
 }
 
-async function pushOne(env, sub, payload) {
+export async function pushOne(env, sub, payload) {
   if (!env.VAPID_PRIVATE) return 0;
   const { endpoint, headers, body } = await buildPushHTTPRequest({
     privateJWK: JSON.parse(env.VAPID_PRIVATE),
@@ -44,12 +44,17 @@ async function pushOne(env, sub, payload) {
   return r.ok ? 1 : 0;
 }
 
+export const INLINE_PUSHES = 2, PUSHES_PER_ALARM = 4;
 export async function pushToUsers(env, userIds, payload) {
   if (!userIds.length) return 0;
   const want = new Set(userIds);
   const subs = (await env.DB.prepare('SELECT * FROM push_subs').all()).results.filter((x) => want.has(x.user_id));
-  const res = await Promise.allSettled(subs.map((s) => pushOne(env, s, payload)));
-  return res.filter((x) => x.status === 'fulfilled' && x.value).length;
+  // Each push costs about 1.5 ms of CPU (encryption and signing). Two go out right away; the rest go to the
+  // hub, which sends 4 per alarm, so no single run comes near the free plan's 10 ms CPU limit.
+  const later = subs.slice(INLINE_PUSHES);
+  if (later.length) await env.HUB.get(env.HUB.idFromName('workspace')).fetch('https://hub/push', { method: 'POST', body: JSON.stringify({ subs: later, payload }) }).catch((e) => console.log('push queue', e));
+  const res = await Promise.allSettled(subs.slice(0, INLINE_PUSHES).map((s) => pushOne(env, s, payload)));
+  return res.filter((x) => x.status === 'fulfilled' && x.value).length + later.length;
 }
 
 // Who gets a phone buzz for a new message. Same rules as Slack's defaults:
@@ -205,7 +210,8 @@ export async function cronTick(env, ctx, postMessage, runImports) {
     for (const r of rem) {
       await env.DB.prepare('UPDATE reminders SET done=1 WHERE id=?').bind(r.id).run();
       const ch = await openDm(env, [botId, r.user_id], botId);
-      const link = r.message_id ? ` <${env.APP_URL || ''}/#/m/${r.message_id}|View message>` : '';
+      const base = env.APP_URL || (await env.DB.prepare("SELECT value FROM settings WHERE key='app_url'").first())?.value || '';
+      const link = r.message_id ? ` <${base}/#/m/${r.message_id}|View message>` : '';
       try { await postMessage(env, ctx, bot, ch, { text: `Reminder: ${r.text || 'this message'}${link}` }); } catch (e) { console.log('reminder failed', e); }
     }
   }

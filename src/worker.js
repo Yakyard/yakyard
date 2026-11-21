@@ -1,7 +1,7 @@
 // Yakyard: Cloudflare Worker (API + auth + files) and the Hub Durable Object (live updates).
-import { unfurl, safeFetchUrl } from './unfurl.js';
+import { unfurl, safeFetchUrl, safeFetch } from './unfurl.js';
 import { slackRoutes, slackApi, runImports } from './slackimport.js';
-import { sendPushes, cronTick, featureApi, hydrateExtras, openDm, v6 } from './features.js';
+import { sendPushes, cronTick, featureApi, hydrateExtras, openDm, v6, pushOne, PUSHES_PER_ALARM } from './features.js';
 import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceCron, fmtDur, VOICE_MAX } from './voice.js';
 import { DurableObject } from 'cloudflare:workers';
 
@@ -78,7 +78,7 @@ const ME_KEYS = ['id', 'email', 'name', 'title', 'avatar', 'color', 'role', 'tz'
 const pickMe = (u) => Object.fromEntries(ME_KEYS.map((k) => [k, u[k]]));
 const colorFor = (s) => PALETTE[[...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % PALETTE.length];
 
-async function findOrCreateUser(env, { email, name, picture }) {
+async function findOrCreateUser(env, { email, name, picture, setup }) {
   email = email.toLowerCase();
   let user = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
   if (user) {
@@ -97,7 +97,7 @@ async function findOrCreateUser(env, { email, name, picture }) {
     }
     return user;
   }
-  if (!allowedEmail(email, env) && !ownerEmail(email, env)) return null; // everyone else must be invited first
+  if (!setup && !allowedEmail(email, env) && !ownerEmail(email, env)) return null; // everyone else must be invited first
   const count = await env.DB.prepare('SELECT COUNT(*) n FROM users').first();
   user = {
     id: uid('U'), email, name: name || email.split('@')[0], title: '', avatar: picture || '',
@@ -190,10 +190,10 @@ async function googleCallback(req, env) {
   // The id_token comes straight from Google over TLS in exchange for our secret, so its claims can be trusted.
   const claims = JSON.parse(atob(tok.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
   if (claims.aud !== env.GOOGLE_CLIENT_ID || !claims.email_verified) return loginPage("Google sign-in didn't work. Try again.");
-  // Joining through ALLOWED_DOMAINS needs a real work account of that domain, not a personal Google account on that address.
+  // An address on an ALLOWED_DOMAINS domain (invited or not) must come from that company's Google Workspace,
+  // not a personal Google account made on that address. Other invited addresses (gmail, guests) are not checked.
   const dom = String(claims.email).split('@')[1]?.toLowerCase();
-  const known = await env.DB.prepare('SELECT 1 FROM users WHERE email=?').bind(String(claims.email).toLowerCase()).first();
-  if (!known && allowedEmail(claims.email, env) && !ownerEmail(claims.email, env) && String(claims.hd || '').toLowerCase() !== dom) return loginPage('Use your work Google account.');
+  if (allowedEmail(claims.email, env) && !ownerEmail(claims.email, env) && String(claims.hd || '').toLowerCase() !== dom) return loginPage('Use your work Google account.');
   const user = await findOrCreateUser(env, { email: claims.email, name: claims.name, picture: claims.picture });
   if (!user) return loginPage(`${claims.email} doesn't have access. Ask your workspace admin for an invite.`);
   const sid = await createSession(env, user.id);
@@ -206,11 +206,54 @@ async function googleCallback(req, env) {
 
 // ---------------------------------------------------------------- password sign-in + invite links
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
+// Passwords: the slow part (PBKDF2-SHA256, 600,000 rounds) runs in the browser (public/auth.js),
+// Bitwarden style, so sign-in stays far under the 10 ms CPU limit of the free plan. The server keeps
+// SHA-256(salt + key), marked "c1:". Older rows (server-side PBKDF2, 100,000 rounds, no marker)
+// are upgraded on the next sign-in that sends the password once more.
+const KDF_ITER = 600000;
 async function hashPassword(password, saltB64) {
-  const salt = saltB64 ? Uint8Array.from(atob(saltB64), (c) => c.charCodeAt(0)) : crypto.getRandomValues(new Uint8Array(16));
+  const salt = saltB64 ? unb64(saltB64) : crypto.getRandomValues(new Uint8Array(16));
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: 100000 }, key, 256);
   return { hash: b64(bits), salt: b64(salt) };
+}
+const goodB64 = (t, n) => { try { return typeof t === 'string' && t.length < 64 && unb64(t).length === n; } catch { return false; } };
+async function keyHash(key, saltB64) {
+  return 'c1:' + b64(await crypto.subtle.digest('SHA-256', new Uint8Array([...unb64(saltB64), ...unb64(key)])));
+}
+// Checks a sign-in key against a credentials row. Returns the new hash to store when an old row was upgraded.
+async function checkKey(row, key, password) {
+  if (!row || !goodB64(key, 32)) { await keyHash(goodB64(key, 32) ? key : 'A'.repeat(43) + '=', 'AAAAAAAAAAAAAAAAAAAAAA=='); return { ok: false }; }
+  if (row.hash.startsWith('c1:')) return { ok: sameText(await keyHash(key, row.salt), row.hash) };
+  if (!password) return { ok: false };
+  const ok = sameText((await hashPassword(password, row.salt)).hash, row.hash);
+  return { ok, upgrade: ok ? await keyHash(key, row.salt) : null };
+}
+// One random server secret, made on first use, so unknown emails get a stable fake salt.
+async function pepper(env) {
+  await env.DB.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('pepper',?)").bind(b64(crypto.getRandomValues(new Uint8Array(32)))).run();
+  return unb64((await env.DB.prepare("SELECT value FROM settings WHERE key='pepper'").first()).value);
+}
+async function hmac(keyBytes, text) {
+  const k = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(text)));
+}
+// The browser asks for its salt before stretching the password. Unknown emails get a fake salt that
+// never changes, and the "legacy" answer is faked half the time while old rows exist, so the reply
+// doesn't tell anyone which emails have an account.
+async function saltFor(req, env) {
+  const email = String((await req.json().catch(() => ({}))).email || '').toLowerCase().trim().slice(0, 200);
+  const row = email ? await env.DB.prepare('SELECT c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first() : null;
+  if (row) return json({ salt: row.salt, iter: KDF_ITER, legacy: !row.hash.startsWith('c1:') });
+  const h = await hmac(await pepper(env), 'salt:' + email);
+  const anyOld = await env.DB.prepare("SELECT 1 FROM credentials WHERE hash NOT LIKE 'c1:%' LIMIT 1").first();
+  return json({ salt: b64(h.slice(0, 16)), iter: KDF_ITER, legacy: !!anyOld && (h[16] & 1) === 1 });
+}
+// New password from a join, setup or change form: the browser sends key, salt and the password length.
+function newKey(f) {
+  const key = String(f.get('key') || ''), salt = String(f.get('salt') || ''), len = +f.get('len') || 0;
+  return goodB64(key, 32) && goodB64(salt, 16) && len >= MIN_PW ? { key, salt } : null;
 }
 function sameText(a, b) {
   if (a.length !== b.length) return false;
@@ -234,7 +277,8 @@ function signedIn(req, sid) {
 async function passwordLogin(req, env) {
   const f = await req.formData();
   const email = String(f.get('email') || '').toLowerCase().trim();
-  const password = String(f.get('password') || '');
+  const key = String(f.get('key') || ''), password = String(f.get('password') || '');
+  if (!key) return loginPage('Turn on JavaScript to sign in.', email);
   // IPv6 addresses count per /64, since one connection usually owns the whole block.
   const ip0 = req.headers.get('cf-connecting-ip') || 'x';
   const ip = ip0.includes(':') ? v6(ip0).slice(0, 4).join(':') + '::/64' : ip0;
@@ -243,14 +287,13 @@ async function passwordLogin(req, env) {
   // Per address, per account from any address, and per account from one address.
   if ((await hit('ip:' + ip)) > 30 || (await hit('em:' + email)) > 25 || (await hit('em:' + email + '|' + ip)) > 8) return loginPage('Too many tries. Wait 15 minutes or ask your workspace admin for a new link.', email);
   const row = await env.DB.prepare('SELECT u.id, c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first();
-  // Always run the slow hash, so the reply time doesn't tell which emails have an account.
-  const calc = await hashPassword(password, row ? row.salt : 'AAAAAAAAAAAAAAAAAAAAAA==');
-  const ok = !!row && sameText(calc.hash, row.hash);
+  const { ok, upgrade } = await checkKey(row, key, password);
   if (!ok) return loginPage('Wrong email or password.', email);
+  if (upgrade) await env.DB.prepare('UPDATE credentials SET hash=?, updated_at=? WHERE user_id=?').bind(upgrade, now(), row.id).run();
   return signedIn(req, await createSession(env, row.id));
 }
 const page = (title, inner) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#fff8e6"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"><script src="/theme.js"></script></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard" width="64" height="64"><p class="login-brands">${escH(globalThis.__wsName || 'Yakyard')}</p>${inner}</main></body></html>`,
+<title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#fff8e6"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"><script src="/theme.js"></script><script src="/auth.js" defer></script></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard" width="64" height="64"><p class="login-brands">${escH(globalThis.__wsName || 'Yakyard')}</p>${inner}</main></body></html>`,
   { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SEC } });
 const escH = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -260,11 +303,10 @@ async function joinPage(req, env, token) {
   if (req.method === 'POST') {
     const f = await req.formData();
     const name = String(f.get('name') || '').trim().slice(0, 80);
-    const password = String(f.get('password') || '');
-    if (!name || password.length < MIN_PW) return joinForm(inv, `Add your name and a password of at least ${MIN_PW} characters.`);
-    const { hash, salt } = await hashPassword(password);
+    const nk = newKey(f);
+    if (!name || !nk) return joinForm(inv, `Add your name and a password of at least ${MIN_PW} characters.`);
     await env.DB.batch([
-      env.DB.prepare('INSERT OR REPLACE INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(inv.id, hash, salt, now()),
+      env.DB.prepare('INSERT OR REPLACE INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(inv.id, await keyHash(nk.key, nk.salt), nk.salt, now()),
       env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(name, inv.id),
       env.DB.prepare('DELETE FROM invites WHERE user_id=?').bind(inv.id),
       env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(inv.id),
@@ -277,19 +319,20 @@ async function joinPage(req, env, token) {
   }
   return joinForm(inv);
 }
-// First run only: the first owner creates their account. Their email must be in OWNER_EMAILS,
-// and they must know the SETUP_TOKEN secret, so nobody else can claim a fresh deploy first.
+// First run only: the first owner creates their account. They must know the SETUP_TOKEN secret
+// (made and printed by the first deploy), so nobody else can claim a fresh deploy first.
+// If OWNER_EMAILS is set, their email must be on it.
 async function setupPage(req, env) {
   const done = () => new Response(null, { status: 302, headers: { location: '/' } });
   if (await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first()) return done();
   const ready = !!env.SETUP_TOKEN && env.SETUP_TOKEN.length >= 24;
-  const form = (error = '', email = '') => page('Set up Yakyard', ready ? `<h1>Set up Yakyard</h1><p>Create the owner account. Use an email listed in OWNER_EMAILS.</p>
+  const form = (error = '', email = '') => page('Set up Yakyard', ready ? `<h1>Set up Yakyard</h1><p>Create the owner account. The setup code was shown when you deployed.</p>
 ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
-<form method="post" class="login-form">
+<form method="post" class="login-form" data-kdf="new"><input type="hidden" name="salt" value="${b64(crypto.getRandomValues(new Uint8Array(16)))}">
 <label>Setup code<input class="input" name="token" type="password" required autocomplete="off" placeholder="The SETUP_TOKEN you set"></label>
 <label>Your name<input class="input" name="name" required maxlength="80" autocomplete="name"></label>
 <label>Email<input class="input" name="email" type="email" required autocomplete="username" spellcheck="false" autocapitalize="off" value="${escH(email)}"></label>
-<label>Choose a password<input class="input" name="password" type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
+<label>Choose a password<input class="input" data-pw type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
 <button class="login-btn primary" type="submit">Create workspace</button></form>` : `<h1>Set up Yakyard</h1>
 <p class="login-error" role="alert">Set a setup code first.</p>
 <p>Run <code>npx wrangler secret put SETUP_TOKEN</code> and paste a long random code (at least 24 characters, for example from <code>openssl rand -hex 24</code>). Then reload this page.</p>`);
@@ -297,30 +340,30 @@ ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
   const o = req.headers.get('origin');
   if (o && o !== new URL(req.url).origin) return err(403, 'Bad origin');
   const f = await req.formData();
-  const email = String(f.get('email') || '').trim().toLowerCase(), name = String(f.get('name') || '').trim().slice(0, 80), password = String(f.get('password') || '');
+  const email = String(f.get('email') || '').trim().toLowerCase(), name = String(f.get('name') || '').trim().slice(0, 80), nk = newKey(f);
   if (!sameText(String(f.get('token') || ''), env.SETUP_TOKEN)) return form('Wrong setup code.', email);
-  if (!(env.OWNER_EMAILS || '').trim()) return form('Set OWNER_EMAILS in wrangler.toml first, then deploy again.', email);
-  if (!ownerEmail(email, env)) return form('That email is not in OWNER_EMAILS.', email);
-  if (!name || password.length < MIN_PW) return form(`Add your name and a password of at least ${MIN_PW} characters.`, email);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return form('Enter a full email address, like name@company.com.', email);
+  if ((env.OWNER_EMAILS || '').trim() && !ownerEmail(email, env)) return form('That email is not in OWNER_EMAILS.', email);
+  if (!name || !nk) return form(`Add your name and a password of at least ${MIN_PW} characters.`, email);
   // settings.key is the primary key, so only one request can ever win this insert.
   const claimed = await env.DB.prepare("INSERT INTO settings (key,value) VALUES ('setup_done',?)").bind(String(now())).run().then(() => true, () => false);
   if (!claimed) return done();
-  const u = await findOrCreateUser(env, { email, name }).catch(() => null);
+  const u = await findOrCreateUser(env, { email, name, setup: true }).catch(() => null);
   if (!u) {
     await env.DB.prepare("DELETE FROM settings WHERE key='setup_done'").run();
     return form('Could not create the account.', email);
   }
-  const { hash, salt } = await hashPassword(password);
-  await env.DB.prepare('INSERT INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(u.id, hash, salt, now()).run();
+  await env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('app_url',?)").bind(new URL(req.url).origin).run();
+  await env.DB.prepare('INSERT INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(u.id, await keyHash(nk.key, nk.salt), nk.salt, now()).run();
   return signedIn(req, await createSession(env, u.id));
 }
 function joinForm(inv, error = '') {
   const isNew = inv.name === inv.email.split('@')[0];
   return page('Join Yakyard', `<h1>Join Yakyard</h1><p>You're signing in as <b>${escH(inv.email)}</b>.</p>
 ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
-<form method="post" class="login-form">
+<form method="post" class="login-form" data-kdf="new"><input type="hidden" name="salt" value="${b64(crypto.getRandomValues(new Uint8Array(16)))}">
 <label>Your name<input class="input" name="name" required maxlength="80" autocomplete="name" value="${isNew ? '' : escH(inv.name)}"></label>
-<label>Choose a password<input class="input" name="password" type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
+<label>Choose a password<input class="input" data-pw type="password" required minlength="${MIN_PW}" autocomplete="new-password" placeholder="At least ${MIN_PW} characters"></label>
 <button class="login-btn primary" type="submit">Continue</button></form>`);
 }
 
@@ -329,10 +372,10 @@ function loginPage(message = '', email = '') {
 <a class="login-btn" href="/auth/google"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Continue with Google</a>` : '';
   return page('Sign in to Yakyard', `<h1>Sign in to Yakyard</h1>
 ${message ? `<p class="login-error" role="alert">${escH(message)}</p>` : ''}
-<form method="post" action="/auth/login" class="login-form">
+<form method="post" action="/auth/login" class="login-form" data-kdf="login">
 <label>Email<input class="input" name="email" type="email" required autocomplete="username" spellcheck="false" autocapitalize="off" value="${escH(email)}"></label>
-<label>Password<input class="input" name="password" type="password" required autocomplete="current-password"></label>
-<button class="login-btn primary" type="submit">Sign in</button></form>${google}
+<label>Password<input class="input" data-pw type="password" required autocomplete="current-password"></label>
+<button class="login-btn primary" type="submit">Sign in</button></form><noscript><p class="login-error">Turn on JavaScript to sign in.</p></noscript>${google}
 <p class="login-note">New here or forgot your password? Ask your workspace admin for a sign-in link.</p>`);
 }
 
@@ -411,7 +454,7 @@ async function postMessage(env, ctx, user, ch, body) {
   const also = threadId && body.also_channel ? 1 : 0;
   let parent = null;
   if (threadId) {
-    parent = await env.DB.prepare('SELECT * FROM messages WHERE id=? AND channel_id=?').bind(threadId, ch.id).first();
+    parent = await env.DB.prepare('SELECT * FROM messages WHERE id=? AND channel_id=? AND thread_id IS NULL').bind(threadId, ch.id).first();
     if (!parent) return err(404, 'Thread not found');
   }
   const msg = {
@@ -435,7 +478,7 @@ async function postMessage(env, ctx, user, ch, body) {
   }
   const members = await channelMembers(env, ch.id);
   let mentioned = mentionedIds(text).filter((u) => members.includes(u));
-  if (/<!(channel|here)>/.test(text)) mentioned = members.filter((u) => u !== user.id);
+  if (/<!(channel|here|everyone)>/.test(text)) mentioned = members.filter((u) => u !== user.id);
   if (ch.kind === 'dm') mentioned = members.filter((u) => u !== user.id);
   for (const u of mentioned) {
     stmts.push(env.DB.prepare('INSERT OR IGNORE INTO mentions (message_id,user_id,channel_id,ts) VALUES (?,?,?,?)').bind(msg.id, u, ch.id, msg.ts));
@@ -620,6 +663,8 @@ async function api(req, env, user, path, ctx) {
       return json(all);
     }
     if (sub === '' && method === 'PATCH') {
+      if (user.role === 'guest') return err(403, "Guests can't change the topic.");
+      if (ch.archived && ch.kind !== 'dm') return err(403, 'This channel is archived. Nobody can post here.');
       const topic = body.topic != null ? String(body.topic).slice(0, 250) : ch.topic;
       await env.DB.prepare('UPDATE channels SET topic=? WHERE id=?').bind(topic, cid).run();
       await broadcast(env, { type: 'channel_updated', channel: { ...ch, topic } }, await channelMembers(env, cid));
@@ -685,8 +730,11 @@ async function api(req, env, user, path, ctx) {
       await broadcast(env, { type: 'message_changed', message: full }, await members());
       return json(full);
     }
+    const arch = async () => (await env.DB.prepare("SELECT archived, kind FROM channels WHERE id=?").bind(msg.channel_id).first()) || {};
     if (sub === '' && method === 'PATCH') {
       if (msg.deleted) return err(400, 'Deleted');
+      const a = await arch();
+      if (a.archived && a.kind !== 'dm') return err(403, 'This channel is archived. Nobody can post here.');
       if (msg.user_id !== user.id) return err(403, 'Only the person who wrote it can edit it.');
       const text = String(body.text || '').slice(0, 40000);
       await env.DB.prepare('UPDATE messages SET text=?, edited_ts=? WHERE id=?').bind(text, now(), mid).run();
@@ -697,6 +745,7 @@ async function api(req, env, user, path, ctx) {
     if (sub === '' && method === 'DELETE') {
       if (msg.user_id !== user.id && !['owner', 'admin'].includes(user.role)) return err(403, 'Not allowed');
       await env.DB.prepare("UPDATE messages SET deleted=1, text='', files='[]' WHERE id=?").bind(mid).run();
+      if (msg.thread_id && !msg.deleted) await env.DB.prepare('UPDATE messages SET reply_count=MAX(0,reply_count-1) WHERE id=?').bind(msg.thread_id).run();
       // Deleting a message deletes its files too, so old links stop working.
       const keys = JSON.parse(msg.files || '[]').map((f) => f.key).filter(Boolean);
       if (keys.length) { await env.FILES.delete(keys); await env.DB.prepare(`DELETE FROM files WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).run(); }
@@ -780,6 +829,23 @@ async function api(req, env, user, path, ctx) {
     return json({ ok: true });
   }
 
+  // ----- change password: the browser sends the current key (and the password once, for old accounts) and the new key
+  if (path === '/api/me/password' && method === 'POST') {
+    const row = await env.DB.prepare('SELECT hash, salt FROM credentials WHERE user_id=?').bind(user.id).first();
+    if (!row) return err(400, 'You sign in with Google, so there is no password to change.');
+    const { ok } = await checkKey(row, String(body.key || ''), String(body.password || ''));
+    if (!ok) return err(400, "That's not your current password.");
+    const nk = newKey(new Map([['key', body.new_key], ['salt', body.new_salt], ['len', body.len]]));
+    if (!nk) return err(400, `Pick a new password of at least ${MIN_PW} characters.`);
+    const keep = await sha256hex(cookie(req, SESSION_COOKIE) || '');
+    await env.DB.batch([
+      env.DB.prepare('UPDATE credentials SET hash=?, salt=?, updated_at=? WHERE user_id=?').bind(await keyHash(nk.key, nk.salt), nk.salt, now(), user.id),
+      // Signed out everywhere else, in case someone else knew the old password.
+      env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND id<>?').bind(user.id, keep),
+    ]);
+    return json({ ok: true });
+  }
+
   // ----- team places: only people who chose to share, and only if the workspace allows it
   if (path === '/api/team/places' && method === 'GET') {
     if (!locationOn(env)) return json([]);
@@ -822,6 +888,25 @@ async function api(req, env, user, path, ctx) {
     const res = new Response(JSON.stringify(r.ok ? r.value : {}), { headers: { 'content-type': 'application/json', 'cache-control': 'max-age=86400' } });
     await cache.put(key, res.clone());
     return res;
+  }
+
+  // Pictures from other sites (link previews, Google profile photos) come through here, so the app's
+  // Content-Security-Policy can allow images from this site only. Pictures only, 5 MB at most, cached a day.
+  if (path === '/api/img' && method === 'GET') {
+    const target = new URL(req.url).searchParams.get('u') || '';
+    if (!safeFetchUrl(target)) return err(400, 'Bad url');
+    const key = new Request('https://img.cache/' + encodeURIComponent(target));
+    let r = await caches.default.match(key);
+    if (!r) {
+      const got = await safeFetch(target, { accept: 'image/avif,image/webp,image/png,image/*', 'user-agent': 'Mozilla/5.0 (compatible; YakyardBot/1.0)' }).catch(() => null);
+      const type = (got?.res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (!got?.res.ok || !/^image\/(png|jpe?g|gif|webp|avif|x-icon|vnd\.microsoft\.icon)$/.test(type) || +(got.res.headers.get('content-length') || 0) > IMG_MAX) return err(404, 'Not found');
+      const buf = await got.res.arrayBuffer();
+      if (buf.byteLength > IMG_MAX) return err(404, 'Not found');
+      r = new Response(buf, { headers: { 'content-type': type, 'cache-control': 'public, max-age=86400' } });
+      await caches.default.put(key, r.clone());
+    }
+    return new Response(r.body, { headers: { 'content-type': r.headers.get('content-type'), 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" } });
   }
 
   if (path === '/api/ice' && method === 'GET') {
@@ -915,8 +1000,12 @@ async function api(req, env, user, path, ctx) {
       const r = await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM messages) messages,
           (SELECT COUNT(*) FROM messages WHERE files<>'[]') with_files,
           (SELECT COUNT(*) FROM messages WHERE ts > ?) messages_7d,
-          (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE created_at > ?) active_7d`).bind(now() - 7 * 864e5, now() - 7 * 864e5).first();
-      return json(r);
+          (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE created_at > ?) active_7d,
+          (SELECT COALESCE(SUM(size),0) FROM files) storage,
+          (SELECT COALESCE(SUM(json_extract(voice,'$.dur')),0) FROM files WHERE t_status='done' AND t_at >= ?) voice_secs_today,
+          (SELECT value FROM settings WHERE key='ai_paused_until') ai_paused_until`).bind(now() - 7 * 864e5, now() - 7 * 864e5, new Date().setUTCHours(0, 0, 0, 0)).first();
+      // Rough usage against the free plan, for the Usage card. Request counts live only in the Cloudflare dashboard.
+      return json({ ...r, storage_limit: (+env.STORAGE_TOTAL_GB || 9) * GB, voice_free_secs: 214 * 60, ai_paused_until: +r.ai_paused_until > now() ? +r.ai_paused_until : 0 });
     }
     return err(404, 'Not found');
   }
@@ -963,6 +1052,20 @@ async function api(req, env, user, path, ctx) {
 }
 
 // ---------------------------------------------------------------- files (R2)
+// Storage caps keep one person (or a runaway script) from filling the free 10 GB of R2.
+// STORAGE_PER_PERSON_GB (default 2) and STORAGE_TOTAL_GB (default 9) change them.
+const GB = 1024 ** 3;
+let teamBytes = { at: 0, n: 0 };
+async function roomFor(env, user, size) {
+  const per = (+env.STORAGE_PER_PERSON_GB || 2) * GB, total = (+env.STORAGE_TOTAL_GB || 9) * GB;
+  const mine = (await env.DB.prepare('SELECT COALESCE(SUM(size),0) n FROM files WHERE uploader=?').bind(user.id).first()).n;
+  if (mine + size > per) return err(413, `You've used your ${per / GB} GB of file space. Delete messages with big old files, or ask your admin for more room.`);
+  // shortcut: the team total is re-counted every 5 minutes per worker instance, so it can overshoot a little; fine for a cap.
+  if (Date.now() - teamBytes.at > 300e3) teamBytes = { at: Date.now(), n: (await env.DB.prepare('SELECT COALESCE(SUM(size),0) n FROM files').first()).n };
+  if (teamBytes.n + size > total) return err(413, `Your team's file space (${total / GB} GB) is full. Ask your admin to clear some room.`);
+  teamBytes.n += size;
+  return null;
+}
 async function uploadFile(req, env, user) {
   const form = await req.formData();
   const file = form.get('file');
@@ -970,13 +1073,15 @@ async function uploadFile(req, env, user) {
   if (file.size > 100 * 1024 * 1024) return err(413, 'Files can be up to 100 MB here. Try a smaller one.');
   // Voice notes are transcribed in memory, so keep them small and audio only.
   if (form.get('voice') === '1' && (file.size > VOICE_MAX || !/^(audio\/|video\/(webm|mp4))/i.test(file.type || ''))) return err(413, 'Voice notes must be audio and under 25 MB.');
+  const full = await roomFor(env, user, file.size);
+  if (full) return full;
   const key = `${new Date().toISOString().slice(0, 7)}/${uid('F')}/${file.name.replace(/[^\w.\- ]+/g, '_')}`;
   await env.FILES.put(key, file.stream(), {
     httpMetadata: { contentType: file.type || 'application/octet-stream' },
     customMetadata: { uploader: user.id, name: file.name },
   });
   const voice = parseVoiceMeta(form);
-  await env.DB.prepare('INSERT OR REPLACE INTO files (key,uploader,channel_id,created_at,voice,t_status) VALUES (?,?,NULL,?,?,?)').bind(key, user.id, now(), voice ? JSON.stringify(voice) : null, voice ? 'pending' : null).run();
+  await env.DB.prepare('INSERT OR REPLACE INTO files (key,uploader,channel_id,created_at,voice,t_status,size) VALUES (?,?,NULL,?,?,?,?)').bind(key, user.id, now(), voice ? JSON.stringify(voice) : null, voice ? 'pending' : null, file.size).run();
   return json({ key, name: file.name, size: file.size, type: file.type || 'application/octet-stream', ...(voice ? { voice, t: 'pending' } : {}) });
 }
 
@@ -990,9 +1095,11 @@ async function bigUpload(req, env, user, path, url) {
     const b = await req.json().catch(() => ({}));
     const name = String(b.name || 'file').slice(0, 200), size = +b.size || 0, type = String(b.type || 'application/octet-stream').slice(0, 120);
     if (size > BIG_MAX) return err(413, 'Files can be up to 1 GB. Try a smaller one.');
+    const full = await roomFor(env, user, size);
+    if (full) return full;
     const key = `${new Date().toISOString().slice(0, 7)}/${uid('F')}/${name.replace(/[^\w.\- ]+/g, '_')}`;
     const up = await env.FILES.createMultipartUpload(key, { httpMetadata: { contentType: type }, customMetadata: { uploader: user.id, name } });
-    await env.DB.prepare('INSERT OR REPLACE INTO files (key,uploader,channel_id,created_at) VALUES (?,?,NULL,?)').bind(key, user.id, now()).run();
+    await env.DB.prepare('INSERT OR REPLACE INTO files (key,uploader,channel_id,created_at,size) VALUES (?,?,NULL,?,?)').bind(key, user.id, now(), size).run();
     return json({ key, upload_id: up.uploadId });
   }
   if (path === '/api/upload/part' && req.method === 'PUT') {
@@ -1011,6 +1118,7 @@ async function bigUpload(req, env, user, path, url) {
     if (b.cancel) { try { await up.abort(); } catch {} await env.DB.prepare('DELETE FROM files WHERE key=?').bind(b.key).run(); return json({ ok: true }); }
     const obj = await up.complete(b.parts.map((x) => ({ partNumber: +x.partNumber, etag: String(x.etag) })));
     if (obj.size > BIG_MAX) { await env.FILES.delete(b.key); return err(413, 'Files can be up to 1 GB. Try a smaller one.'); }
+    await env.DB.prepare('UPDATE files SET size=? WHERE key=?').bind(obj.size, b.key).run();
     return json({ key: b.key, name: String(b.name || b.key.split('/').pop()), size: obj.size, type: obj.httpMetadata?.contentType || 'application/octet-stream' });
   }
   return err(404, 'Not found');
@@ -1024,13 +1132,15 @@ async function canReadFile(env, user, key) {
   if (!f.channel_id) return f.uploader === user.id;
   return isMember(env, f.channel_id, user.id);
 }
+let imagesOffUntil = 0;
+const IMG_MAX = 5 * 1024 * 1024;
 const SAFE_INLINE = /^(image\/(png|jpe?g|gif|webp|heic|heif)|video\/(mp4|webm|quicktime)|audio\/[\w.+-]+|application\/pdf)$/i;
 async function serveFile(req, env, key) {
   const url = new URL(req.url);
   const wq = parseInt(url.searchParams.get('w') || '0', 10) || 0;
   const w = wq ? [96, 880, 1600].find((x) => x >= wq) || 1600 : 0;
   // Small preview for chat: made once with Cloudflare Images, then kept in R2.
-  if (w && env.IMAGES && /\.(png|jpe?g|webp|heic|heif|bmp|tiff?)$/i.test(key)) {
+  if (w && env.IMAGES && imagesOffUntil < Date.now() && /\.(png|jpe?g|webp|heic|heif|bmp|tiff?)$/i.test(key)) {
     const tkey = `thumbs/w${w}/${key}`;
     let t = await env.FILES.get(tkey);
     if (!t) {
@@ -1041,7 +1151,7 @@ async function serveFile(req, env, key) {
         const bytes = await out.response().arrayBuffer();
         await env.FILES.put(tkey, bytes, { httpMetadata: { contentType: 'image/webp' } });
         return new Response(bytes, { headers: { 'content-type': 'image/webp', 'cache-control': 'private, max-age=2592000' } });
-      } catch (e) { /* fall back to the original */ }
+      } catch (e) { imagesOffUntil = Date.now() + 3600e3; /* free transformations used up, or Images off: originals for an hour */ }
     } else {
       return new Response(t.body, { headers: { 'content-type': 'image/webp', 'cache-control': 'private, max-age=2592000' } });
     }
@@ -1076,7 +1186,19 @@ export default {
   },
   fetch: (req, env, ctx) => handle(req, env, ctx),
 };
+// Nothing should crash into a Cloudflare error page, including when a free daily allowance runs out.
 async function handle(req, env0, ctx) {
+  try { return await handle0(req, env0, ctx); } catch (e) {
+    console.error(e);
+    const quota = /exceeded D1's free tier|daily row (read|write) limit|free tier|allocation/i.test(String(e?.message || e));
+    const msg = quota ? "Your team used up today's free database allowance on Cloudflare. It resets at midnight UTC." : "That didn't go through. Try again.";
+    const path = new URL(req.url).pathname;
+    if (path.startsWith('/api/') || path.startsWith('/files/') || req.method !== 'GET') return json({ error: msg, quota }, 503);
+    const r = page('Yakyard', `<h1>Back soon</h1><p class="login-error" role="alert">${escH(msg)}</p><p class="login-note"><a href="/">Try again</a></p>`);
+    return new Response(r.body, { status: 503, headers: r.headers });
+  }
+}
+async function handle0(req, env0, ctx) {
     const url = new URL(req.url);
     const path = url.pathname;
     // Reads go to the nearest D1 replica. The app sends back the bookmark so you always see your own writes.
@@ -1099,6 +1221,11 @@ async function route(req, env, ctx, url, path) {
       const o = req.headers.get('origin');
       if (o && o !== url.origin) return err(403, 'Bad origin');
       return passwordLogin(req, env);
+    }
+    if (path === '/auth/salt' && req.method === 'POST') {
+      const o = req.headers.get('origin');
+      if (o && o !== url.origin) return err(403, 'Bad origin');
+      return saltFor(req, env);
     }
     if (path.startsWith('/join/')) {
       const o = req.headers.get('origin');
@@ -1153,6 +1280,7 @@ async function route(req, env, ctx, url, path) {
       const hub = env.HUB.get(env.HUB.idFromName('workspace'));
       const fwd = new Request('https://hub/ws', req);
       fwd.headers.set('x-user-id', user.id);
+      fwd.headers.set('x-guest', user.role === 'guest' ? '1' : '');
       return hub.fetch(fwd);
     }
     if (path === '/api/upload' && req.method === 'POST') return uploadFile(req, env, user);
@@ -1176,6 +1304,7 @@ async function route(req, env, ctx, url, path) {
       try {
         return await api(req, env, user, path, ctx);
       } catch (e) {
+        if (/free tier|allocation|daily row/i.test(String(e?.message || e))) throw e;   // handle() explains quota errors
         console.error(e);
         return err(500, "That didn't go through. Try again.");
       }
@@ -1184,7 +1313,7 @@ async function route(req, env, ctx, url, path) {
     const shell = await env.ASSETS.fetch(new Request(new URL('/', url), req));
     const hs = new Headers(shell.headers);
     const wsOrigin = (url.protocol === 'https:' ? 'wss://' : 'ws://') + url.host;
-    hs.set('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; media-src 'self' blob:; connect-src 'self' ${wsOrigin}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
+    hs.set('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ${wsOrigin}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
     hs.set('x-content-type-options', 'nosniff'); hs.set('referrer-policy', 'same-origin');
     hs.set('strict-transport-security', SEC['strict-transport-security']);
     return new Response(shell.body, { status: shell.status, headers: hs });
@@ -1199,8 +1328,8 @@ export class Hub extends DurableObject {
       const userId = req.headers.get('x-user-id');
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1], [userId]);
-      pair[1].serializeAttachment({ userId, sid: crypto.randomUUID().slice(0, 12) });
-      this.broadcastPresence();
+      pair[1].serializeAttachment({ userId, sid: crypto.randomUUID().slice(0, 12), guest: req.headers.get('x-guest') === '1' });
+      this.broadcastPresence().catch((e) => console.log('presence', e));
       this.huddleStateFor().then((b) => { try { pair[1].send(JSON.stringify({ type: 'huddles', huddles: b[userId] || {} })); } catch (e) {} });
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
@@ -1215,6 +1344,15 @@ export class Hub extends DurableObject {
       for (const w of this.ctx.getWebSockets(user_id)) { try { w.close(4001, 'signed out'); } catch (e) {} }
       return new Response('ok');
     }
+    if (url.pathname === '/push') {
+      // Phone notifications waiting to go out, sent a few per alarm (see pushToUsers).
+      const { subs, payload } = await req.json();
+      const q = (await this.ctx.storage.get('pushq')) || [];
+      for (const s of subs) q.push({ s, p: payload });
+      await this.ctx.storage.put('pushq', q.slice(-500));
+      if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now());
+      return new Response('ok');
+    }
     if (url.pathname === '/broadcast') {
       const { event, to } = await req.json();
       const data = JSON.stringify(event);
@@ -1227,12 +1365,32 @@ export class Hub extends DurableObject {
     return new Response('Not found', { status: 404 });
   }
 
+  async alarm() {
+    const q = (await this.ctx.storage.get('pushq')) || [];
+    const batch = q.splice(0, PUSHES_PER_ALARM);
+    await this.ctx.storage.put('pushq', q);
+    if (q.length) await this.ctx.storage.setAlarm(Date.now());
+    await Promise.allSettled(batch.map((x) => pushOne(this.env, x.s, x.p)));
+  }
+
   online() {
     return [...new Set(this.ctx.getWebSockets().map((ws) => ws.deserializeAttachment()?.userId).filter(Boolean))];
   }
-  broadcastPresence() {
-    const data = JSON.stringify({ type: 'presence', online: this.online() });
-    for (const ws of this.ctx.getWebSockets()) { try { ws.send(data); } catch (e) {} }
+  // Guests only hear who is online among people they share a conversation with (and the owner).
+  async broadcastPresence() {
+    const online = this.online(), data = JSON.stringify({ type: 'presence', online });
+    const socks = this.ctx.getWebSockets();
+    const guests = [...new Set(socks.filter((w) => this.att(w).guest).map((w) => this.att(w).userId))];
+    const see = {};
+    if (guests.length) {
+      const r = await this.env.DB.prepare(`SELECT b.user_id g, a.user_id u FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id IN (${guests.map(() => '?').join(',')})
+        UNION SELECT g.id, o.id FROM users g, users o WHERE o.role='owner' AND g.id IN (${guests.map(() => '?').join(',')})`).bind(...guests, ...guests).all();
+      for (const x of r.results) (see[x.g] ||= new Set([x.g])).add(x.u);
+    }
+    for (const ws of socks) {
+      const a = this.att(ws);
+      try { ws.send(a.guest ? JSON.stringify({ type: 'presence', online: online.filter((u) => see[a.userId]?.has(u)) }) : data); } catch (e) {}
+    }
   }
 
   // ---- huddles: each socket can be in one huddle; state lives in the socket attachment (survives hibernation)
@@ -1319,7 +1477,7 @@ export class Hub extends DurableObject {
       this.broadcastHuddles();
       await this.huddleCard(msg.channel_id, a.userId, false);
     } else if (msg.type === 'huddle_leave') {
-      ws.serializeAttachment({ userId: a.userId, sid: a.sid });
+      ws.serializeAttachment({ userId: a.userId, sid: a.sid, guest: a.guest });
       this.broadcastHuddles();
       await this.afterLeave(a.huddle);
     } else if (msg.type === 'huddle_media' && a.huddle) {
@@ -1350,15 +1508,17 @@ export class Hub extends DurableObject {
     if (msg.type === 'ping') { ws.send('{"type":"pong"}'); return; }
     if (msg.type === 'vis') { const a = ws.deserializeAttachment() || {}; a.vis = !!msg.visible; a.visAt = Date.now(); ws.serializeAttachment(a); return; }
     if (String(msg.type).startsWith('huddle_')) return this.handleHuddle(ws, msg);
-    if (msg.type === 'typing' && msg.channel_id && Array.isArray(msg.to)) {
-      // Client sends the channel's member list; we only relay to those people.
+    if (msg.type === 'typing' && msg.channel_id) {
+      // Only members hear it, and only from a member, so nobody can fake "X is typing" elsewhere.
+      const mem = (await this.env.DB.prepare('SELECT user_id FROM members WHERE channel_id=?').bind(String(msg.channel_id)).all()).results.map((r) => r.user_id);
+      if (!mem.includes(from)) return;
       const data = JSON.stringify({ type: 'typing', channel_id: msg.channel_id, thread_id: msg.thread_id || null, user_id: from });
-      for (const u of msg.to.slice(0, 200)) {
+      for (const u of mem) {
         if (u === from) continue;
         for (const s of this.ctx.getWebSockets(u)) { try { s.send(data); } catch (e) {} }
       }
     }
   }
-  async webSocketClose(ws) { const was = this.att(ws).huddle; ws.serializeAttachment({}); this.broadcastPresence(); if (was) { this.broadcastHuddles(); await this.afterLeave(was); } }
+  async webSocketClose(ws) { const was = this.att(ws).huddle; ws.serializeAttachment({}); await this.broadcastPresence().catch(() => {}); if (was) { this.broadcastHuddles(); await this.afterLeave(was); } }
   async webSocketError(ws) { return this.webSocketClose(ws); }
 }

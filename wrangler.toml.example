@@ -1,5 +1,5 @@
-# Copy this file to wrangler.toml and fill in the values marked CHANGE.
-# Every setting is explained in the README, "All settings".
+# Yakyard settings. `npm run deploy` copies this file to wrangler.toml the first time; edit wrangler.toml after that.
+# Works as it is, on Cloudflare's free plan. Every setting is explained in the README, "All settings".
 name = "yakyard"
 main = "src/worker.js"
 compatibility_date = "2026-11-01"
@@ -13,7 +13,7 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "yakyard"
-database_id = "CHANGE: id printed by `npx wrangler d1 create yakyard`"
+# No database_id: the first `npm run deploy` creates the database and writes its id here.
 
 [[r2_buckets]]
 binding = "FILES"
@@ -35,14 +35,17 @@ binding = "IMAGES"
 [ai]
 binding = "AI"
 
+# Free plan limits: see README, "Free plan". Optional storage caps (defaults shown):
+# STORAGE_PER_PERSON_GB = "2"   STORAGE_TOTAL_GB = "9"   (R2 is free up to 10 GB)
+
 # Every minute: reminders, scheduled messages, voice transcripts that need a retry, Slack imports.
 [triggers]
 crons = ["* * * * *"]
 
 [vars]
-WORKSPACE_NAME = "CHANGE: your team or company name"
-APP_URL = "CHANGE: https://yakyard.<your-subdomain>.workers.dev"
-OWNER_EMAILS = "CHANGE: you@example.com"       # comma-separated; these people are owners
+WORKSPACE_NAME = "Yakyard"                      # your team or company name, shown on the sign-in page
+APP_URL = ""                                    # optional: your Yakyard address, used in reminder links
+OWNER_EMAILS = ""                               # optional, comma-separated: these emails are always owners
 ALLOWED_DOMAINS = ""                            # e.g. "example.com": anyone with that email can sign in with Google
 VAPID_PUBLIC = ""                               # phone notifications: see README, "Notifications"
 VAPID_SUBJECT = ""                              # mailto: address push services can contact
@@ -58,7 +61,7 @@ WEATHER = "0"                                   # "1" adds weather to team clock
 # SLACK_API = "https://slack.com/api"           # only for tests: point the Slack import at a mock server
 
 # Secrets (set with `npx wrangler secret put NAME`, never put them in this file):
-#   SETUP_TOKEN           required before the first visit: a long random code for the setup page (openssl rand -hex 24)
+#   SETUP_TOKEN           made for you by the first `npm run deploy` and printed once: the code for the setup page
 #   VAPID_PRIVATE         phone notifications (npm run vapid prints it)
 #   TOKEN_KEY             only with the Slack import: encrypts Slack tokens during the import: base64 of 32 random bytes, make it with `openssl rand -base64 32`
 #   GOOGLE_CLIENT_SECRET  only with Google sign-in

@@ -42,3 +42,24 @@ test('IPv6 sign-in throttling groups a whole /64', async () => {
   assert.equal(net('2001:db8:0:0:1::1'), '2001:db8:0:0');
   assert.deepEqual(v6('1:2:3:4:5:6:7:8'), ['1', '2', '3', '4', '5', '6', '7', '8']);
 });
+
+test('migrations add only the columns an old database is missing', async () => {
+  const { missingColumns, schemaColumns } = await import('../scripts/migrate.mjs');
+  const sql = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8');
+  const cols = schemaColumns(sql);
+  assert.ok(cols.users.some((c) => c.name === 'share_location'));
+  assert.ok(!cols.members.some((c) => c.name === 'PRIMARY'));
+  const have = Object.fromEntries(Object.entries(cols).map(([t, c]) => [t, c.map((x) => x.name)]));
+  assert.deepEqual(missingColumns(sql, have), []);
+  have.users = have.users.filter((n) => n !== 'share_location');
+  have.files = have.files.filter((n) => n !== 'size');
+  delete have.signins;   // a table the old database doesn't have: schema.sql creates it whole
+  assert.deepEqual(missingColumns(sql, have).sort(), ['ALTER TABLE files ADD COLUMN size INTEGER NOT NULL DEFAULT 0', 'ALTER TABLE users ADD COLUMN share_location INTEGER NOT NULL DEFAULT 0']);
+  // And the ALTERs really run on an old database.
+  const db = new DatabaseSync(':memory:');
+  db.exec("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, created_at INTEGER NOT NULL); CREATE TABLE files (key TEXT PRIMARY KEY);");
+  const real = { users: db.prepare('PRAGMA table_info(users)').all().map((r) => r.name), files: ['key'] };
+  for (const a of missingColumns(sql, real)) db.exec(a);
+  db.exec(sql);
+  assert.ok(db.prepare('PRAGMA table_info(users)').all().some((r) => r.name === 'share_location'));
+});

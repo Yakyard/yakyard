@@ -17,8 +17,13 @@ const json = (d, s = 200) => new Response(JSON.stringify(d), { status: s, header
 const err = (s, m) => json({ error: m }, s);
 const rid = (p = '') => p + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
 const KEEP = new Set([undefined, null, 'thread_broadcast', 'bot_message', 'file_share', 'me_message']);
-const FETCH_BUDGET = 40;      // external calls per slice (stays under Workers limits)
-const TIME_BUDGET = 15000;    // ms per slice (stays inside background time limits)
+// One small slice per minute (the cron), so each run stays inside the free plan: 10 ms of CPU and
+// 50 outside calls. Measured in node: saving one page of 50 Slack messages costs about 2 ms of CPU.
+// About 150 messages a minute, so a 100,000-message history takes around 11 hours.
+const FETCH_BUDGET = 3;       // Slack calls per slice
+const TIME_BUDGET = 15000;    // ms per slice
+const PAGE = '50';            // messages per Slack page
+const GIVE_UP = 30;           // failed slices in a row (about 30 minutes) before the import stops and the token is deleted
 
 async function sha1hex(s) {
   const b = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s));
@@ -178,7 +183,7 @@ export async function slackApi(req, env, user, path, method, body, ctx) {
 
 // ---------------------------------------------------------------- the copier
 export async function runImports(env) {
-  const r = await env.DB.prepare("SELECT user_id FROM slack_imports WHERE status='running' ORDER BY updated_at LIMIT 2").all();
+  const r = await env.DB.prepare("SELECT user_id FROM slack_imports WHERE status='running' ORDER BY updated_at LIMIT 1").all();
   for (const j of r.results) await runSlice(env, j.user_id).catch((e) => console.log('import slice', e));
 }
 
@@ -189,7 +194,7 @@ async function runSlice(env, userId) {
   const job = await env.DB.prepare('SELECT * FROM slack_imports WHERE user_id=?').bind(userId).first();
   const user = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(userId).first();
   const S = JSON.parse(job.state);
-  const ctx = { env, user, S, calls: 0, t0: now(), token: await open(env, job.token_enc), msgs: 0, files: 0, userMap: new Map() };
+  const ctx = { env, user, S, calls: 0, t0: now(), token: '', msgs: 0, files: 0, userMap: new Map() };
   // Save after every step, so a batch that gets cut off never loses or repeats work.
   const save = async (final) => {
     const done = S.phase === 'done';
@@ -199,11 +204,13 @@ async function runSlice(env, userId) {
     ctx.msgs = 0; ctx.files = 0;
   };
   try {
+    ctx.token = await open(env, job.token_enc);   // inside try: a changed TOKEN_KEY stops the import instead of retrying forever
     while (ctx.calls < FETCH_BUDGET && now() - ctx.t0 < TIME_BUDGET) {
       const more = await step(ctx);
       await save(false);
       if (!more) break;
     }
+    S.fails = 0;
     await save(true);
     const done = S.phase === 'done';
     if (done) {
@@ -212,7 +219,10 @@ async function runSlice(env, userId) {
     }
   } catch (e) {
     const msg = String(e?.message || e).slice(0, 300);
-    const fatal = /invalid_auth|token_revoked|account_inactive|not_authed|OperationError|TOKEN_KEY/.test(msg);
+    S.fails = (S.fails || 0) + (/ratelimited/.test(msg) ? 0 : 1);
+    // Fatal, or failing for half an hour: stop, and don't keep the Slack token around.
+    const fatal = /invalid_auth|token_revoked|account_inactive|not_authed|OperationError|TOKEN_KEY/.test(msg) || S.fails >= GIVE_UP;
+    if (fatal && ctx.token) await revoke(ctx.token);
     await env.DB.prepare(`UPDATE slack_imports SET state=?, msgs=msgs+?, files=files+?, lock_until=?, error=?, updated_at=? ${fatal ? ", status='error', token_enc=''" : ''} WHERE user_id=?`)
       .bind(JSON.stringify(S), ctx.msgs, ctx.files, /ratelimited/.test(msg) ? now() + 60e3 : 0, msg, now(), userId).run();
   }
@@ -295,14 +305,14 @@ async function convStep(ctx) {
     }
     if (S.threads.length) {
       const t = S.threads[0];
-      const j = await slack(ctx, 'conversations.replies', { channel: c.id, ts: t, limit: '200', ...(S.rcursor ? { cursor: S.rcursor } : {}) });
+      const j = await slack(ctx, 'conversations.replies', { channel: c.id, ts: t, limit: PAGE, ...(S.rcursor ? { cursor: S.rcursor } : {}) });
       await saveMessages(ctx, S.cid, (j.messages || []).filter((m) => m.ts !== t));
       S.rcursor = j.response_metadata?.next_cursor || '';
       if (!S.rcursor) S.threads.shift();
       return true;
     }
     if (S.hcursor === 'done') { S.i++; S.cid = ''; S.hcursor = ''; return true; }
-    const j = await slack(ctx, 'conversations.history', { channel: c.id, limit: '200', ...(S.hcursor ? { cursor: S.hcursor } : {}) });
+    const j = await slack(ctx, 'conversations.history', { channel: c.id, limit: PAGE, ...(S.hcursor ? { cursor: S.hcursor } : {}) });
     const list = j.messages || [];
     await saveMessages(ctx, S.cid, list);
     for (const m of list) if (m.reply_count > 0 && m.thread_ts === m.ts) S.threads.push(m.ts);
@@ -314,7 +324,7 @@ async function convStep(ctx) {
 async function stepTail(ctx) {
   const { env, S } = ctx;
   if (S.phase === 'files') {
-    if (!S.files.length) { await finish(ctx); S.phase = 'done'; return false; }
+    if (!S.files.length) { if (await finish(ctx)) return true; S.phase = 'done'; return false; }
     const f = S.files.shift();
     ctx.calls++;
     try {
@@ -326,7 +336,8 @@ async function stepTail(ctx) {
       }
       const type = r.headers.get('content-type') || '';
       if (r.ok && !/text\/html/.test(type)) {
-        await env.FILES.put(f.key, await r.arrayBuffer(), { httpMetadata: { contentType: f.type || type } });
+        // Streamed when Slack sends the length, so a big file never sits in memory.
+        await env.FILES.put(f.key, r.headers.get('content-length') ? r.body : await r.arrayBuffer(), { httpMetadata: { contentType: f.type || type } });
         ctx.files++;
       }
     } catch (e) {}
@@ -410,7 +421,7 @@ async function saveMessages(ctx, cid, list) {
       const k = `slack/${ym}/${f.id}/${cid}/` + String(f.name || f.id).replace(/[^A-Za-z0-9 ._()\-]/g, '_');
       files.push({ key: k, name: f.name || f.id, size: f.size || 0, type: f.mimetype || 'application/octet-stream' });
       const have = await env.DB.prepare('SELECT 1 FROM files WHERE key=?').bind(k).first();
-      if (!have && (f.size || 0) < 90e6) { S.files.push({ url, key: k, type: f.mimetype || '' }); stmts.push(env.DB.prepare('INSERT OR IGNORE INTO files (key,uploader,channel_id,created_at) VALUES (?,?,?,?)').bind(k, author, cid, tsMs(m.ts))); }
+      if (!have && (f.size || 0) < 90e6) { S.files.push({ url, key: k, type: f.mimetype || '' }); stmts.push(env.DB.prepare('INSERT OR IGNORE INTO files (key,uploader,channel_id,created_at,size) VALUES (?,?,?,?,?)').bind(k, author, cid, tsMs(m.ts), f.size || 0)); }
     }
     const thread = m.thread_ts && m.thread_ts !== m.ts ? await msgId(cid, m.thread_ts) : null;
     stmts.push(env.DB.prepare(`INSERT OR IGNORE INTO messages (id,channel_id,user_id,ts,thread_id,text,files,edited_ts,source,also_channel) VALUES (?,?,?,?,?,?,?,?,'slack',?)`)
@@ -421,9 +432,11 @@ async function saveMessages(ctx, cid, list) {
   for (let i = 0; i < stmts.length; i += 80) await env.DB.batch(stmts.slice(i, i + 80));
 }
 
+// Thread counts and read markers, 5 conversations per step. Returns true while there is more to do.
 async function finish(ctx) {
   const { env, S, user } = ctx;
-  for (const cid of S.touched) {
+  S.fi = S.fi || 0;
+  for (const cid of S.touched.slice(S.fi, S.fi + 5)) {
     await env.DB.prepare(`UPDATE messages SET reply_count=(SELECT COUNT(*) FROM messages r WHERE r.thread_id=messages.id AND r.deleted=0),
         last_reply_ts=COALESCE((SELECT MAX(ts) FROM messages r WHERE r.thread_id=messages.id),0)
       WHERE channel_id=? AND thread_id IS NULL AND id IN (SELECT DISTINCT thread_id FROM messages WHERE channel_id=? AND thread_id IS NOT NULL)`).bind(cid, cid).run();
@@ -439,4 +452,6 @@ async function finish(ctx) {
     // Conversations quiet for 180+ days are archived (DMs come back when someone writes).
     if (last && last < now() - 180 * 864e5) await env.DB.prepare("UPDATE channels SET archived=1 WHERE id=? AND kind='dm'").bind(cid).run();
   }
+  S.fi += 5;
+  return S.fi < S.touched.length;
 }

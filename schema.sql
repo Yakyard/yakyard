@@ -1,7 +1,7 @@
--- Yakyard database. Run on a new D1 database, and again after each update (safe to repeat):
---   npx wrangler d1 execute yakyard --remote --file=schema.sql
--- Every statement is CREATE ... IF NOT EXISTS. New features add new tables rather than new columns,
--- so upgrading an existing database needs no ALTER TABLE.
+-- Yakyard database. Don't run this file by hand: `npm run deploy` (and `npm run db:init`) run
+-- scripts/migrate.mjs, which adds any missing columns to existing tables and then runs this file.
+-- Every statement is CREATE ... IF NOT EXISTS, so it is safe to repeat.
+-- New columns need a DEFAULT (or must allow NULL), and can't be UNIQUE or a PRIMARY KEY.
 
 CREATE TABLE IF NOT EXISTS channels (
   id TEXT PRIMARY KEY,
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS credentials (
   updated_at INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS files (key TEXT PRIMARY KEY, uploader TEXT, channel_id TEXT, created_at INTEGER, voice TEXT, transcript TEXT, t_status TEXT, t_tries INTEGER NOT NULL DEFAULT 0, t_at INTEGER);
+CREATE TABLE IF NOT EXISTS files (key TEXT PRIMARY KEY, uploader TEXT, channel_id TEXT, created_at INTEGER, voice TEXT, transcript TEXT, t_status TEXT, t_tries INTEGER NOT NULL DEFAULT 0, t_at INTEGER, size INTEGER NOT NULL DEFAULT 0);
 
 CREATE TABLE IF NOT EXISTS invites (
   token TEXT PRIMARY KEY,
@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE VIRTUAL TABLE IF NOT EXISTS voice_fts USING fts5(text, message_id UNINDEXED, file_key UNINDEXED, tokenize='unicode61 remove_diacritics 2');
 
 CREATE INDEX IF NOT EXISTS files_chan ON files(channel_id, created_at);
+
+CREATE INDEX IF NOT EXISTS files_uploader ON files(uploader);
 
 CREATE INDEX IF NOT EXISTS files_t_status ON files(t_status) WHERE t_status IS NOT NULL;
 

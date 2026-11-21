@@ -65,6 +65,19 @@ export function safeFetchUrl(u) {
 }
 const MAX_HTML = 512 * 1024;
 
+// Fetch a public URL, following redirects by hand so every hop is checked again. Null if any hop isn't allowed.
+export async function safeFetch(url, headers) {
+  let res, u = url;
+  for (let hop = 0; ; hop++) {
+    if (hop > 4 || !safeFetchUrl(u)) return null;
+    res = await fetch(u, { headers, redirect: "manual" });
+    if (res.status < 300 || res.status >= 400) return { res, url: u };
+    const loc = res.headers.get("location");
+    if (!loc) return null;
+    u = new URL(loc, u).href;
+  }
+}
+
 /**
  * Handles the unfurling of a URL by extracting metadata such as title, description, image, and favicon.
  * @param {string} url - The URL to unfurl.
@@ -92,17 +105,10 @@ export async function unfurl(url) {
       "user-agent",
       "Mozilla/5.0 (compatible; YakyardBot/1.0; link preview)"
     );
-    // Follow redirects by hand so every hop is checked again.
-    let res, u = url;
-    for (let hop = 0; ; hop++) {
-      if (hop > 4 || !safeFetchUrl(u)) return { ok: false, error: "bad-param" };
-      res = await fetch(u, { headers, redirect: "manual" });
-      if (res.status < 300 || res.status >= 400) break;
-      const loc = res.headers.get("location");
-      if (!loc) return { ok: false, error: "failed-fetch" };
-      u = new URL(loc, u).href;
-    }
-    url = u;
+    const hit = await safeFetch(url, headers);
+    if (!hit) return { ok: false, error: "failed-fetch" };
+    const res = hit.res;
+    url = hit.url;
     if (!res.ok || !isValidContentType(res.headers.get("content-type") ?? "")) {
       return { ok: false, error: "failed-fetch" };
     }

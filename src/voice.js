@@ -17,6 +17,7 @@ export function parseVoiceMeta(form) {
 
 function b64(buf) {
   const u = new Uint8Array(buf);
+  if (u.toBase64) return u.toBase64();   // native: about 1 ms of CPU per MB instead of 10+
   let s = '';
   for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode.apply(null, u.subarray(i, i + 32768));
   return btoa(s);
@@ -32,15 +33,31 @@ async function hint(env) {
   return `${env.VOICE_HINT ? env.VOICE_HINT + ' ' : ''}${env.WORKSPACE_NAME || ''}. ${names.join(', ')}.`;
 }
 
-// Claim the job so two runs never transcribe the same note.
+// Workers AI gives 10,000 free neurons a day (about 214 minutes of voice notes). When they run out,
+// notes still send; their transcripts wait until the next day (midnight UTC), when the cron picks them up.
+const nextUtcDay = () => { const d = new Date(); d.setUTCHours(24, 1, 0, 0); return d.getTime(); };
+const quotaError = (e) => /3036|daily free allocation|neurons|4006/i.test(String(e?.message || e));
+async function aiPausedUntil(env) {
+  const r = await env.DB.prepare("SELECT value FROM settings WHERE key='ai_paused_until'").first().catch(() => null);
+  return +(r?.value || 0) > now() ? +r.value : 0;
+}
+
+// Claim the job so two runs never transcribe the same note. A "Try again" can re-run a failed one, a few times at most.
 async function claim(env, key, force) {
   const stale = now() - 5 * 60e3;
   const r = await env.DB.prepare(`UPDATE files SET t_status='working', t_at=?, t_tries=t_tries+1 WHERE key=? AND voice IS NOT NULL AND (
-      t_status='pending' OR (t_status='working' AND t_at<?) OR (? AND t_status='failed'))`).bind(now(), key, stale, force ? 1 : 0).run();
+      t_status='pending' OR (t_status='working' AND t_at<?) OR (? AND t_status='failed' AND t_tries < 6))`).bind(now(), key, stale, force ? 1 : 0).run();
   return (r.meta?.changes || 0) > 0;
 }
 
 export async function transcribe(env, key, deps, force = false) {
+  const paused = await aiPausedUntil(env);
+  if (paused) {
+    // Wait for tomorrow without spending tries. t_at in the future keeps the cron away until then.
+    await env.DB.prepare("UPDATE files SET t_status='pending', t_at=? WHERE key=? AND t_status IN ('pending','failed')").bind(paused, key).run();
+    await patchMessage(env, key, deps);
+    return { status: 'later', transcript: '' };
+  }
   if (!(await claim(env, key, force))) {
     const f = await env.DB.prepare('SELECT transcript, t_status FROM files WHERE key=?').bind(key).first();
     return { status: f?.t_status || 'none', transcript: f?.transcript || '' };
@@ -61,6 +78,15 @@ export async function transcribe(env, key, deps, force = false) {
     return { status: 'done', transcript: text };
   } catch (e) {
     console.log('transcribe failed', key, String(e));
+    if (quotaError(e)) {
+      const until = nextUtcDay();
+      await env.DB.batch([
+        env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('ai_paused_until',?)").bind(String(until)),
+        env.DB.prepare("UPDATE files SET t_status='pending', t_tries=MAX(0,t_tries-1), t_at=? WHERE key=?").bind(until, key),
+      ]);
+      await patchMessage(env, key, deps);
+      return { status: 'later', transcript: '' };
+    }
     const f = await env.DB.prepare('SELECT t_tries FROM files WHERE key=?').bind(key).first();
     const st = (f?.t_tries || 0) >= MAX_TRIES ? 'failed' : 'pending';
     await env.DB.prepare('UPDATE files SET t_status=?, t_at=? WHERE key=?').bind(st, now(), key).run();
@@ -71,7 +97,7 @@ export async function transcribe(env, key, deps, force = false) {
 
 // Put the transcript (or the failed state) into the message that holds this voice note, index it, tell everyone.
 export async function patchMessage(env, key, deps) {
-  const f = await env.DB.prepare('SELECT channel_id, transcript, t_status FROM files WHERE key=?').bind(key).first();
+  const f = await env.DB.prepare('SELECT channel_id, transcript, t_status, t_at FROM files WHERE key=?').bind(key).first();
   if (!f?.channel_id) return false;
   // instr, not LIKE: D1 caps LIKE patterns at 50 characters and file keys are longer.
   const msg = await env.DB.prepare('SELECT * FROM messages WHERE channel_id=? AND instr(files, ?) > 0 ORDER BY ts DESC LIMIT 1').bind(f.channel_id, JSON.stringify(key)).first();
@@ -81,7 +107,7 @@ export async function patchMessage(env, key, deps) {
   let changed = false;
   for (const x of files) {
     if (x.key !== key) continue;
-    const t = f.t_status === 'done' ? 'done' : f.t_status === 'failed' ? 'failed' : 'pending';
+    const t = f.t_status === 'done' ? 'done' : f.t_status === 'failed' ? 'failed' : f.t_at > now() + 60e3 ? 'later' : 'pending';
     if (x.t !== t || (x.transcript || '') !== (f.transcript || '')) { x.t = t; x.transcript = f.transcript || ''; changed = true; }
   }
   if (!changed) return false;
@@ -110,9 +136,11 @@ export async function waitTranscripts(env, keys, ms = 20000) {
   return null;
 }
 
-// Safety net, every minute: notes whose transcript never started (app closed right after sending).
+// Safety net, every minute: notes whose transcript never started (app closed right after sending), and
+// notes that waited for the next day's free AI quota. One per minute, so the run stays small.
 export async function voiceCron(env, deps) {
-  const r = await env.DB.prepare(`SELECT key FROM files WHERE channel_id IS NOT NULL AND ((t_status='pending' AND COALESCE(t_at, created_at) < ?) OR (t_status='working' AND t_at < ?)) ORDER BY created_at LIMIT 3`)
+  if (await aiPausedUntil(env)) return;
+  const r = await env.DB.prepare(`SELECT key FROM files WHERE channel_id IS NOT NULL AND ((t_status='pending' AND COALESCE(t_at, created_at) < ?) OR (t_status='working' AND t_at < ?)) ORDER BY created_at LIMIT 1`)
     .bind(now() - 45e3, now() - 5 * 60e3).all();
   for (const x of r.results) await transcribe(env, x.key, deps);
 }

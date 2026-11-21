@@ -1,8 +1,31 @@
 # Security checks against a local server. Run: npm run db:init:local, then npx wrangler dev --local --port 8797, then python3 test/security.py (needs requests and playwright).
-import json, re, socket, subprocess, time, base64, os, sys
+import json, re, socket, subprocess, time, base64, os, sys, hashlib
 import requests
 
-B = 'http://localhost:8797'
+# The sign-in pages stretch the password in the browser (public/auth.js). This does the same for forms the
+# tests post with a plain 'password', so the checks below read like a person filling in the forms.
+def kdf(pw, salt_b64, it=600000):
+    return base64.b64encode(hashlib.pbkdf2_hmac('sha256', pw.encode(), base64.b64decode(salt_b64), it)).decode()
+def kdf_form(url, data):
+    if not isinstance(data, dict) or 'password' not in data or data.get('_raw'):
+        return {k: v for k, v in (data or {}).items() if k != '_raw'} if isinstance(data, dict) else data
+    d = dict(data); pw = d.pop('password')
+    if url.endswith('/auth/login'):
+        s = requests.post(B + '/auth/salt', json={'email': d.get('email', '').lower()}).json()
+        d['key'] = kdf(pw, s['salt'], s['iter'])
+        if s.get('legacy'): d['password'] = pw
+    else:
+        salt = base64.b64encode(os.urandom(16)).decode()
+        d.update(salt=salt, key=kdf(pw, salt), len=str(len(pw)))
+    return d
+_post, _spost = requests.post, requests.Session.post
+requests.post = lambda url, data=None, **kw: _post(url, data=kdf_form(url, data), **kw)
+requests.Session.post = lambda self, url, data=None, **kw: _spost(self, url, data=kdf_form(url, data), **kw)
+
+B = os.environ.get('YY_BASE', 'http://localhost:8797')   # YY_BASE / YY_PERSIST let tests use another port and database copy
+WS = B.replace('http', 'ws', 1)
+PORT = B.rsplit(':', 1)[1]
+PERSIST = ['--persist-to=' + os.environ['YY_PERSIST']] if os.environ.get('YY_PERSIST') else []
 TOKEN = 'testsetuptoken123456789012'
 PW = 'ownerpassword123'
 results = []
@@ -17,7 +40,7 @@ def check(name, cond, detail=''):
     print(('PASS ' if cond else 'FAIL ') + name + (('  [' + str(detail)[:200] + ']') if detail and not cond else ''))
 
 def d1(sql):
-    out = subprocess.run(['npx', 'wrangler', 'd1', 'execute', 'DB', '--local', '--json', '--command', sql],
+    out = subprocess.run(['npx', 'wrangler', 'd1', 'execute', 'DB', '--local', *PERSIST, '--json', '--command', sql],
                          cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), capture_output=True, text=True).stdout
     return json.loads(out)[0]['results']
 
@@ -79,7 +102,7 @@ def invite(s, email, **extra):
 
 def join(link, name, pw='memberpassword1'):
     s = session()
-    path = link.split('8797', 1)[1]
+    path = '/' + link.split('/', 3)[3]
     r = s.post(B + path, data={'name': name, 'password': pw}, allow_redirects=False)
     assert r.status_code == 303, (r.status_code, r.text[:200])
     return s
@@ -138,18 +161,18 @@ check('M3 owner can still reset a signed-in user', r.status_code == 200, r.text)
 
 # ---------------- M5 websocket origin
 def ws_status(origin, cookie):
-    s = socket.create_connection(('localhost', 8797))
+    s = socket.create_connection(('localhost', int(PORT)))
     key = base64.b64encode(os.urandom(16)).decode()
-    req = (f'GET /ws HTTP/1.1\r\nHost: localhost:8797\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
+    req = (f'GET /ws HTTP/1.1\r\nHost: localhost:{PORT}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n'
            f'Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nCookie: yy_session={cookie}\r\n'
            + (f'Origin: {origin}\r\n' if origin else '') + '\r\n')
     s.sendall(req.encode()); data = s.recv(200).decode(errors='ignore'); s.close()
     return int(data.split(' ')[1])
 ck = owner.cookies.get('yy_session')
 check('M5 /ws from other origin refused', ws_status('http://evil.example', ck) == 403)
-check('M5 /ws from same-site other subdomain refused', ws_status('http://blog.localhost:8797', ck) == 403)
+check('M5 /ws from same-site other subdomain refused', ws_status(B.replace('localhost', 'blog.localhost'), ck) == 403)
 check('M5 /ws without Origin refused', ws_status(None, ck) == 403)
-check('M5 /ws from own origin accepted', ws_status('http://localhost:8797', ck) == 101)
+check('M5 /ws from own origin accepted', ws_status(B, ck) == 101)
 
 # ---------------- L6 push endpoint allowlist
 keys = {'p256dh': 'x', 'auth': 'y'}
@@ -192,7 +215,7 @@ check('C1/L5 member without SLACK_TEAM_ID/TOKEN_KEY sent to setup, not to Slack'
 # ---------------- L9 shell CSP
 r = owner.get(B + '/')
 csp = r.headers.get('content-security-policy', '')
-check('L9 shell connect-src limited to own ws host', 'ws://localhost:8797' in csp and ' wss:;' not in csp, csp)
+check('L9 shell connect-src limited to own ws host', WS in csp and ' wss:;' not in csp, csp)
 
 # ---------------- L4 logout
 victim = session(); victim.post(B + '/auth/login', data={'email': 'carol@example.com', 'password': 'memberpassword1'}, allow_redirects=False)
@@ -213,10 +236,11 @@ for i in range(10):
 check('M6 9th attempt for one account in 15 min is throttled', codes[:7] == [False] * 7 and all(codes[7:]), codes)
 r = requests.post(B + '/auth/login', data={'email': 'carol@example.com', 'password': 'memberpassword1'})
 check('M6 even the right password is held back while throttled', 'Too many' in r.text)
-t0 = time.time(); requests.post(B + '/auth/login', data={'email': 'owner@example.com', 'password': 'nope-nope'}); ta = time.time() - t0
-t0 = time.time(); requests.post(B + '/auth/login', data={'email': 'nobody@example.com', 'password': 'nope-nope'}); tb = time.time() - t0
+dk = 'A' * 43 + '='
+t0 = time.time(); requests.post(B + '/auth/login', data={'email': 'owner@example.com', 'key': dk}); ta = time.time() - t0
+t0 = time.time(); requests.post(B + '/auth/login', data={'email': 'nobody@example.com', 'key': dk}); tb = time.time() - t0
 print(f'  timing: existing {ta*1000:.0f} ms, unknown {tb*1000:.0f} ms')
-check('M6 unknown email also runs the slow hash (timing within 3x)', tb > ta / 3, (ta, tb))
+check('M6 unknown email does the same server work (timing within 3x)', tb > ta / 3 and ta > tb / 3, (ta, tb))
 
 # ---------------- M1 thread followers exclude people who left (checked on the live event)
 from playwright.sync_api import sync_playwright
@@ -230,7 +254,7 @@ with sync_playwright() as p:
     ctx.add_cookies([{'name': 'yy_session', 'value': owner.cookies.get('yy_session'), 'domain': 'localhost', 'path': '/'}])
     page = ctx.new_page()
     page.goto(B + '/sw.js')  # any same-origin page
-    page.evaluate('''() => new Promise((ok) => { window.evts = []; const w = new WebSocket('ws://localhost:8797/ws'); window.w = w;
+    page.evaluate('''() => new Promise((ok) => { window.evts = []; const w = new WebSocket(location.origin.replace('http', 'ws') + '/ws'); window.w = w;
         w.onmessage = (e) => window.evts.push(JSON.parse(e.data)); w.onopen = () => ok(); })''')
     api(owner, 'POST', f'/api/channels/{secret}/messages', {'text': 'owner reply', 'thread_id': parent})
     page.wait_for_timeout(1500)
@@ -251,6 +275,88 @@ adm = invite(owner, 'adm@example.com', name='Ada'); ads = join(adm.json()['link'
 api(owner, 'PATCH', f"/api/admin/users/{adm.json()['id']}", {'role': 'admin'})
 r = api(ads, 'POST', f"/api/admin/users/{adm.json()['id']}/channels", {'channel_id': priv, 'member': True})
 check('S-6 admin cannot add themselves to a private channel', r.status_code == 403, r.status_code)
+
+# ---------------- free plan: client-side password stretching
+s1 = requests.post(B + '/auth/salt', json={'email': 'nobody@example.com'}).json()
+s2 = requests.post(B + '/auth/salt', json={'email': 'NOBODY@example.com'}).json()
+check('KDF salt for an unknown email is stable and looks real', s1['salt'] == s2['salt'] and len(base64.b64decode(s1['salt'])) == 16 and s1['iter'] == 600000, s1)
+s3 = requests.post(B + '/auth/salt', json={'email': 'owner@example.com'}).json()
+check('KDF salt reply has the same shape for real and unknown emails', set(s1) == set(s3), (s1, s3))
+r = requests.post(B + '/auth/salt', json={'email': 'x@y.z'}, headers={'origin': 'http://evil.example'})
+check('KDF salt endpoint refuses other sites', r.status_code == 403)
+check('KDF stored hashes are the quick "c1:" kind', all(x['hash'].startswith('c1:') for x in d1('SELECT hash FROM credentials')))
+r = requests.post(B + '/auth/login', data={'email': 'owner@example.com', 'password': PW, '_raw': 1}, allow_redirects=False)
+check('KDF sign-in without the browser key is refused', r.status_code == 200 and 'JavaScript' in r.text)
+# An account from before this change: server-side PBKDF2 (100k), no marker. Upgrades on the next sign-in.
+lsalt = base64.b64encode(os.urandom(16)).decode()
+lhash = base64.b64encode(hashlib.pbkdf2_hmac('sha256', b'legacypassword1', base64.b64decode(lsalt), 100000)).decode()
+lr = invite(owner, 'legacy@example.com', name='Lee'); join(lr.json()['link'], 'Lee', 'throwaway12345')
+lid = lr.json()['id']
+subprocess.run(['npx', 'wrangler', 'd1', 'execute', 'DB', '--local', *PERSIST, '--command', f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{lid}'"], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), capture_output=True)
+check('KDF salt says "legacy" for an old account', requests.post(B + '/auth/salt', json={'email': 'legacy@example.com'}).json()['legacy'] is True)
+r = session().post(B + '/auth/login', data={'email': 'legacy@example.com', 'password': 'wrongpassword1'}, allow_redirects=False)
+check('KDF old account: wrong password refused', r.status_code == 200 and 'Wrong email' in r.text)
+r = session().post(B + '/auth/login', data={'email': 'legacy@example.com', 'password': 'legacypassword1'}, allow_redirects=False)
+check('KDF old account signs in with its old password', r.status_code == 303, r.status_code)
+check('KDF old account was upgraded to the quick hash', d1(f"SELECT hash FROM credentials WHERE user_id='{lid}'")[0]['hash'].startswith('c1:'))
+r = session().post(B + '/auth/login', data={'email': 'legacy@example.com', 'password': 'legacypassword1'}, allow_redirects=False)
+check('KDF upgraded account signs in with the key only', r.status_code == 303)
+# Password change
+pc = session(); pc.post(B + '/auth/login', data={'email': 'dz@example.com', 'password': 'deepassword123'}, headers={'origin': B})
+other = session(); other.post(B + '/auth/login', data={'email': 'dz@example.com', 'password': 'deepassword123'}, headers={'origin': B})
+cs = requests.post(B + '/auth/salt', json={'email': 'dz@example.com'}).json()
+ns = base64.b64encode(os.urandom(16)).decode()
+r = api(pc, 'POST', '/api/me/password', {'key': kdf('notmypassword1', cs['salt']), 'new_key': kdf('newdeepassword1', ns), 'new_salt': ns, 'len': 15})
+check('password change with the wrong current password refused', r.status_code == 400 and 'current' in r.json().get('error', ''), r.text)
+r = api(pc, 'POST', '/api/me/password', {'key': kdf('deepassword123', cs['salt']), 'new_key': kdf('short', ns), 'new_salt': ns, 'len': 5})
+check('password change to a short password refused', r.status_code == 400)
+r = api(pc, 'POST', '/api/me/password', {'key': kdf('deepassword123', cs['salt']), 'new_key': kdf('newdeepassword1', ns), 'new_salt': ns, 'len': 15})
+check('password change works', r.status_code == 200, r.text)
+check('password change keeps this session', api(pc, 'GET', '/api/bootstrap').status_code == 200)
+check('password change signs out other sessions', api(other, 'GET', '/api/bootstrap').status_code == 401)
+r = session().post(B + '/auth/login', data={'email': 'dz@example.com', 'password': 'deepassword123'}, allow_redirects=False)
+check('old password no longer works', r.status_code == 200 and 'Wrong email' in r.text)
+r = session().post(B + '/auth/login', data={'email': 'dz@example.com', 'password': 'newdeepassword1'}, allow_redirects=False)
+check('new password works', r.status_code == 303)
+
+# ---------------- free plan: images through the worker, storage sizes, tighter CSP
+r = owner.get(B + '/')
+check('CSP img-src no longer allows any https host', "img-src 'self' data: blob:;" in r.headers.get('content-security-policy', ''), r.headers.get('content-security-policy'))
+check('image proxy refuses private addresses', api(owner, 'GET', '/api/img?u=' + requests.utils.quote('http://127.0.0.1/x.png')).status_code == 400)
+check('image proxy needs sign-in', requests.get(B + '/api/img?u=https://example.com/a.png').status_code == 401)
+r = owner.post(B + '/api/upload', files={'file': ('a.txt', b'x' * 1234, 'text/plain')}, headers={'origin': B})
+check('upload records the file size (storage cap)', r.status_code == 200 and d1(f"SELECT size FROM files WHERE key='{r.json()['key']}'")[0]['size'] == 1234, r.text)
+
+# ---------------- review nits
+p0 = api(owner, 'POST', f'/api/channels/{general}/messages', {'text': 'parent'}).json()['id']
+rp = api(owner, 'POST', f'/api/channels/{general}/messages', {'text': 'reply', 'thread_id': p0}).json()['id']
+r = api(owner, 'POST', f'/api/channels/{general}/messages', {'text': 'nested', 'thread_id': rp})
+check('N3 a reply to a reply is refused', r.status_code == 404, r.status_code)
+api(owner, 'DELETE', f'/api/messages/{rp}')
+check('N16 deleting a reply lowers the reply count', d1(f"SELECT reply_count FROM messages WHERE id='{p0}'")[0]['reply_count'] == 0)
+check('N15 guests cannot change a topic', api(g, 'PATCH', f'/api/channels/{general}', {'topic': 'hi'}).status_code == 403)
+
+# ---------------- L2 presence: a guest only hears about people they share a conversation with
+lonely = invite(owner, 'lonely@example.com', name='Lonny'); lon = join(lonely.json()['link'], 'Lonny')
+lon_id = lonely.json()['id']
+api(owner, 'POST', f"/api/channels/{general}/remove", {'user_id': lon_id})
+for c in api(lon, 'GET', '/api/bootstrap').json()['channels']:
+    api(lon, 'POST', f"/api/channels/{c['id']}/leave", {})
+with sync_playwright() as p:
+    br = p.chromium.launch()
+    def ws_ctx(sess):
+        c = br.new_context(); c.add_cookies([{'name': 'yy_session', 'value': sess.cookies.get('yy_session'), 'domain': 'localhost', 'path': '/'}])
+        pg = c.new_page(); pg.goto(B + '/sw.js')
+        pg.evaluate('''() => new Promise((ok) => { window.evts = []; const w = new WebSocket(location.origin.replace('http', 'ws') + '/ws'); window.w = w;
+            w.onmessage = (e) => window.evts.push(JSON.parse(e.data)); w.onopen = () => ok(); })''')
+        return pg
+    lp = ws_ctx(lon); gp = ws_ctx(g); op = ws_ctx(owner)
+    gp.wait_for_timeout(1500); op.wait_for_timeout(300)
+    gpres = [e for e in gp.evaluate('window.evts') if e.get('type') == 'presence']
+    opres = [e for e in op.evaluate('window.evts') if e.get('type') == 'presence']
+    check('L2 members see everyone online', opres and lon_id in opres[-1]['online'], opres[-1:] if opres else None)
+    check('L2 guest does not see people they share nothing with', gpres and lon_id not in gpres[-1]['online'] and me in gpres[-1]['online'], gpres[-1:] if gpres else None)
+    br.close()
 
 print()
 print(f"{sum(1 for _, ok in results if ok)}/{len(results)} passed")

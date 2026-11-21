@@ -79,7 +79,7 @@ async function api(path, opts = {}) {
   const data = await res.json().catch(() => ({}));
   // Server text is already written for people on 400 and 409; other codes get a plain line.
   if (!res.ok) throw new Error(res.status === 404 ? "That's not here anymore." : res.status === 403 && /^(Not allowed|Bad origin|Private channel)$/.test(data.error || '') ? "You can't do that here. Ask an admin."
-    : res.status >= 500 || !data.error || /^(Bad |Piece too big|No file)/.test(data.error) ? "That didn't go through. Try again." : data.error);
+    : data.quota ? data.error : res.status >= 500 || !data.error || /^(Bad |Piece too big|No file)/.test(data.error) ? "That didn't go through. Try again." : data.error);
   return data;
 }
 function toast(msg) {
@@ -89,9 +89,11 @@ function toast(msg) {
 
 // ------------------------------------------------------------------ people
 const user = (id) => S.users.get(id) || { id, name: 'Unknown', color: 'var(--ink-3)' };
+// Pictures from other sites go through the server (/api/img), so the page only loads images from here.
+const ext = (u) => (/^https?:\/\//i.test(u || '') ? '/api/img?u=' + encodeURIComponent(u) : u);
 function avatar(u, cls = 'av', size) {
   const el = h('span', { class: `avatar ${cls}`, title: u.name });
-  if (u.avatar) el.style.backgroundImage = `url("${(u.avatar.startsWith('/files/') ? u.avatar + '?w=96' : u.avatar).replace(/"/g, '')}")`;
+  if (u.avatar) el.style.backgroundImage = `url("${(u.avatar.startsWith('/files/') ? u.avatar + '?w=96' : ext(u.avatar)).replace(/"/g, '')}")`;
   else { el.style.background = avatarColor(u); el.style.color = '#ffffff'; el.textContent = (u.name || '?').trim()[0] || '?'; if (size) el.style.fontSize = size; }
   return el;
 }
@@ -406,7 +408,7 @@ async function loadMembers(id) {
 function joinBar(ch) {
   return h('div', { class: 'composer-wrap' },
     h('div', { style: { textAlign: 'center', padding: '16px', background: 'var(--hover-solid)', borderRadius: '8px', border: '1px solid #e2e2e2' } },
-      h('div', { style: { fontWeight: 900, marginBottom: '8px' } }, `#${ch.name}`),
+      h('div', { style: { fontWeight: 700, marginBottom: '8px' } }, `#${ch.name}`),
       h('button', { class: 'btn primary', onclick: async () => {
         const c = await api(`/api/channels/${ch.id}/join`, { method: 'POST', body: {} });
         S.channels.set(c.id, c); S.current = null; S.msgs.delete(c.id); route();
@@ -481,7 +483,8 @@ function firstRun() {
       step('Bring your people in', "They'll get a link to join.", 'Invite people', invitePeople),
       step('Make a channel', 'One per project or team works well.', 'Create a channel', createChannel),
       S.pushKey ? step('Turn on notifications', 'So you hear when someone writes.', 'Turn on', enablePush)
-        : h('li', {}, h('div', { class: 'grow' }, h('b', {}, 'Phone notifications are off'), h('small', {}, 'They need one setup step on your server. See Notifications in the README.')))));
+        : h('li', {}, h('div', { class: 'grow' }, h('b', {}, 'Phone notifications are off'), h('small', {}, 'They need one setup step on your server. See Notifications in the README.')))),
+    h('p', { class: 'fr-guide' }, 'New to Yakyard? ', h('a', { href: GUIDE_URL, target: '_blank', rel: 'noopener' }, 'The guide'), ' covers the rest in five minutes.'));
 }
 async function loadNewer() {
   const id = S.current, st = S.msgs.get(id);
@@ -511,6 +514,8 @@ function messageEl(m, { cont, inThread, isParent }) {
   const u = user(m.user_id);
   const fresh = m._freshAt && Date.now() - m._freshAt < 700;
   const el = h('div', { class: `msg${cont ? ' cont' : ''}${m.deleted ? ' deleted' : ''}${fresh ? ' fresh' : ''}${m.user_id === S.me?.id ? ' mine' : ''}${m._sending ? ' sending' : ''}`, 'data-id': m.id });
+  // A redraw mid-animation (you sent right after someone else) continues it instead of starting over.
+  if (fresh) el.style.animationDelay = `-${Date.now() - m._freshAt}ms`;
   el.append(avatar(u, 'av', '15px'));
   el.firstChild.addEventListener('click', () => profile(u));
   if (cont) el.append(h('span', { class: 'cont-time', title: new Date(m.ts).toLocaleString() }, timeStr(m.ts).replace(/\s?[AP]M$/i, '')));
@@ -566,10 +571,10 @@ function unfurlEl(url) {
     d = { ...d, title: dec(d.title), description: dec(d.description), site_name: dec(d.site_name) };
     let host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch {}
     box.replaceChildren(
-      h('div', { class: 'uf-site' }, d.favicon ? h('img', { src: d.favicon, alt: '', onerror: (e) => e.target.remove() }) : '', host),
+      h('div', { class: 'uf-site' }, d.favicon ? h('img', { src: ext(d.favicon), alt: '', onerror: (e) => e.target.remove() }) : '', host),
       d.title ? h('a', { class: 'uf-title', href: url, target: '_blank', rel: 'noopener' }, d.title) : '',
       d.description ? h('div', { class: 'uf-desc' }, d.description.length > 220 ? d.description.slice(0, 217) + '…' : d.description) : '',
-      d.image ? h('a', { href: url, target: '_blank', rel: 'noopener' }, h('img', { class: 'uf-img', src: d.image, alt: '', loading: 'lazy', onerror: (e) => e.target.remove() })) : '');
+      d.image ? h('a', { href: url, target: '_blank', rel: 'noopener' }, h('img', { class: 'uf-img', src: ext(d.image), alt: '', loading: 'lazy', onerror: (e) => e.target.remove() })) : '');
     box.hidden = false;
   };
   if (unfurls.has(url)) { const v = unfurls.get(url); v instanceof Promise ? v.then(fill) : fill(v); }
@@ -652,9 +657,11 @@ function makePlayer(f) {
       } else if (nf.t === 'done') {
         tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No speech heard'));
       } else if (nf.t === 'failed') {
-        tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No transcript yet. ', h('button', { class: 'vn-link', onclick: (e) => { e.target.disabled = true; tBox.replaceChildren(h('div', { class: 'vn-muted vn-wait' }, 'Transcribing…')); last = null; api('/api/voice/transcribe', { method: 'POST', body: { key: nf.key, retry: true } }).catch((er) => toast(er.message)); } }, 'Try again')));
+        tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No transcript yet. ', h('button', { class: 'vn-link', onclick: (e) => { e.target.disabled = true; tBox.replaceChildren(h('div', { class: 'vn-muted vn-wait' }, 'Turning your yak into words…')); last = null; api('/api/voice/transcribe', { method: 'POST', body: { key: nf.key, retry: true } }).catch((er) => toast(er.message)); } }, 'Try again')));
+      } else if (nf.t === 'later') {
+        tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'The transcript comes tomorrow. Today\'s free transcribing time is used up.'));
       } else {
-        tBox.replaceChildren(h('div', { class: 'vn-muted vn-wait' }, 'Transcribing…'));
+        tBox.replaceChildren(h('div', { class: 'vn-muted vn-wait' }, 'Turning your yak into words…'));
       }
     },
   };
@@ -851,7 +858,7 @@ function editMessage(m) {
     try { const saved = await api(`/api/messages/${m.id}`, { method: 'PATCH', body: { text } }); box.remove(); S.pendingRedraw = false; applyMessage(saved); rerender(saved); } catch (e) { toast(e.message); }
   };
   const fb = (t, c, label, st) => h('button', { title: t, onmousedown: (e) => e.preventDefault(), onclick: () => { ed.focus(); document.execCommand(c); }, style: st }, label);
-  const box = h('div', { class: 'edit-wrap' }, h('div', { class: 'fmt-bar edit-bar' }, fb('Bold', 'bold', 'B', { fontWeight: 900 }), fb('Italic', 'italic', 'I', { fontStyle: 'italic', fontFamily: 'Georgia, serif' }), fb('Strikethrough', 'strikeThrough', 'S', { textDecoration: 'line-through' })), ed,
+  const box = h('div', { class: 'edit-wrap' }, h('div', { class: 'fmt-bar edit-bar' }, fb('Bold', 'bold', 'B', { fontWeight: 700 }), fb('Italic', 'italic', 'I', { fontStyle: 'italic', fontFamily: 'Georgia, serif' }), fb('Strikethrough', 'strikeThrough', 'S', { textDecoration: 'line-through' })), ed,
     h('div', { style: { display: 'flex', gap: '8px', marginTop: '6px', justifyContent: 'flex-end' } },
       h('button', { class: 'btn', onclick: () => done() }, 'Cancel'), h('button', { class: 'btn primary', onclick: save }, 'Save')));
   ed.addEventListener('keydown', (e) => {
@@ -957,7 +964,7 @@ function composer({ channelId, threadId }) {
   function closest(tag) { let n = sel().anchorNode; while (n && n !== ed) { if (n.nodeName === tag.toUpperCase()) return n; n = n.parentNode; } return null; }
   function unwrap(el) { const p = el.parentNode; while (el.firstChild) p.insertBefore(el.firstChild, el); p.removeChild(el); sync(); }
   const fmtBar = h('div', { class: 'fmt-bar' },
-    h('button', { title: 'Bold (Ctrl+B)', onmousedown: keep, onclick: () => cmd('bold'), style: { fontWeight: 900 } }, 'B'),
+    h('button', { title: 'Bold (Ctrl+B)', onmousedown: keep, onclick: () => cmd('bold'), style: { fontWeight: 700 } }, 'B'),
     h('button', { title: 'Italic (Ctrl+I)', onmousedown: keep, onclick: () => cmd('italic'), style: { fontStyle: 'italic', fontFamily: 'Georgia, serif' } }, 'I'),
     h('button', { title: 'Strikethrough', onmousedown: keep, onclick: () => cmd('strikeThrough'), style: { textDecoration: 'line-through' } }, 'S'),
     h('span', { class: 'sep' }),
@@ -1187,7 +1194,8 @@ function composer({ channelId, threadId }) {
     if (files.length) { e.preventDefault(); addFiles(files); return; }
     const html = e.clipboardData?.getData('text/html'), txt = e.clipboardData?.getData('text/plain') || '';
     e.preventDefault();
-    if (html) { const tmp = h('div', { html: html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, '') }); document.execCommand('insertHTML', false, mdToHtml(htmlToMd(tmp))); }
+    // DOMParser documents are inert: nothing in pasted HTML runs or loads.
+    if (html) { const tmp = new DOMParser().parseFromString(html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ''), 'text/html').body; document.execCommand('insertHTML', false, mdToHtml(htmlToMd(tmp))); }
     else document.execCommand('insertText', false, txt);
     sync();
   });
@@ -1425,7 +1433,7 @@ function notify(m, ch) {
   const u = user(m.user_id);
   const n = new Notification(ch.kind === 'dm' ? u.name : `${u.name} in #${ch.name}`, {
     body: m.text.replace(/<@(U\w+)>/g, (_, id) => '@' + user(id).name).replace(/<[^>|]+\|([^>]+)>/g, '$1').slice(0, 180) || 'Sent a file',
-    tag: m.thread_id || ch.id, icon: u.avatar || '/brand/app-icon-192.png',
+    tag: m.thread_id || ch.id, icon: ext(u.avatar) || '/brand/app-icon-192.png',
   });
   n.onclick = () => { window.focus(); go(m.channel_id, m.thread_id || undefined); n.close(); };
 }
@@ -1758,8 +1766,8 @@ function searchMessages(initial = '') {
 }
 function profile(u) {
   const body = h('div', {},
-    h('div', { class: 'profile-card' }, avatar(u, 'av', '28px'), h('div', {}, h('div', { style: { fontSize: '22px', fontWeight: 900 } }, u.name),
-      h('div', { style: { color: 'var(--ink-3)' } }, u.title || ''), h('div', { style: { color: 'var(--ink-3)', fontSize: '13px' } }, presenceLabel(u) + ' · ' + (u.email || '')),
+    h('div', { class: 'profile-card' }, avatar(u, 'av', '28px'), h('div', {}, h('div', { style: { fontSize: 'var(--fs-sticker)', fontWeight: 700 } }, u.name),
+      h('div', { style: { color: 'var(--ink-3)' } }, u.title || ''), h('div', { style: { color: 'var(--ink-3)', fontSize: 'var(--fs-sm)' } }, presenceLabel(u) + ' · ' + (u.email || '')),
       statusOf(u) ? h('div', { class: 'p-status' }, emojiNode(statusOf(u).emoji || '💬'), ' ', statusOf(u).text || '') : '',
       inDnd(u) ? h('div', { class: 'p-status' }, svg(I.moon, 13), ' Notifications paused') : '',
       u.tz ? h('div', { class: 'p-local' }, svg('M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM9.3 5.5h1.4v4.2l3 1.8-.7 1.2-3.7-2.2v-5z', 14), `${localTime(u.tz)} local time`, u.city ? ` · ${u.city}` : '') : '')),
@@ -1880,7 +1888,16 @@ function renderAdmin() {
   const kpis = h('div', { class: 'kpis' },
     kpi(counts.active || 0, 'Signed in'), kpi((counts.invited || 0), 'Invites waiting'), kpi(counts.not_invited || 0, 'Not invited yet'),
     kpi((st.messages || 0).toLocaleString(), 'Messages'), kpi((st.messages_7d || 0).toLocaleString(), 'Messages this week'));
-  root.replaceChildren(head, kpis, A.tab === 'people' ? peopleTable(counts) : channelsTable());
+  // Usage today against Cloudflare's free plan. Rough: requests and database reads are only in the Cloudflare dashboard.
+  const gb = (b) => (b / 1024 ** 3).toFixed(b < 1024 ** 3 ? 2 : 1) + ' GB';
+  const meter = (label, used, max, text) => h('div', { class: 'use-row' }, h('div', { class: 'use-top' }, h('span', {}, label), h('span', { class: 'use-num' }, text)),
+    h('div', { class: 'use-bar', role: 'meter', 'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-valuenow': Math.min(used, max) }, h('i', { style: { width: Math.min(100, (used / max) * 100 || 0) + '%' } })));
+  const usage = h('section', { class: 'card usage' }, h('h3', {}, 'Usage'),
+    meter('File storage', st.storage || 0, st.storage_limit || 1, `${gb(st.storage || 0)} of ${gb(st.storage_limit || 0)}`),
+    meter('Voice transcripts today', st.voice_secs_today || 0, st.voice_free_secs || 1, `${Math.round((st.voice_secs_today || 0) / 60)} of about ${Math.round((st.voice_free_secs || 0) / 60)} free minutes`),
+    st.ai_paused_until ? h('p', { class: 'use-note' }, `Free transcribing time is used up. Transcripts start again at ${new Date(st.ai_paused_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`) : '',
+    h('p', { class: 'use-note' }, 'Requests and database use are in your Cloudflare dashboard, under Workers & Pages.'));
+  root.replaceChildren(head, kpis, usage, A.tab === 'people' ? peopleTable(counts) : channelsTable());
 }
 const kpi = (n, l) => h('div', { class: 'kpi' }, h('b', {}, String(n)), h('span', {}, l));
 function peopleTable(counts) {
@@ -2105,6 +2122,22 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); inst
 window.addEventListener('appinstalled', () => { $('.install')?.remove(); localStorage.setItem('yy-installed', '1'); $('.get-app')?.remove(); });
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 
+// The "?" button: the few things people ask most, and a link to the full guide.
+const GUIDE_URL = 'https://github.com/yakyard/yakyard/blob/main/docs/GUIDE.md';
+function openHelp() {
+  const tips = [
+    ['Start a conversation', 'Plus next to Channels or Direct messages. Ctrl/⌘ + K jumps anywhere.'],
+    ['Reply in a thread', 'Hover a message (or long-press on a phone) and pick Reply.'],
+    ['Mention someone', 'Type @ and a name. @here reaches everyone in the channel.'],
+    ['Send a voice note', 'Hold the mic button to yak. The transcript shows up under it.'],
+    ['Find something', 'Search takes filters: from:@ana in:#sales has:voice before:2026-12-01'],
+    ['Send later', 'The clock next to Send schedules a message. Find it in Later.'],
+    ['Quiet hours', 'Status and notifications: pause, set do not disturb, pick a theme.'],
+  ];
+  modal('Help', h('div', { class: 'help' },
+    h('dl', {}, ...tips.flatMap(([t, d]) => [h('dt', {}, t), h('dd', {}, d)])),
+    h('p', {}, h('a', { href: GUIDE_URL, target: '_blank', rel: 'noopener' }, 'Read the full guide'), ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); closeModal(); shortcuts(); } }, 'Keyboard shortcuts'))));
+}
 function shortcuts() {
   const rows = [['Ctrl/⌘ + K', 'Jump to a conversation'], ['Ctrl/⌘ + Shift + H', 'Pop in / pop out (voice call)'], ['Ctrl/⌘ + F', 'Search messages'], ['Alt + ↑ / ↓', 'Previous / next channel'], ['Alt + Shift + ↑ / ↓', 'Previous / next unread'], ['↑ in empty box', 'Edit your last message'], ['Shift + Return', 'New line'], ['Esc', 'Close panel / mark read']];
   modal('Keyboard shortcuts', h('div', {}, ...rows.map(([k, d]) => h('div', { class: 'list-item', style: { cursor: 'default' } }, h('div', { class: 'grow' }, d), h('b', {}, k)))));
@@ -2192,7 +2225,7 @@ async function start() {
   $('#btn-search').onclick = () => searchMessages();
   $('#search-label').textContent = 'Search ' + S.workspace.name;
   $('#btn-compose').onclick = composeDM;
-  $('#btn-help').onclick = shortcuts;
+  $('#btn-help').onclick = openHelp;
   $('#ws-menu').onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); menu([['Create a channel', createChannel], ['Browse channels', browseChannels], ['Create a section', () => newSection()], ['Invite people', invitePeople], ...(isAdmin() ? [['Admin dashboard', () => openAdmin()]] : []), ['---'], ['Your profile', () => profile(S.me)], ['Status and notifications', () => (location.hash = '#/prefs')], ['Import my Slack history', () => (location.hash = '#/import')], ['Pause notifications…', () => pauseMenu()], ['Keyboard shortcuts', shortcuts], ['Install the app', installApp], ['---'], ['Sign out', signOut]], r.left, r.bottom + 4); };
   $('#ws-icon').onclick = () => { S.view = 'home'; railActive('home'); renderSidebar(); };
   $('#btn-back').onclick = () => { if (S.thread && $('#app').classList.contains('view-thread')) closeThread(true); else if (history.length > 1 && S.cameFromList) history.back(); else { location.hash = '#/'; } };
@@ -2482,7 +2515,7 @@ function incoming(ch, list) {
   document.body.append(card);
   tone(true); setTimeout(() => tone(true), 450);
   if ('Notification' in window && Notification.permission === 'granted' && !document.hasFocus()) {
-    const n = new Notification(`${u.name} popped in`, { body: 'Click to pop in and talk', tag: key, icon: u.avatar || '/icon.svg' });
+    const n = new Notification(`${u.name} popped in`, { body: 'Click to pop in and talk', tag: key, icon: ext(u.avatar) || '/brand/app-icon-192.png' });
     n.onclick = () => { window.focus(); go(ch.id); startHuddle(ch.id); n.close(); };
   }
 }
@@ -2832,6 +2865,24 @@ async function openFiles(channelId = '', type = '', q = '', mine = false) {
 }
 
 // ---------- preferences: status, notifications, do not disturb
+// Change password. The browser does the slow stretching (public/auth.js), the server stores a quick hash of it.
+function passwordSection(section) {
+  const cur = h('input', { class: 'input', type: 'password', autocomplete: 'current-password', 'aria-label': 'Current password', placeholder: 'Current password' });
+  const nw = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', minlength: 10, 'aria-label': 'New password', placeholder: 'New password, at least 10 characters' });
+  const msg = h('p', { class: 'login-error', role: 'alert', hidden: true });
+  const btn = h('button', { class: 'btn primary sm', onclick: async () => {
+    msg.hidden = true;
+    if (nw.value.length < 10) { msg.textContent = 'Pick a new password of at least 10 characters.'; msg.hidden = false; nw.focus(); return; }
+    btn.disabled = true; btn.textContent = 'One moment…';
+    try {
+      const k = window.yyKdf, s = await k.saltOf(S.me.email), salt = k.newSalt();
+      await api('/api/me/password', { method: 'POST', body: { key: await k.derive(cur.value, s.salt, s.iter), ...(s.legacy ? { password: cur.value } : {}), new_key: await k.derive(nw.value, salt), new_salt: salt, len: nw.value.length } });
+      cur.value = nw.value = ''; toast('Password changed. You were signed out on your other devices.');
+    } catch (e) { msg.textContent = e.message; msg.hidden = false; }
+    btn.disabled = false; btn.textContent = 'Change password';
+  } }, 'Change password');
+  return section('Password', 'Changing it signs you out everywhere else.', h('div', { class: 'pw-row' }, cur, nw), msg, h('div', { class: 'pref-btns' }, btn));
+}
 async function openPrefs() {
   const list = pageShell('prefs', 'Status and notifications', 'How and when Yakyard gets your attention.');
   let pr = {}; try { pr = await api('/api/prefs'); } catch {}
@@ -2874,6 +2925,7 @@ async function openPrefs() {
       h('div', { class: 'presets' }, ...presets.map(([e, t, d]) => h('button', { class: 'preset', onclick: () => saveStatus(e, t, d === 'today' ? (() => { const x = new Date(); x.setHours(23, 59, 0, 0); return x.getTime(); })() : d ? Date.now() + d : 0) }, e, ' ', t)))),
     section('Presence', S.me.away ? 'Everyone sees you as away, even while Yakyard is open.' : 'You show as active (green dot) while Yakyard is open, away when it is closed.',
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!S.me.away, onchange: async (e) => { await setMe({ away: e.target.checked ? 1 : 0 }); openPrefs(); } }), 'Always show me as away')),
+    passwordSection(section),
     section('Notify me about', '', level),
     section('This device', devMsg,
       h('div', { class: 'pref-btns' },
@@ -3076,7 +3128,7 @@ function presenceOf(u) {
 function presenceLabel(u) { return { active: 'Active', away: 'Away', dnd: 'Notifications paused' }[presenceOf(u)]; }
 function presenceDot(u) {
   const p = presenceOf(u);
-  return h('i', { class: 'dot p-' + p + (p === 'active' ? ' on' : ''), title: presenceLabel(u) }, p === 'dnd' ? svg(I.moon, 7) : '');
+  return h('i', { class: 'dot p-' + p + (p === 'active' ? ' on' : ''), title: presenceLabel(u), role: 'img', 'aria-label': presenceLabel(u) }, p === 'dnd' ? svg(I.moon, 7) : '');
 }
 function drawMe() {
   const b = $('#me-avatar'); if (!b || !S.me) return;
@@ -3280,7 +3332,7 @@ function invitedCard(ev) {
   document.body.append(card);
   tone(true); setTimeout(() => tone(true), 900);
   if ('Notification' in window && Notification.permission === 'granted' && !document.hasFocus()) {
-    const n = new Notification(`${from.name} wants you in a pop-in`, { body: label, tag: 'inv' + ev.channel_id, icon: from.avatar || '/brand/app-icon-192.png' });
+    const n = new Notification(`${from.name} wants you in a pop-in`, { body: label, tag: 'inv' + ev.channel_id, icon: ext(from.avatar) || '/brand/app-icon-192.png' });
     n.onclick = () => { window.focus(); n.close(); };
   }
   setTimeout(() => card.remove(), 60e3);
