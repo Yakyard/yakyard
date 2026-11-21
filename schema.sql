@@ -175,3 +175,12 @@ CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN INSERT I
 CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text); END;
 
 CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF text ON messages BEGIN INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text); INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text); END;
+
+-- Storage in use, kept exact by triggers so the team cap is one quick read. The first run counts what's there.
+INSERT OR IGNORE INTO settings (key, value) SELECT 'storage_bytes', COALESCE(SUM(size), 0) FROM files;
+
+CREATE TRIGGER IF NOT EXISTS files_size_ai AFTER INSERT ON files BEGIN UPDATE settings SET value = CAST(value AS INTEGER) + new.size WHERE key = 'storage_bytes'; END;
+
+CREATE TRIGGER IF NOT EXISTS files_size_ad AFTER DELETE ON files BEGIN UPDATE settings SET value = CAST(value AS INTEGER) - old.size WHERE key = 'storage_bytes'; END;
+
+CREATE TRIGGER IF NOT EXISTS files_size_au AFTER UPDATE OF size ON files BEGIN UPDATE settings SET value = CAST(value AS INTEGER) + new.size - old.size WHERE key = 'storage_bytes'; END;

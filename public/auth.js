@@ -1,6 +1,5 @@
 // Password stretching runs here, in your browser (PBKDF2-SHA256, 600,000 rounds), so the server only does
-// one quick hash and sign-in fits the free plan's 10 ms CPU limit. The password itself is never sent,
-// except once to upgrade an account made before this change.
+// one quick hash and sign-in fits the free plan's 10 ms CPU limit. The password itself is never sent.
 (() => {
   const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
   async function derive(password, saltB64, iter = 600000) {
@@ -27,8 +26,8 @@
       try {
         if (f.dataset.kdf === 'login') {
           const s = await saltOf(f.querySelector('[name=email]').value.trim().toLowerCase());
+          if (s.legacy) throw new Error(s.note);   // an account from before browser-side stretching: needs a new password once
           put(f, 'key', await derive(pw.value, s.salt, s.iter));
-          if (s.legacy) put(f, 'password', pw.value);
         } else {
           put(f, 'key', await derive(pw.value, f.querySelector('[name=salt]').value));
           put(f, 'len', String(pw.value.length));

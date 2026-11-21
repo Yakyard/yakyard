@@ -6,7 +6,7 @@
 // Slack profile. Anyone with no Yakyard account yet gets a hidden placeholder (`<slack id>@bot.local`).
 // When that person later connects their own Slack, the placeholder is merged into their account,
 // so both halves of a DM end up in one conversation.
-import { openDm } from './features.js';
+import { openDm, arm } from './features.js';
 
 // The Slack workspace people may import from (SLACK_TEAM_ID). Required: without it anyone could
 // import from a Slack workspace they made themselves.
@@ -23,6 +23,7 @@ const KEEP = new Set([undefined, null, 'thread_broadcast', 'bot_message', 'file_
 const FETCH_BUDGET = 3;       // Slack calls per slice
 const TIME_BUDGET = 15000;    // ms per slice
 const PAGE = '50';            // messages per Slack page
+const SLICE_GAP = 4000;       // ms between slices of one import
 const GIVE_UP = 30;           // failed slices in a row (about 30 minutes) before the import stops and the token is deleted
 
 async function sha1hex(s) {
@@ -149,7 +150,7 @@ export async function slackRoutes(req, env, user, ctx) {
       VALUES (?,?,?,?,?,0,0,0,0,'',?,?,0,0)
       ON CONFLICT(user_id) DO UPDATE SET status='running', token_enc=excluded.token_enc, slack_user=excluded.slack_user, state=excluded.state, msgs=0, files=0, convs_total=0, convs_done=0, error='', started_at=excluded.started_at, updated_at=excluded.updated_at, finished_at=0, lock_until=0`)
       .bind(user.id, 'running', tok, au.id, fresh, now(), now()).run();
-    ctx?.waitUntil?.(runSlice(env, user.id).catch((e) => console.log('import slice', e)));
+    await arm(env, 'import', user.id);
     return back('');
   }
   return new Response('Not found', { status: 404 });
@@ -158,10 +159,11 @@ export async function slackRoutes(req, env, user, ctx) {
 // ---------------------------------------------------------------- API
 export async function slackApi(req, env, user, path, method, body, ctx) {
   if (path === '/api/slack/import' && method === 'GET') {
-    let job = await env.DB.prepare('SELECT user_id,status,msgs,files,convs_total,convs_done,error,started_at,finished_at,state FROM slack_imports WHERE user_id=?').bind(user.id).first();
-    if (job?.status === 'running') ctx?.waitUntil?.(runSlice(env, user.id).catch((e) => console.log('import slice', e)));
+    let job = await env.DB.prepare('SELECT user_id,status,msgs,files,convs_total,convs_done,error,started_at,finished_at,state,updated_at,lock_until FROM slack_imports WHERE user_id=?').bind(user.id).first();
+    // The import runs as a chain of jobs. If the chain looks stalled (nothing for a minute), wake it.
+    if (job?.status === 'running' && job.updated_at < now() - 60e3 && job.lock_until < now()) await arm(env, 'import', user.id);
     const ready = !!(env.SLACK_CLIENT_ID && teamOf(env) && tokenKeyOk(env) && user.role !== 'guest' && (env.SLACK_CLIENT_SECRET || (await env.DB.prepare("SELECT 1 FROM settings WHERE key='slack_client_secret'").first())));
-    if (job) { const s = JSON.parse(job.state || '{}'); job.phase = s.phase; delete job.state; }
+    if (job) { const s = JSON.parse(job.state || '{}'); job.phase = s.phase; delete job.state; delete job.updated_at; delete job.lock_until; }
     return json({ ready, job: job || null });
   }
   if (path === '/api/slack/admin' && method === 'GET') {
@@ -182,9 +184,14 @@ export async function slackApi(req, env, user, path, method, body, ctx) {
 }
 
 // ---------------------------------------------------------------- the copier
-export async function runImports(env) {
-  const r = await env.DB.prepare("SELECT user_id FROM slack_imports WHERE status='running' ORDER BY updated_at LIMIT 1").all();
-  for (const j of r.results) await runSlice(env, j.user_id).catch((e) => console.log('import slice', e));
+// One slice per job run, each in its own invocation (see arm in features.js). Returns when the next slice should
+// run: a few seconds later, so the 3 Slack calls per slice stay under Slack's per-minute limits, or after a rate limit.
+export async function importJob(env, userId) {
+  await runSlice(env, userId);
+  const j = await env.DB.prepare('SELECT status, lock_until, state FROM slack_imports WHERE user_id=?').bind(userId).first();
+  if (j?.status !== 'running') return null;
+  const failing = (JSON.parse(j.state || '{}').fails || 0) > 0;   // after a failed slice, wait a minute (GIVE_UP counts these)
+  return Math.max(now() + (failing ? 60e3 : SLICE_GAP), (j.lock_until || 0) + 1000);
 }
 
 async function runSlice(env, userId) {

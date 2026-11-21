@@ -4,3 +4,8 @@ wrangler.toml
 .dev.vars
 public/version.json
 *.bak
+backups/
+wrangler.cpu-check.jsonc
+.cpu-check-secrets.json
+cpu-check-report.json
+wrangler.toml.old

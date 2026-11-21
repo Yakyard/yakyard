@@ -11,6 +11,8 @@ You need:
 
 If a step goes wrong, look for it in [When something fails](#when-something-fails).
 
+**Shortcut, if you already have a GitHub account:** do steps 1 and 2, then click the **Deploy to Cloudflare** button in the [README](../README.md). It copies Yakyard to your GitHub, creates everything and deploys, without a terminal. When it asks for `SETUP_TOKEN`, type a long random code of at least 24 letters and numbers (a password manager can make one) and keep it: it is your setup code for step 7. Then go straight to step 7.
+
 ---
 
 ## 1. Make a free Cloudflare account
@@ -118,8 +120,8 @@ Without this step, Yakyard works but phones don't buzz for new messages.
    ```
 
    It prints three lines: `VAPID_PUBLIC`, `VAPID_SUBJECT` and a private key.
-2. Open the file `wrangler.toml` in the Yakyard folder with any text editor (TextEdit on Mac, Notepad on Windows).
-3. Find the lines `VAPID_PUBLIC = ""` and `VAPID_SUBJECT = ""`. Paste the values from step 1 between the quotes. For `VAPID_SUBJECT`, use `mailto:` and your email, like `mailto:you@example.com`. Save the file.
+2. Open the file `wrangler.jsonc` in the Yakyard folder with any text editor (TextEdit on Mac, Notepad on Windows).
+3. Find the lines `"VAPID_PUBLIC": ""` and `"VAPID_SUBJECT": ""`. Paste the values from step 1 between the empty quotes. For `VAPID_SUBJECT`, use `mailto:` and your email, like `mailto:you@example.com`. Save the file.
 4. Back in the terminal, type:
 
    ```
@@ -135,25 +137,26 @@ On iPhone, people first add Yakyard to their Home Screen (Share, then **Add to H
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com), make a project, then open **APIs & Services**, **Credentials**, **Create credentials**, **OAuth client ID**, type **Web application**.
 2. Under **Authorized redirect URIs**, add your address followed by `/auth/callback`, like `https://yakyard.your-team.workers.dev/auth/callback`.
-3. Copy the **Client ID**. In `wrangler.toml`, paste it into `GOOGLE_CLIENT_ID = ""` and change `GOOGLE_ENABLED = "0"` to `"1"`.
+3. Copy the **Client ID**. In `wrangler.jsonc`, paste it between the quotes of `"GOOGLE_CLIENT_ID": ""` and change `"GOOGLE_ENABLED": "0"` to `"1"`.
 4. In the terminal: `npx wrangler secret put GOOGLE_CLIENT_SECRET`, and paste the **Client secret**.
-5. Optional: if everyone at your company has a Google Workspace email, put your domain in `ALLOWED_DOMAINS = "yourcompany.com"`. Then people with that email can join without an invite.
+5. Optional: if everyone at your company has a Google Workspace email, put your domain in `"ALLOWED_DOMAINS": "yourcompany.com"`. Then people with that email can join without an invite.
 6. `npm run deploy`.
 
 ## 11. Optional: bring your Slack history
 
-Each person can copy their own Slack messages (DMs, group DMs, private channels) into Yakyard. It needs a small Slack app that you create once. The steps are in the README, under **Optional**, row **Slack import**. On the free plan the copy runs in the background at about 75 messages a minute, so a big history can take a night or two.
+Each person can copy their own Slack messages (DMs, group DMs, private channels) into Yakyard. It needs a small Slack app that you create once. The steps are in the README, under **Optional**, row **Slack import**. The copy runs in the background, about a thousand messages a minute, slower if Slack asks it to wait. You can close Yakyard while it runs.
 
 ## Updates
 
-When a new version comes out, first save a backup (see **Backups** below). Then:
+When a new version comes out, first save a backup (see [Backups](#backups)). Then:
 
-- **With Git:** in the Yakyard folder, type `git pull`, then `npm run deploy`.
-- **With the ZIP:** download the new ZIP, unzip it, copy your old `wrangler.toml` into the new folder, then run `npm run deploy` from the new folder.
+- **With Git:** in the Yakyard folder, type `npm run update`. It keeps your own settings in `wrangler.jsonc`, gets the new version and deploys it.
+- **With the ZIP:** download the new ZIP and unzip it. Open your old `wrangler.jsonc` and the new one, and copy your values in the `"vars"` part from the old file to the new one. Then run `npm run deploy` from the new folder.
+- **With the Deploy button:** open your copy of Yakyard on GitHub and click **Sync fork** (or merge the update the original suggests). Cloudflare deploys it by itself.
 
 It worked when the last line says `Deployed version` and a number.
 
-`npm run deploy` also updates your database (new tables and columns) before the new version goes live. Open apps show **New version of Yakyard** and update in one tap.
+Deploying also updates your database (new tables and columns) before the new version goes live. If your Yakyard is from before `wrangler.jsonc` existed, the first deploy moves your settings over from `wrangler.toml` and renames that file to `wrangler.toml.old`. Open apps show **New version of Yakyard** and update in one tap.
 
 After an update, sign in, send a message and open a voice note. If something is broken, go back to the version before:
 
@@ -165,17 +168,27 @@ It asks which version to go back to. Pick the one just before. Database updates 
 
 ## Backups
 
-Your messages live in a Cloudflare D1 database. Cloudflare keeps a running history of it, so you can go back in time if something goes wrong (7 days on the free plan).
-
-To keep your own copy, type:
+Your messages live in a Cloudflare D1 database. Keep your own copy: once a month, and before every update.
 
 ```
-npx wrangler d1 export DB --remote --output yakyard-backup.sql
+npm run backup
 ```
 
-It saves a file called `yakyard-backup.sql` in the Yakyard folder. Open it in a text editor: it should start with lines like `CREATE TABLE`. Do it once a month, and before every update, and keep the file somewhere safe.
+It saves a file like `backups/yakyard-remote-2026-11-21-09-30.sql` in the Yakyard folder and says how many tables and rows it copied. Open it in a text editor: the first line starts with `-- Yakyard backup`. Keep the file somewhere safe, outside the computer too.
 
-To bring the database back to an earlier moment (last 7 days), type the date and time in UTC:
+Cloudflare's own `wrangler d1 export` doesn't work for this: Yakyard's search uses full-text search tables, and the export either stops on them or writes a file D1 can't load back. `npm run backup` copies every table itself.
+
+**To put a backup back:**
+
+```
+npm run restore -- backups/yakyard-remote-2026-11-21-09-30.sql
+```
+
+It asks you to type `yes`, because it replaces everything in your live database with the backup. Then it loads the file, rebuilds the search for messages and voice notes, and recounts the storage in use. Sign in and open a channel to check.
+
+**Practice once.** Try a restore on the copy on your computer, so you know it works before you need it: `npm run backup`, then `npm run restore -- <that file> --local`, then `npm run dev` and look around.
+
+**Going back a few hours or days.** Cloudflare also keeps a history of the database (7 days on the free plan), handy for undoing a mistake made today. Type the date and time in UTC:
 
 ```
 npx wrangler d1 time-travel restore DB --timestamp=2026-11-20T09:00:00.000+00:00
@@ -183,15 +196,15 @@ npx wrangler d1 time-travel restore DB --timestamp=2026-11-20T09:00:00.000+00:00
 
 Messages and changes made after that moment disappear, so pick the latest time that was still fine. The command prints a bookmark: keep it, it brings them back if you picked the wrong time. More in Cloudflare's [Time Travel guide](https://developers.cloudflare.com/d1/reference/time-travel/).
 
-Files and voice notes stay in R2. Cloudflare stores them on several machines, so a lost file is very unlikely.
+Files and voice notes stay in R2 and are not in the backup. Cloudflare stores them on several machines, so a lost file is very unlikely.
 
 ## Storage limits
 
-So one person can't fill your free 10 GB, each person can store 2 GB of files, and the whole team 9 GB. To change that, add these lines under `[vars]` in `wrangler.toml` and run `npm run deploy`:
+So one person can't fill your free 10 GB, each person can store 2 GB of files, and the whole team 9 GB. To change that, edit these two lines in `wrangler.jsonc` and run `npm run deploy`:
 
 ```
-STORAGE_PER_PERSON_GB = "5"
-STORAGE_TOTAL_GB = "50"
+"STORAGE_PER_PERSON_GB": "5",
+"STORAGE_TOTAL_GB": "50",
 ```
 
 Past 10 GB, R2 costs about $0.015 per GB a month.
@@ -206,6 +219,28 @@ For a team of up to about 50 people, you should stay well inside the free plan. 
 
 The README section **Free plan** has the full math. If Yakyard gets slow to answer, or the Usage card is often full, upgrade to **Workers Paid** ($5 a month) in the Cloudflare dashboard. Nothing in Yakyard changes.
 
+## Check the CPU limit
+
+Only for people who change Yakyard's code. The free plan stops any single run that uses more than 10 ms of CPU. This check puts a temporary copy of Yakyard online with that limit switched on (it works the same on a paid account), uses every part of it, and reports the CPU of each page, each action and each background job. Allow about 15 minutes.
+
+```
+node scripts/cpu-check.mjs prepare
+npx wrangler deploy --config wrangler.cpu-check.jsonc
+npx wrangler d1 execute DB --remote --config wrangler.cpu-check.jsonc --file schema.sql
+npx wrangler secret bulk .cpu-check-secrets.json --config wrangler.cpu-check.jsonc
+node scripts/cpu-check.mjs run https://yakyard-cpu-check.YOUR-SUBDOMAIN.workers.dev
+```
+
+It passes when the last line says `All ... invocations stayed under 10 ms`. Then remove the copy, its database and its file storage:
+
+```
+npx wrangler delete --config wrangler.cpu-check.jsonc
+npx wrangler d1 delete yakyard-cpu-check -y
+npx wrangler r2 bucket delete yakyard-cpu-check
+```
+
+If the bucket won't delete because it isn't empty, empty it first in the dashboard (**R2**, `yakyard-cpu-check`, select all, **Delete**).
+
 ---
 
 ## When something fails
@@ -218,6 +253,8 @@ The README section **Free plan** has the full math. If Yakyard gets slow to answ
 
 **`npm run deploy` asks for a workers.dev subdomain and fails.** Open the Cloudflare dashboard, go to **Workers & Pages** once (this creates the subdomain), then run `npm run deploy` again.
 
+**A scheduled message or reminder is late.** Each one has its own timer and goes out within seconds. If a timer was lost, the 5-minute check sends it at most 5 minutes late. Later than that: run `npx wrangler tail` and look for lines that start with `job failed`.
+
 **The address shows error 523 or "not found".** The first deploy takes a minute to reach everywhere. Wait and reload.
 
 **I lost the setup code.** Make a new one: type `npx wrangler secret put SETUP_TOKEN` and paste a long random line of at least 24 letters and numbers. Then use that line as the setup code. This only matters before you claim the workspace.
@@ -228,11 +265,17 @@ The README section **Free plan** has the full math. If Yakyard gets slow to answ
 
 **"Too many tries" or "Too many sign-in tries".** Someone typed a wrong password many times, or many people sign in from one office network at once. Wait 15 minutes. If it keeps happening, an admin can send the person a new link.
 
+**"This account needs a new password, once".** The account was made with an older Yakyard, which kept passwords a way the free plan can't check quickly. The owner sends the person a new link: **Invite people**, type their email, **Create invite link**. They open it and pick a new password. If you are the owner and see this yourself, type `npm run signin-link -- you@example.com` in the Yakyard folder and open the link it prints.
+
 **Someone forgot their password.** An owner or admin opens **Admin**, finds the person, clicks the three dots, then **Reset password (new link)**, and sends them the new link.
 
-**Error 1102 or "Worker exceeded CPU".** A single action needed more computer time than the free plan allows. Run `npx wrangler tail`, do the same thing again, and copy the red lines when you ask for help. Accounts made with an older Yakyard (before this version) can see it once at their first sign-in: send that person a new link from **Admin**.
+**Error 1102 or "Worker exceeded CPU".** A single action needed more computer time than the free plan allows. Run `npx wrangler tail`, do the same thing again, and copy the red lines when you ask for help.
 
 **"Your team used up today's free database allowance".** Cloudflare's free database has a daily limit. It resets at midnight UTC. If it happens often, upgrade to Workers Paid ($5 a month).
+
+**"Your database is full".** The database reached the free plan's size limit. Delete old channels with big histories, or upgrade to Workers Paid.
+
+**`git pull` or `npm run update` says your changes and the update touch the same lines.** Open `wrangler.jsonc`, keep your own values between the `<<<<<<<` and `>>>>>>>` marks, delete the marks, save, then run `npm run deploy`.
 
 **Voice notes say "The transcript comes tomorrow".** Today's free transcribing time is used up. Transcripts start again after midnight UTC, by themselves.
 

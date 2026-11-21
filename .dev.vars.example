@@ -1,0 +1,15 @@
+# Secrets. For `npm run dev`, copy this file to .dev.vars. On Cloudflare, set each with `npx wrangler secret put NAME`
+# (the Deploy to Cloudflare button asks for them).
+# The code for the setup page, at least 24 characters. `npm run deploy` makes one for you the first time.
+SETUP_TOKEN=
+# Phone notifications: `npm run vapid` prints it.
+VAPID_PRIVATE=
+# Only with the Slack import: base64 of 32 random bytes (`openssl rand -base64 32`).
+TOKEN_KEY=
+# Only with Google sign-in.
+GOOGLE_CLIENT_SECRET=
+# Only with the Slack import.
+SLACK_CLIENT_SECRET=
+# Cloudflare Realtime TURN, makes calls work behind strict networks.
+TURN_KEY_ID=
+TURN_KEY_TOKEN=

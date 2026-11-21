@@ -1,0 +1,49 @@
+// Yakyard settings. Works as it is on Cloudflare's free plan, with `npm run deploy` or the Deploy to Cloudflare button.
+// Every setting is explained in the README, "All settings".
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yakyard",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "assets": { "directory": "public", "binding": "ASSETS", "run_worker_first": true },
+  // No ids: the first deploy creates the database and the file storage and links them to this Worker.
+  "d1_databases": [{ "binding": "DB", "database_name": "yakyard" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "yakyard-files" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "HUB", "class_name": "Hub" },   // live updates and calls
+      { "name": "JOBS", "class_name": "Job" }   // background jobs, one object per job
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Hub"] },
+    { "tag": "v2", "new_sqlite_classes": ["Job"] }
+  ],
+  "images": { "binding": "IMAGES" },   // photo previews
+  "ai": { "binding": "AI" },           // voice note transcripts (Whisper)
+  // A safety net every 5 minutes; the real work runs as jobs. See README, "How it's built".
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "observability": { "enabled": true },
+  "vars": {
+    "WORKSPACE_NAME": "Yakyard",   // your team or company name, shown on the sign-in page
+    "APP_URL": "",                 // optional: your Yakyard address, used in reminder links
+    "OWNER_EMAILS": "",            // optional, comma-separated: these emails are always owners
+    "ALLOWED_DOMAINS": "",         // e.g. "example.com": anyone with that email can sign in with Google
+    "VAPID_PUBLIC": "",            // phone notifications: see README, "Notifications"
+    "VAPID_SUBJECT": "",           // mailto: address push services can contact
+    "VOICE_LANGUAGE": "en",        // transcript language (ISO code)
+    "VOICE_HINT": "",              // names and words Whisper should spell right, e.g. "Acme, Zoe, SKU"
+    "GOOGLE_CLIENT_ID": "",        // optional "Sign in with Google"
+    "GOOGLE_ENABLED": "0",
+    "SLACK_CLIENT_ID": "",         // optional Slack import
+    "SLACK_TEAM_ID": "",           // needed for the Slack import: your Slack workspace id (starts with T)
+    "DEV_LOGIN": "0",              // local testing only: "1" lets /auth/dev?email=... sign in on localhost
+    "TEAM_LOCATION": "0",          // "1" turns on team clocks: people can choose to share their city and local time
+    "WEATHER": "0",                // "1" adds weather to team clocks (Open-Meteo, free for non-commercial use only)
+    "STORAGE_PER_PERSON_GB": "2",  // file space per person (R2 is free up to 10 GB)
+    "STORAGE_TOTAL_GB": "9",       // file space for the whole team
+    "IMG_CACHE_MB": "200"          // room for copies of outside pictures, link previews and weather
+  }
+  // Secrets (npx wrangler secret put NAME, never in this file): see .dev.vars.example.
+}

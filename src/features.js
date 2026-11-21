@@ -10,6 +10,19 @@ const err = (status, message) => json({ error: message }, status);
 // Full 8 groups of an IPv6 address, so "a::1" and "a::2" land in the same /64.
 export const v6 = (a) => { const [h, t = ''] = a.split('::'); const H = h ? h.split(':') : [], T = t ? t.split(':') : []; return a.includes('::') ? [...H, ...Array(Math.max(0, 8 - H.length - T.length)).fill('0'), ...T] : H; };
 
+// D1's free-plan errors have no code, only these sentences (developers.cloudflare.com/d1/observability/debug-d1):
+// the daily row read or write allowance, and a full database or account. Anything else is a normal error.
+export function dbQuotaError(e) {
+  const m = String(e?.message ?? e ?? '');
+  if (/exceeded D1's free tier daily row (read|write) limit/i.test(m)) return 'daily';
+  if (/Exceeded maximum DB size|exceeded D1's maximum account storage limit/i.test(m)) return 'full';
+  return null;
+}
+export const QUOTA_MSG = {
+  daily: "Your team used up today's free database allowance on Cloudflare. It resets at midnight UTC.",
+  full: 'Your database is full. Ask your admin to delete old files and messages, or move to the Workers Paid plan.',
+};
+
 // ---------------------------------------------------------------- push
 const plain = (t, names) => String(t || '')
   .replace(/<@(U\w+)>/g, (_, id) => '@' + (names[id] || 'someone'))
@@ -44,17 +57,21 @@ export async function pushOne(env, sub, payload) {
   return r.ok ? 1 : 0;
 }
 
-export const INLINE_PUSHES = 2, PUSHES_PER_ALARM = 4;
+// Each push costs about 1.5 ms of CPU (encryption and signing), so they go out 4 to a job: each batch runs
+// in its own invocation with its own CPU budget (see arm below), however many people get the message.
+export const PUSHES_PER_JOB = 4;
 export async function pushToUsers(env, userIds, payload) {
   if (!userIds.length) return 0;
   const want = new Set(userIds);
   const subs = (await env.DB.prepare('SELECT * FROM push_subs').all()).results.filter((x) => want.has(x.user_id));
-  // Each push costs about 1.5 ms of CPU (encryption and signing). Two go out right away; the rest go to the
-  // hub, which sends 4 per alarm, so no single run comes near the free plan's 10 ms CPU limit.
-  const later = subs.slice(INLINE_PUSHES);
-  if (later.length) await env.HUB.get(env.HUB.idFromName('workspace')).fetch('https://hub/push', { method: 'POST', body: JSON.stringify({ subs: later, payload }) }).catch((e) => console.log('push queue', e));
-  const res = await Promise.allSettled(subs.slice(0, INLINE_PUSHES).map((s) => pushOne(env, s, payload)));
-  return res.filter((x) => x.status === 'fulfilled' && x.value).length + later.length;
+  const batches = [];
+  for (let i = 0; i < subs.length; i += PUSHES_PER_JOB) batches.push(subs.slice(i, i + PUSHES_PER_JOB));
+  await Promise.all(batches.map((b) => arm(env, 'push', uid('P'), now(), { subs: b, payload })));
+  return subs.length;
+}
+export async function pushBatch(env, { subs, payload }) {
+  await Promise.allSettled(subs.map((s) => pushOne(env, s, payload)));
+  return null;
 }
 
 // Who gets a phone buzz for a new message. Same rules as Slack's defaults:
@@ -189,45 +206,88 @@ export async function openDm(env, ids, by, lastTs = now()) {
   return ch;
 }
 
-// Sends up to 3 due messages and reminders per tick (each send can cost a few ms with its pushes).
-// Returns how many it sent, so the caller skips the other heavy jobs on a busy tick.
-export async function cronTick(env, ctx, postMessage) {
-  const t = now();
-  // scheduled messages
-  const due = (await env.DB.prepare('SELECT * FROM scheduled WHERE send_at <= ? ORDER BY send_at LIMIT 3').bind(t).all()).results;
-  for (const s of due) {
-    await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run();
-    const user = await env.DB.prepare('SELECT * FROM users WHERE id=? AND active=1').bind(s.user_id).first();
-    const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
-    const member = user && ch && (await env.DB.prepare('SELECT 1 FROM members WHERE channel_id=? AND user_id=?').bind(ch.id, user.id).first());
-    if (!member) continue;
-    try { await postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel }); } catch (e) { console.log('scheduled send failed', e); }
+// ---------------------------------------------------------------- background jobs
+// Every job (a scheduled message, a reminder, a transcript, a slice of a Slack import, a batch of pushes) runs in
+// its own Durable Object (class Job in worker.js), woken by its own alarm. Each run is its own invocation with
+// its own CPU budget (10 ms on the free plan), so no job waits behind another or shares a budget with it.
+// Cloudflare Queues are on the free plan too, but their 10,000 operations a day (3 per message) are shared by the
+// whole account; one Slack import plus a day of pushes would use them up. Durable Objects allow 100,000 requests a day.
+export async function arm(env, kind, id, at = now(), data) {
+  if (!env.JOBS) return false;
+  try { await env.JOBS.get(env.JOBS.idFromName(kind + ':' + id)).arm({ kind, id, data }, at); return true; } catch (e) { console.log('arm failed', kind, id, String(e)); return false; }
+}
+// What the Job object does, kept here so it can be tested without the Workers runtime.
+// `v` tells a run apart from a newer arm() that came in while it was running.
+export async function jobArm(storage, job, at) {
+  await storage.put('job', { ...job, tries: 0, v: crypto.randomUUID() });
+  await storage.setAlarm(Math.max(at, now()));
+}
+export const JOB_TRIES = 6;
+export async function jobAlarm(storage, run) {
+  const job = await storage.get('job');
+  if (!job) return;
+  let next = null;
+  try { next = await run(job); job.tries = 0; } catch (e) {
+    console.log('job failed', job.kind, job.id, String(e));
+    job.tries = (job.tries || 0) + 1;
+    next = job.tries < JOB_TRIES ? now() + 15e3 * 2 ** job.tries : null;   // 30 s, 1, 2, 4, 8 minutes, then give up
   }
-  // reminders arrive as a DM from the Yakyard bot
-  const rem = (await env.DB.prepare('SELECT * FROM reminders WHERE done=0 AND due_at <= ? ORDER BY due_at LIMIT ?').bind(t, 3 - due.length).all()).results;
-  if (rem.length) {
-    const botId = await botUserId(env);
-    const bot = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(botId).first();
-    for (const r of rem) {
-      await env.DB.prepare('UPDATE reminders SET done=1 WHERE id=?').bind(r.id).run();
-      const ch = await openDm(env, [botId, r.user_id], botId);
-      const base = env.APP_URL || (await env.DB.prepare("SELECT value FROM settings WHERE key='app_url'").first())?.value || '';
-      const link = r.message_id ? ` <${base}/#/m/${r.message_id}|View message>` : '';
-      try { await postMessage(env, ctx, bot, ch, { text: `Reminder: ${r.text || 'this message'}${link}` }); } catch (e) { console.log('reminder failed', e); }
-    }
-  }
-  // housekeeping, once an hour
-  if (new Date(t).getUTCMinutes() === 7) {
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),
-      env.DB.prepare('DELETE FROM invites WHERE expires_at < ?').bind(t),
-      env.DB.prepare("UPDATE users SET status_emoji='', status_text='', status_until=0 WHERE status_until > 0 AND status_until < ?").bind(t),
-      env.DB.prepare('UPDATE users SET dnd_until=0 WHERE dnd_until > 0 AND dnd_until < ?').bind(t),
-      // Sign-in counters only matter for the current 15-minute window.
-      env.DB.prepare('DELETE FROM login_attempts WHERE k NOT LIKE ?').bind('%|' + Math.floor(t / (15 * 60e3))),
-    ]);
-  }
-  return due.length + rem.length;
+  if ((await storage.get('job'))?.v !== job.v) return;   // re-armed meanwhile: that alarm stands
+  if (next) { await storage.put('job', job); await storage.setAlarm(next); } else await storage.deleteAll();
+}
+
+// A scheduled message. DELETE ... RETURNING claims it, so two runs can never send it twice.
+// Returns the new time if it was moved later, so the job sleeps until then.
+export async function sendScheduled(env, ctx, id, postMessage) {
+  const s = await env.DB.prepare('DELETE FROM scheduled WHERE id=? AND send_at<=? RETURNING *').bind(id, now() + 1000).first();
+  if (!s) return (await env.DB.prepare('SELECT send_at FROM scheduled WHERE id=?').bind(id).first())?.send_at || null;
+  const user = await env.DB.prepare('SELECT * FROM users WHERE id=? AND active=1').bind(s.user_id).first();
+  const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
+  if (!user || !ch) return null;
+  const r = await postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel });
+  if (r && r.status >= 400) console.log('scheduled send refused', id, r.status);   // left the channel since: nothing to send
+  return null;
+}
+// A reminder, as a DM from the Yakyard bot. Claimed the same way.
+export async function sendReminder(env, ctx, id, postMessage) {
+  const r = await env.DB.prepare('UPDATE reminders SET done=1 WHERE id=? AND done=0 AND due_at<=? RETURNING *').bind(id, now() + 1000).first();
+  if (!r) return (await env.DB.prepare('SELECT due_at FROM reminders WHERE id=? AND done=0').bind(id).first())?.due_at || null;
+  const botId = await botUserId(env);
+  const bot = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(botId).first();
+  const ch = await openDm(env, [botId, r.user_id], botId);
+  const base = env.APP_URL || (await env.DB.prepare("SELECT value FROM settings WHERE key='app_url'").first())?.value || '';
+  const link = r.message_id ? ` <${base}/#/m/${r.message_id}|View message>` : '';
+  await postMessage(env, ctx, bot, ch, { text: `Reminder: ${r.text || 'this message'}${link}` });
+  return null;
+}
+
+// The cron, every 5 minutes, only as a safety net: anything overdue by a minute or more lost its alarm
+// (made before this version, or arm() failed), so it gets a new one. Cheap: a few indexed reads, no sending here.
+export async function sweep(env, t = now()) {
+  const late = t - 60e3, q = (sql, ...a) => env.DB.prepare(sql).bind(...a).all().then((r) => r.results);
+  const [sc, rm, vp, vw, im] = await Promise.all([
+    q('SELECT id FROM scheduled WHERE send_at < ? ORDER BY send_at LIMIT 50', late),
+    q('SELECT id FROM reminders WHERE done=0 AND due_at < ? ORDER BY due_at LIMIT 50', late),
+    q("SELECT key FROM files WHERE t_status='pending' AND channel_id IS NOT NULL AND COALESCE(t_at, created_at) < ? LIMIT 20", late),
+    q("SELECT key FROM files WHERE t_status='working' AND t_at < ? LIMIT 20", t - 5 * 60e3),
+    q("SELECT user_id FROM slack_imports WHERE status='running' AND updated_at < ? AND lock_until < ?", t - 120e3, t),
+  ]);
+  const jobs = [...sc.map((x) => ['sched', x.id]), ...rm.map((x) => ['rem', x.id]), ...[...vp, ...vw].map((x) => ['voice', x.key]), ...im.map((x) => ['import', x.user_id])];
+  // Once an hour: tidy up (its own job, so the cron itself stays tiny).
+  if (new Date(t).getUTCMinutes() < 5) jobs.push(['house', 'hourly']);
+  await Promise.all(jobs.map(([k, id]) => arm(env, k, id, t)));
+  return jobs.length;
+}
+export async function housekeeping(env, t = now()) {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(t),
+    env.DB.prepare('DELETE FROM invites WHERE expires_at < ?').bind(t),
+    env.DB.prepare("UPDATE users SET status_emoji='', status_text='', status_until=0 WHERE status_until > 0 AND status_until < ?").bind(t),
+    env.DB.prepare('UPDATE users SET dnd_until=0 WHERE dnd_until > 0 AND dnd_until < ?').bind(t),
+    // Sign-in counters only matter for the current 15-minute window.
+    env.DB.prepare('DELETE FROM login_attempts WHERE k NOT LIKE ?').bind('%|' + Math.floor(t / (15 * 60e3))),
+  ]);
+  return null;
 }
 
 // ---------------------------------------------------------------- API routes
@@ -308,11 +368,17 @@ export async function featureApi(req, env, user, path, method, body, x) {
     }
     const r = { id: uid('R'), user_id: user.id, message_id: body.message_id || null, text: String(body.text || '').slice(0, 500), due_at: due, done: 0 };
     await env.DB.prepare('INSERT INTO reminders (id,user_id,message_id,text,due_at) VALUES (?,?,?,?,?)').bind(r.id, r.user_id, r.message_id, r.text, r.due_at).run();
+    await arm(env, 'rem', r.id, r.due_at);
     return json(r);
   }
   if ((m = path.match(/^\/api\/reminders\/([^/]+)$/))) {
     if (method === 'DELETE') { await env.DB.prepare('DELETE FROM reminders WHERE id=? AND user_id=?').bind(m[1], user.id).run(); return json({ ok: true }); }
-    if (method === 'PATCH') { await env.DB.prepare('UPDATE reminders SET due_at=? WHERE id=? AND user_id=?').bind(+body.due_at || now(), m[1], user.id).run(); return json({ ok: true }); }
+    if (method === 'PATCH') {
+      const due = +body.due_at || now();
+      const r = await env.DB.prepare('UPDATE reminders SET due_at=? WHERE id=? AND user_id=? AND done=0').bind(due, m[1], user.id).run();
+      if (r.meta?.changes) await arm(env, 'rem', m[1], due);
+      return json({ ok: true });
+    }
   }
   if (path === '/api/scheduled' && method === 'POST') {
     const at = +body.send_at;
@@ -325,6 +391,7 @@ export async function featureApi(req, env, user, path, method, body, x) {
     const s = { id: uid('Q'), user_id: user.id, channel_id: ch.id, thread_id: body.thread_id || null, text, files: JSON.stringify(files), also_channel: body.also_channel ? 1 : 0, send_at: at, created_at: now() };
     await env.DB.prepare('INSERT INTO scheduled (id,user_id,channel_id,thread_id,text,files,also_channel,send_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
       .bind(s.id, s.user_id, s.channel_id, s.thread_id, s.text, s.files, s.also_channel, s.send_at, s.created_at).run();
+    await arm(env, 'sched', s.id, s.send_at);
     return json({ ...s, files });
   }
   if ((m = path.match(/^\/api\/scheduled\/([^/]+)$/))) {
@@ -335,10 +402,13 @@ export async function featureApi(req, env, user, path, method, body, x) {
       if (body.send_now) {
         const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(s.channel_id).first();
         if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
-        await env.DB.prepare('DELETE FROM scheduled WHERE id=?').bind(s.id).run();
+        // Claimed like the job does, so "Send now" and the timer can't both send it.
+        if (!(await env.DB.prepare('DELETE FROM scheduled WHERE id=? RETURNING id').bind(s.id).first())) return err(404, 'Already sent or deleted');
         return postMessage(env, ctx, user, ch, { text: s.text, files: JSON.parse(s.files || '[]'), thread_id: s.thread_id, also_channel: s.also_channel });
       }
-      await env.DB.prepare('UPDATE scheduled SET send_at=?, text=? WHERE id=?').bind(+body.send_at || s.send_at, body.text != null ? String(body.text).slice(0, 40000) : s.text, s.id).run();
+      const at = +body.send_at || s.send_at;
+      await env.DB.prepare('UPDATE scheduled SET send_at=?, text=? WHERE id=?').bind(at, body.text != null ? String(body.text).slice(0, 40000) : s.text, s.id).run();
+      if (at !== s.send_at) await arm(env, 'sched', s.id, at);
       return json({ ok: true });
     }
   }

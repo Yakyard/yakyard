@@ -1,4 +1,4 @@
-// Self-check for the Slack import placeholder merge. Run: npm test
+// Unit checks (Slack import merge, sign-in throttling, migrations, background jobs, quotas, backups). Run: npm test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -64,15 +64,148 @@ test('migrations add only the columns an old database is missing', async () => {
   assert.ok(db.prepare('PRAGMA table_info(users)').all().some((r) => r.name === 'share_location'));
 });
 
-// The cron does one heavy job per tick: at most 3 sends, and it reports how many so imports and transcripts wait.
-test('cron sends at most 3 due messages per tick and says how many', async () => {
-  const { cronTick } = await import('../src/features.js');
-  const { db, DB } = d1();
+// Background jobs: each runs in its own Durable Object alarm. These check the parts that decide what runs, once.
+function fakeStorage() {
+  const m = new Map(); let alarm = null;
+  return { m, get alarm() { return alarm; }, get: async (k) => structuredClone(m.get(k)), put: async (k, v) => { m.set(k, structuredClone(v)); }, deleteAll: async () => { m.clear(); alarm = null; }, setAlarm: async (t) => { alarm = t; } };
+}
+function seed(db) {
   db.exec("INSERT INTO users (id,email,name,created_at) VALUES ('u1','a@b.c','A',0); INSERT INTO channels (id,name,created_at) VALUES ('c1','general',0); INSERT INTO members (channel_id,user_id,joined_at) VALUES ('c1','u1',0)");
-  for (let i = 0; i < 5; i++) db.prepare("INSERT INTO scheduled (id,user_id,channel_id,text,send_at,created_at) VALUES (?, 'u1', 'c1', 'hi', 1, 0)").run('s' + i);
-  const sent = []; const post = async (env, ctx, u, ch, m) => sent.push(m.text);
-  assert.equal(await cronTick({ DB }, {}, post), 3);
-  assert.equal(await cronTick({ DB }, {}, post), 2);
-  assert.equal(await cronTick({ DB }, {}, post), 0);
-  assert.equal(sent.length, 5);
+}
+
+test('a scheduled message is sent once, even when two runs race, and waits if moved later', async () => {
+  const { sendScheduled } = await import('../src/features.js');
+  const { db, DB } = d1(); seed(db);
+  db.prepare("INSERT INTO scheduled (id,user_id,channel_id,text,send_at,created_at) VALUES ('s1','u1','c1','hi',1,0)").run();
+  const sent = []; const post = async (env, ctx, u, ch, m) => { sent.push(m.text); return new Response('{}'); };
+  const r = await Promise.all([sendScheduled({ DB }, {}, 's1', post), sendScheduled({ DB }, {}, 's1', post)]);
+  assert.deepEqual(r, [null, null]);
+  assert.deepEqual(sent, ['hi']);
+  const later = Date.now() + 3600e3;
+  db.prepare("INSERT INTO scheduled (id,user_id,channel_id,text,send_at,created_at) VALUES ('s2','u1','c1','later',?,0)").run(later);
+  assert.equal(await sendScheduled({ DB }, {}, 's2', post), later);   // not due: the job sleeps until then
+  assert.equal(sent.length, 1);
+});
+
+test('a reminder is claimed once and arrives as a DM from the bot', async () => {
+  const { sendReminder } = await import('../src/features.js');
+  const { db, DB } = d1(); seed(db);
+  db.prepare("INSERT INTO reminders (id,user_id,text,due_at) VALUES ('r1','u1','call Sam',1)").run();
+  const got = []; const post = async (env, ctx, u, ch, m) => got.push([u.email, ch.kind, m.text]);
+  await Promise.all([sendReminder({ DB }, {}, 'r1', post), sendReminder({ DB }, {}, 'r1', post)]);
+  assert.equal(got.length, 1);
+  assert.deepEqual(got[0].slice(0, 2), ['yakyard@bot.local', 'dm']);
+  assert.match(got[0][2], /^Reminder: call Sam/);
+});
+
+test('pushes go out 4 to a job, one job per batch', async () => {
+  const { pushToUsers, PUSHES_PER_JOB } = await import('../src/features.js');
+  const { db, DB } = d1();
+  for (let i = 0; i < 10; i++) db.prepare("INSERT INTO push_subs (endpoint,user_id,p256dh,auth,created_at) VALUES (?,?,'k','a',0)").run('https://fcm.googleapis.com/' + i, i < 9 ? 'u1' : 'u2');
+  const armed = [];
+  const JOBS = { idFromName: (n) => n, get: (n) => ({ arm: async (job, at) => armed.push({ n, job, at }) }) };
+  assert.equal(await pushToUsers({ DB, JOBS }, ['u1'], { title: 't' }), 9);
+  assert.equal(PUSHES_PER_JOB, 4);
+  assert.deepEqual(armed.map((a) => a.job.data.subs.length), [4, 4, 1]);
+  assert.ok(armed.every((a) => a.n.startsWith('push:') && a.job.kind === 'push'));
+});
+
+test('a job runs from its alarm, sleeps until it is due again, retries with backoff, then gives up', async () => {
+  const { jobArm, jobAlarm, JOB_TRIES } = await import('../src/features.js');
+  const st = fakeStorage();
+  await jobArm(st, { kind: 'import', id: 'u1' }, 0);
+  assert.ok(st.alarm <= Date.now());
+  let runs = 0;
+  await jobAlarm(st, async () => { runs++; return 9e15; });          // wants to run again later
+  assert.equal(st.alarm, 9e15); assert.equal(runs, 1);
+  await jobAlarm(st, async () => null);                                  // done: everything cleared
+  assert.equal(st.m.size, 0); assert.equal(st.alarm, null);
+  await jobArm(st, { kind: 'voice', id: 'k' }, 0);
+  const t0 = Date.now();
+  for (let i = 1; i < JOB_TRIES; i++) {
+    await jobAlarm(st, async () => { throw new Error('boom'); });
+    assert.ok(st.alarm >= t0 + 15e3 * 2 ** i, 'backs off');
+  }
+  await jobAlarm(st, async () => { throw new Error('boom'); });
+  assert.equal(st.m.size, 0, 'gives up after ' + JOB_TRIES + ' tries');
+  // A newer arm() that lands while a run is going wins over what the run decided.
+  await jobArm(st, { kind: 'sched', id: 's' }, 0);
+  const t2 = Date.now() + 1e9;
+  await jobAlarm(st, async () => { await jobArm(st, { kind: 'sched', id: 's' }, t2); return null; });
+  assert.equal(st.alarm, t2); assert.equal(st.m.get('job').id, 's');
+});
+
+test('the 5-minute sweep re-arms only overdue work, and the hourly tidy-up', async () => {
+  const { sweep } = await import('../src/features.js');
+  const { db, DB } = d1(); seed(db);
+  const t = Date.UTC(2026, 10, 21, 10, 2);   // minute 2: the hourly job is due too
+  db.prepare("INSERT INTO scheduled (id,user_id,channel_id,text,send_at,created_at) VALUES ('old','u1','c1','x',?,0), ('soon','u1','c1','x',?,0)").run(t - 5 * 60e3, t + 60e3);
+  db.prepare("INSERT INTO reminders (id,user_id,text,due_at) VALUES ('r','u1','x',?)").run(t - 120e3);
+  db.prepare("INSERT INTO files (key,uploader,channel_id,created_at,voice,t_status,t_at) VALUES ('v1','u1','c1',0,'{}','pending',?), ('v2','u1','c1',0,'{}','pending',?)").run(t - 120e3, t + 864e5);
+  const armed = [];
+  const JOBS = { idFromName: (n) => n, get: (n) => ({ arm: async () => armed.push(n) }) };
+  await sweep({ DB, JOBS }, t);
+  assert.deepEqual(armed.sort(), ['house:hourly', 'rem:r', 'sched:old', 'voice:v1']);
+});
+
+test('Workers AI errors are told apart by code, not wording', async () => {
+  const { aiErrorKind } = await import('../src/voice.js');
+  assert.equal(aiErrorKind(new Error('3036: Account limited: you have used up your daily free allocation of 10,000 neurons.')), 'quota');
+  assert.equal(aiErrorKind(new Error('InferenceUpstreamError: 3036: whatever the words say next year')), 'quota');
+  assert.equal(aiErrorKind(Object.assign(new Error('limited'), { code: 3036, status: 429 })), 'quota');
+  assert.equal(aiErrorKind(new Error('4006: daily free allocation')), 'quota');
+  assert.equal(aiErrorKind(new Error('3040: Capacity temporarily exceeded')), 'busy');
+  assert.equal(aiErrorKind(Object.assign(new Error('Too many'), { status: 429 })), 'busy');
+  assert.equal(aiErrorKind(new Error('you have used up your neurons')), 'other');   // wording alone is not enough
+  assert.equal(aiErrorKind(new Error('5007: No such model')), 'other');
+  assert.equal(aiErrorKind('network down'), 'other');
+});
+
+test('D1 free-plan errors become the plain database messages', async () => {
+  const { dbQuotaError, QUOTA_MSG } = await import('../src/features.js');
+  const read = new Error("D1_ERROR: Your account has exceeded D1's free tier daily row read limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue.");
+  const write = new Error("Your account has exceeded D1's free tier daily row write limit. Upgrade to a paid plan or wait until tomorrow (midnight UTC) to continue. See https://developers.cloudflare.com/d1/platform/limits/ for more details.");
+  assert.equal(dbQuotaError(read), 'daily'); assert.equal(dbQuotaError(write), 'daily');
+  assert.equal(dbQuotaError(new Error('D1_ERROR: Exceeded maximum DB size.')), 'full');
+  assert.equal(dbQuotaError(new Error('3036: daily free allocation')), null);   // a Workers AI limit is not the database
+  assert.equal(dbQuotaError(new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed')), null);
+  assert.match(QUOTA_MSG.daily, /free database allowance.*midnight UTC/);
+  assert.match(QUOTA_MSG.full, /database is full/);
+});
+
+test('storage in use stays exact through uploads, size changes and deletes', async () => {
+  const { db } = d1(); seed(db);
+  const used = () => +db.prepare("SELECT value FROM settings WHERE key='storage_bytes'").get().value;
+  db.prepare("INSERT INTO files (key,uploader,created_at,size) VALUES ('a','u1',0,100), ('b','u1',0,50)").run();
+  db.prepare("UPDATE files SET size=70 WHERE key='b'").run();
+  db.prepare("DELETE FROM files WHERE key='a'").run();
+  assert.equal(used(), 70);
+  // An older database: the first migration counts what is already there.
+  const old = new DatabaseSync(':memory:');
+  old.exec("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE files (key TEXT PRIMARY KEY, uploader TEXT, channel_id TEXT, created_at INTEGER, voice TEXT, t_status TEXT, size INTEGER NOT NULL DEFAULT 0); INSERT INTO files (key,uploader,created_at,size) VALUES ('x','u',0,1234)");
+  old.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'));
+  assert.equal(+old.prepare("SELECT value FROM settings WHERE key='storage_bytes'").get().value, 1234);
+});
+
+test('an older install moves its wrangler.toml settings into wrangler.jsonc', async () => {
+  const { fromToml } = await import('../scripts/settings.mjs');
+  const jsonc = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  const out = fromToml('[[d1_databases]]\nbinding = "DB"\ndatabase_name = "team"\ndatabase_id = "1234-abcd"\n\n[vars]\nWORKSPACE_NAME = "Acme \\"Yard\\""\nTEAM_LOCATION = "1"\nNOT_A_SETTING = "x"\n', jsonc);
+  assert.match(out, /"database_name": "team", "database_id": "1234-abcd"/);
+  assert.match(out, /"WORKSPACE_NAME": "Acme \\"Yard\\""/);
+  assert.match(out, /"TEAM_LOCATION": "1"/);
+  assert.doesNotMatch(out, /NOT_A_SETTING/);
+});
+
+test('backups copy real tables parent first, copy standalone search tables, rebuild the others', async () => {
+  const { plan, order, q } = await import('../scripts/backup.mjs');
+  const db = new DatabaseSync(':memory:');
+  db.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'));
+  const p = plan(db.prepare('SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY rowid').all());
+  assert.deepEqual(p.ftsCopy, ['voice_fts']); assert.deepEqual(p.ftsRebuild, ['messages_fts']);
+  assert.ok(!p.tables.some((t) => t.startsWith('messages_fts') || t.startsWith('voice_fts')));
+  const fks = Object.fromEntries(p.tables.map((t) => [t, db.prepare(`PRAGMA foreign_key_list(${t})`).all().map((r) => r.table)]));
+  const o = order(p.tables, fks);
+  assert.ok(o.indexOf('users') < o.indexOf('credentials') && o.indexOf('channels') < o.indexOf('members'));
+  assert.equal(q("it's"), "'it''s'"); assert.equal(q(null), 'NULL'); assert.equal(q(5), '5'); assert.equal(q([1, 255]), "X'01ff'");
 });

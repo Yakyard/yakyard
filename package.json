@@ -7,9 +7,14 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "node scripts/deploy.mjs",
+    "update": "node scripts/update.mjs",
     "db:init": "node scripts/migrate.mjs --remote",
     "db:init:local": "node scripts/migrate.mjs --local",
+    "backup": "node scripts/backup.mjs",
+    "restore": "node scripts/restore.mjs",
+    "signin-link": "node scripts/signin-link.mjs",
     "vapid": "node scripts/vapid.mjs",
+    "cpu-check": "node scripts/cpu-check.mjs",
     "test": "node --test test/*.test.mjs && python3 test/security.py"
   },
   "dependencies": {
@@ -20,5 +25,30 @@
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "cloudflare": {
+    "bindings": {
+      "SETUP_TOKEN": {
+        "description": "A long random code (at least 24 characters) that only you know. You type it once on the setup page to create the owner account. Make one with `openssl rand -hex 24` or any password manager."
+      },
+      "VAPID_PRIVATE": {
+        "description": "Optional, for phone notifications. Leave empty for now; see **Notifications** in the README."
+      },
+      "TOKEN_KEY": {
+        "description": "Optional, only for the Slack import: base64 of 32 random bytes (`openssl rand -base64 32`)."
+      },
+      "GOOGLE_CLIENT_SECRET": {
+        "description": "Optional, only for Sign in with Google."
+      },
+      "SLACK_CLIENT_SECRET": {
+        "description": "Optional, only for the Slack import."
+      },
+      "TURN_KEY_ID": {
+        "description": "Optional: Cloudflare Realtime TURN key id, so calls work behind strict networks."
+      },
+      "TURN_KEY_TOKEN": {
+        "description": "Optional: Cloudflare Realtime TURN key token."
+      }
+    }
   }
 }

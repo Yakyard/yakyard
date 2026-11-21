@@ -13,7 +13,6 @@ def kdf_form(url, data):
     if url.endswith('/auth/login'):
         s = requests.post(B + '/auth/salt', json={'email': d.get('email', '').lower()}).json()
         d['key'] = kdf(pw, s['salt'], s['iter'])
-        if s.get('legacy'): d['password'] = pw
     else:
         salt = base64.b64encode(os.urandom(16)).decode()
         d.update(salt=salt, key=kdf(pw, salt), len=str(len(pw)))
@@ -287,20 +286,43 @@ check('KDF salt endpoint refuses other sites', r.status_code == 403)
 check('KDF stored hashes are the quick "c1:" kind', all(x['hash'].startswith('c1:') for x in d1('SELECT hash FROM credentials')))
 r = requests.post(B + '/auth/login', data={'email': 'owner@example.com', 'password': PW, '_raw': 1}, allow_redirects=False)
 check('KDF sign-in without the browser key is refused', r.status_code == 200 and 'JavaScript' in r.text)
-# An account from before this change: server-side PBKDF2 (100k), no marker. Upgrades on the next sign-in.
+# An account from before this change: server-side PBKDF2 (100k), no marker. The server never checks it (18 ms of CPU)
+# and never trusts a new key for it: the person gets a clear message and sets a new password once through a link.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 lsalt = base64.b64encode(os.urandom(16)).decode()
 lhash = base64.b64encode(hashlib.pbkdf2_hmac('sha256', b'legacypassword1', base64.b64decode(lsalt), 100000)).decode()
-lr = invite(owner, 'legacy@example.com', name='Lee'); join(lr.json()['link'], 'Lee', 'throwaway12345')
+lr = invite(owner, 'legacy@example.com', name='Lee'); lsess = join(lr.json()['link'], 'Lee', 'throwaway12345')
 lid = lr.json()['id']
-subprocess.run(['npx', 'wrangler', 'd1', 'execute', 'DB', '--local', *PERSIST, '--command', f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{lid}'"], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), capture_output=True)
-check('KDF salt says "legacy" for an old account', requests.post(B + '/auth/salt', json={'email': 'legacy@example.com'}).json()['legacy'] is True)
-r = session().post(B + '/auth/login', data={'email': 'legacy@example.com', 'password': 'wrongpassword1'}, allow_redirects=False)
-check('KDF old account: wrong password refused', r.status_code == 200 and 'Wrong email' in r.text)
+d1(f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{lid}'")
+ls = requests.post(B + '/auth/salt', json={'email': 'legacy@example.com'}).json()
+check('KDF salt says "legacy" for an old account, with the message to show', ls['legacy'] is True and 'new password' in ls.get('note', ''), ls)
 r = session().post(B + '/auth/login', data={'email': 'legacy@example.com', 'password': 'legacypassword1'}, allow_redirects=False)
-check('KDF old account signs in with its old password', r.status_code == 303, r.status_code)
-check('KDF old account was upgraded to the quick hash', d1(f"SELECT hash FROM credentials WHERE user_id='{lid}'")[0]['hash'].startswith('c1:'))
-r = session().post(B + '/auth/login', data={'email': 'legacy@example.com', 'password': 'legacypassword1'}, allow_redirects=False)
-check('KDF upgraded account signs in with the key only', r.status_code == 303)
+check('KDF old account is not signed in, and is told to get a new password', r.status_code == 200 and 'needs a new password' in r.text and 'yy_session' not in r.headers.get('set-cookie', ''), r.status_code)
+check('KDF old row is never replaced by a key the server could not check', d1(f"SELECT hash FROM credentials WHERE user_id='{lid}'")[0]['hash'] == lhash)
+ghost = next(e for e in ('ghost%d@example.com' % i for i in range(200)) if requests.post(B + '/auth/salt', json={'email': e}).json()['legacy'])
+gs = requests.post(B + '/auth/salt', json={'email': ghost}).json()
+r = session().post(B + '/auth/login', data={'email': ghost, 'password': 'whatever12345'}, allow_redirects=False)
+check('KDF a made-up email that looks old gets the same answer (no account check by message)', 'needs a new password' in r.text and set(gs) == set(ls), (set(gs), set(ls)))
+r = api(lsess, 'POST', '/api/me/password', {'key': kdf('legacypassword1', lsalt), 'new_key': kdf('brandnewpass12', lsalt), 'new_salt': lsalt, 'len': 14})
+check('KDF signed-in old account cannot change its password without a link', r.status_code == 400 and 'new password' in r.json().get('error', ''), r.text)
+r = invite(owner, 'legacy@example.com')
+check('KDF the owner can make a new sign-in link for an old account', r.status_code == 200 and '/join/' in r.json().get('link', ''), r.text)
+join(r.json()['link'], 'Lee', 'freshpassword12')
+r = session().post(B + '/auth/login', data={'email': 'legacy@example.com', 'password': 'freshpassword12'}, allow_redirects=False)
+check('KDF old account signs in after setting a new password from a link', r.status_code == 303, r.status_code)
+check('KDF its row is now the quick "c1:" kind', d1(f"SELECT hash FROM credentials WHERE user_id='{lid}'")[0]['hash'].startswith('c1:'))
+l3 = invite(owner, 'legacy3@example.com', name='Lia'); join(l3.json()['link'], 'Lia', 'throwaway12345')
+d1(f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{l3.json()['id']}'")
+out = subprocess.run(['node', 'scripts/signin-link.mjs', 'legacy3@example.com', '--local', *PERSIST, '--url=' + B], cwd=ROOT, capture_output=True, text=True)
+m = re.search(r'(http\S+/join/\S+)', out.stdout)
+check('npm run signin-link makes a working one-time link for an owner', bool(m), out.stdout + out.stderr)
+if m:
+    join(m.group(1), 'Lia', 'freshpassword34')
+    r = session().post(B + '/auth/login', data={'email': 'legacy3@example.com', 'password': 'freshpassword34'}, allow_redirects=False)
+    check('signin-link: new password works', r.status_code == 303)
+    check('signin-link: the link works only once', 'expired' in requests.get(m.group(1)).text)
+out = subprocess.run(['node', 'scripts/signin-link.mjs', 'nobody@example.com', '--local', *PERSIST], cwd=ROOT, capture_output=True, text=True)
+check('signin-link refuses an email with no account', out.returncode == 1 and 'No active account' in out.stderr, out.stderr)
 # Password change
 pc = session(); pc.post(B + '/auth/login', data={'email': 'dz@example.com', 'password': 'deepassword123'}, headers={'origin': B})
 other = session(); other.post(B + '/auth/login', data={'email': 'dz@example.com', 'password': 'deepassword123'}, headers={'origin': B})
@@ -322,18 +344,18 @@ check('new password works', r.status_code == 303)
 lp = requests.get(B + '/')
 check('KDF password inputs have no name, so a plain form post never sends the password', 'data-pw' in lp.text and not re.search(r'<input[^>]*data-pw[^>]*name=|<input[^>]*name="password"', lp.text), lp.text[:200])
 js = requests.get(B + '/auth.js').text
-check('KDF auth.js only adds the password for old accounts', js.count("'password'") == 1 and "if (s.legacy) put(f, 'password'" in js)
+check('KDF auth.js never posts the password, and shows the message for old accounts', "'password'" not in js and 'throw new Error(s.note)' in js)
 ts = lambda e: (lambda t0: (requests.post(B + '/auth/salt', json={'email': e}), time.time() - t0)[1])(time.time())
 ka = sorted(ts('owner@example.com') for _ in range(5))[2]; kb = sorted(ts('ghost%d@example.com' % i) for i in range(5))[2]
 print(f'  salt timing: existing {ka*1000:.0f} ms, unknown {kb*1000:.0f} ms')
 check('KDF salt reply takes the same time for real and unknown emails (within 3x)', kb > ka / 3 and ka > kb / 3, (ka, kb))
 l2 = invite(owner, 'legacy2@example.com', name='Lou'); join(l2.json()['link'], 'Lou', 'throwaway12345')
-subprocess.run(['npx', 'wrangler', 'd1', 'execute', 'DB', '--local', *PERSIST, '--command', f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{l2.json()['id']}'"], cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))), capture_output=True)
+d1(f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{l2.json()['id']}'")
 def tl(e):
-    t0 = time.time(); requests.post(B + '/auth/login', data={'email': e, 'key': dk, 'password': 'wrongpassword1', '_raw': 1}); return time.time() - t0
+    t0 = time.time(); requests.post(B + '/auth/login', data={'email': e, 'key': dk, '_raw': 1}); return time.time() - t0
 la = sorted(tl('legacy2@example.com') for _ in range(3))[1]; lb = sorted(tl('ghost-legacy@example.com') for _ in range(3))[1]
 print(f'  old-account timing: existing {la*1000:.0f} ms, unknown {lb*1000:.0f} ms')
-check('KDF unknown email with a password does the old slow hash too (within 1.8x)', lb > la / 1.8 and la > lb / 1.8, (la, lb))
+check('KDF old account and unknown email take the same time (within 3x, no slow hash anywhere)', lb > la / 3 and la > lb / 3, (la, lb))
 ads_salt = requests.post(B + '/auth/salt', json={'email': 'adm@example.com'}).json()['salt']
 codes = [api(ads, 'POST', '/api/me/password', {'key': kdf('wrong%d' % i, ads_salt, 1), 'new_key': dk, 'new_salt': ns, 'len': 15}).status_code for i in range(11)]
 check('password change is limited to 10 tries in 15 minutes', codes[:10] == [400] * 10 and codes[10] == 429, codes)

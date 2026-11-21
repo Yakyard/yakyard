@@ -4,10 +4,10 @@
 //   node scripts/migrate.mjs --remote     (your live database)
 //   node scripts/migrate.mjs --local      (the copy on your computer, for npm run dev)
 // Rule for new columns in schema.sql: give them a DEFAULT (or allow NULL), never UNIQUE or PRIMARY KEY.
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { root, d1, target } from './wrangler.mjs';
 
 // Every plain table in schema.sql with its column definitions.
 export function schemaColumns(sql) {
@@ -40,11 +40,9 @@ export function missingColumns(sql, have) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const where = process.argv.includes('--local') ? '--local' : '--remote';
-  const extra = process.argv.filter((a) => a.startsWith('--persist-to='));   // tests keep their own local copy
-  const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+  const { where, extra } = target();
   const schema = readFileSync(join(root, 'schema.sql'), 'utf8');
-  const wrangler = (args) => execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['wrangler', 'd1', 'execute', 'DB', where, ...extra, '-y', ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: process.platform === 'win32' });
+  const wrangler = (args) => d1(where, extra, args);
   const tables = Object.keys(schemaColumns(schema));
   const res = JSON.parse(wrangler(['--json', '--command', tables.map((t) => `PRAGMA table_info(${t})`).join('; ')]));
   const have = Object.fromEntries(tables.map((t, i) => [t, (res[i]?.results || []).map((r) => r.name)]));

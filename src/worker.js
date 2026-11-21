@@ -1,8 +1,8 @@
 // Yakyard: Cloudflare Worker (API + auth + files) and the Hub Durable Object (live updates).
 import { unfurl, safeFetchUrl, safeFetch } from './unfurl.js';
-import { slackRoutes, slackApi, runImports } from './slackimport.js';
-import { sendPushes, cronTick, featureApi, hydrateExtras, openDm, v6, pushOne, PUSHES_PER_ALARM } from './features.js';
-import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceCron, fmtDur, VOICE_MAX } from './voice.js';
+import { slackRoutes, slackApi, importJob } from './slackimport.js';
+import { sendPushes, featureApi, hydrateExtras, openDm, v6, arm, jobArm, jobAlarm, sweep, housekeeping, sendScheduled, sendReminder, pushBatch, PUSHES_PER_JOB, dbQuotaError, QUOTA_MSG } from './features.js';
+import { parseVoiceMeta, transcribe, patchMessage, waitTranscripts, voiceJob, fmtDur, VOICE_MAX } from './voice.js';
 import { DurableObject } from 'cloudflare:workers';
 
 const SESSION_DAYS = 30;
@@ -177,7 +177,7 @@ async function googleCallback(req, env) {
   const url = new URL(req.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
-  if (!code || !state || state !== cookie(req, STATE_COOKIE)) return loginPage('Sign-in timed out. Try again.');
+  if (!code || !state || state !== cookie(req, STATE_COOKIE)) return loginPage(env, 'Sign-in timed out. Try again.');
   const tok = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -186,16 +186,16 @@ async function googleCallback(req, env) {
       redirect_uri: url.origin + '/auth/callback', grant_type: 'authorization_code',
     }),
   }).then((r) => r.json());
-  if (!tok.id_token) return loginPage("Google sign-in didn't work. Try again.");
+  if (!tok.id_token) return loginPage(env, "Google sign-in didn't work. Try again.");
   // The id_token comes straight from Google over TLS in exchange for our secret, so its claims can be trusted.
   const claims = JSON.parse(atob(tok.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-  if (claims.aud !== env.GOOGLE_CLIENT_ID || !claims.email_verified) return loginPage("Google sign-in didn't work. Try again.");
+  if (claims.aud !== env.GOOGLE_CLIENT_ID || !claims.email_verified) return loginPage(env, "Google sign-in didn't work. Try again.");
   // An address on an ALLOWED_DOMAINS domain (invited or not) must come from that company's Google Workspace,
   // not a personal Google account made on that address. Other invited addresses (gmail, guests) are not checked.
   const dom = String(claims.email).split('@')[1]?.toLowerCase();
-  if (allowedEmail(claims.email, env) && !ownerEmail(claims.email, env) && String(claims.hd || '').toLowerCase() !== dom) return loginPage('Use your work Google account.');
+  if (allowedEmail(claims.email, env) && !ownerEmail(claims.email, env) && String(claims.hd || '').toLowerCase() !== dom) return loginPage(env, 'Use your work Google account.');
   const user = await findOrCreateUser(env, { email: claims.email, name: claims.name, picture: claims.picture });
-  if (!user) return loginPage(`${claims.email} doesn't have access. Ask your workspace admin for an invite.`);
+  if (!user) return loginPage(env, `${claims.email} doesn't have access. Ask your workspace admin for an invite.`);
   const sid = await createSession(env, user.id);
   const headers = new Headers({ location: '/' });
   headers.append('set-cookie', setCookie(SESSION_COOKIE, sid, SESSION_DAYS * 86400, isSecure(req)));
@@ -209,27 +209,25 @@ const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
 const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
 // Passwords: the slow part (PBKDF2-SHA256, 600,000 rounds) runs in the browser (public/auth.js),
 // Bitwarden style, so sign-in stays far under the 10 ms CPU limit of the free plan. The server keeps
-// SHA-256(salt + key), marked "c1:". Older rows (server-side PBKDF2, 100,000 rounds, no marker)
-// are upgraded on the next sign-in that sends the password once more.
+// SHA-256(salt + key), marked "c1:".
+// Rows from before that change hold the old server-side hash (PBKDF2, 100,000 rounds, no marker). Checking one
+// takes about 18 ms of CPU, over the free plan's limit, and the server can't check that a new browser key matches
+// the password without doing the 600,000 rounds itself. So an old row is never checked or upgraded in place: the
+// person gets a clear message and sets a new password once through a sign-in link (admin "Invite" / owner
+// "npm run signin-link"). That costs one link per old account and never trusts a key the server can't verify.
 const KDF_ITER = 600000;
-// Old accounts only: the server-side hash from before the browser did the stretching.
-async function hashPassword(password, saltB64) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  return b64(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: unb64(saltB64), iterations: 100000 }, key, 256));
-}
 const goodB64 = (t, n) => { try { return typeof t === 'string' && t.length < 64 && unb64(t).length === n; } catch { return false; } };
+const isOld = (row) => !!row && !row.hash.startsWith('c1:');
+const OLD_PASSWORD = 'This account needs a new password, once: Yakyard changed how it protects passwords. Ask your workspace owner for a sign-in link.';
 async function keyHash(key, saltB64) {
   return 'c1:' + b64(await crypto.subtle.digest('SHA-256', new Uint8Array([...unb64(saltB64), ...unb64(key)])));
 }
-// Checks a sign-in key against a credentials row. Returns the new hash to store when an old row was upgraded.
-async function checkKey(row, key, password) {
-  // No account: do the same work as a real one (the slow old hash too when a password came along),
-  // so the response time doesn't tell which emails have an account.
-  if (!row || !goodB64(key, 32)) { await keyHash(goodB64(key, 32) ? key : 'A'.repeat(43) + '=', 'AAAAAAAAAAAAAAAAAAAAAA=='); if (password) await hashPassword(password, 'AAAAAAAAAAAAAAAAAAAAAA=='); return { ok: false }; }
-  if (row.hash.startsWith('c1:')) return { ok: sameText(await keyHash(key, row.salt), row.hash) };
-  if (!password) return { ok: false };
-  const ok = sameText(await hashPassword(password, row.salt), row.hash);
-  return { ok, upgrade: ok ? await keyHash(key, row.salt) : null };
+// Checks a sign-in key against a credentials row. No account, or an old row: the same one hash, so the
+// response time doesn't tell which emails have an account.
+async function checkKey(row, key) {
+  const k = goodB64(key, 32) ? key : 'A'.repeat(43) + '=';
+  if (!row || isOld(row) || k !== key) { await keyHash(k, 'AAAAAAAAAAAAAAAAAAAAAA=='); return false; }
+  return sameText(await keyHash(key, row.salt), row.hash);
 }
 // One random server secret, made on first use, so unknown emails get a stable fake salt.
 let PEPPER;
@@ -242,20 +240,22 @@ async function hmac(keyBytes, text) {
   const k = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(text)));
 }
-// The browser asks for its salt before stretching the password. Unknown emails get a fake salt that
-// never changes, and the "legacy" answer is faked half the time while old rows exist, so the reply
-// doesn't tell anyone which emails have an account. Both answers do the same queries and hashing, so
-// the response time doesn't either.
-async function saltFor(req, env) {
-  const email = String((await req.json().catch(() => ({}))).email || '').toLowerCase().trim().slice(0, 200);
-  if ((await bump(env, 'salt:' + clientIp(req))) > 100) return json({ error: 'Too many sign-in tries from this network. Wait 15 minutes.' }, 429);
+// What the server tells about an email before sign-in: its salt and whether it is an old account. Unknown
+// emails get a fake salt that never changes, and "old" is faked half the time while old rows exist, so the
+// answer doesn't tell anyone which emails have an account. Both paths do the same queries and hashing.
+async function accountHint(env, email) {
   const [row, anyOld] = await Promise.all([
-    env.DB.prepare('SELECT c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first(),
+    env.DB.prepare('SELECT u.id, c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first(),
     env.DB.prepare("SELECT 1 FROM credentials WHERE hash NOT LIKE 'c1:%' LIMIT 1").first(),
   ]);
   const h = await hmac(await pepper(env), 'salt:' + email);
-  if (row) return json({ salt: row.salt, iter: KDF_ITER, legacy: !row.hash.startsWith('c1:') });
-  return json({ salt: b64(h.slice(0, 16)), iter: KDF_ITER, legacy: !!anyOld && (h[16] & 1) === 1 });
+  return row ? { row, salt: row.salt, legacy: isOld(row) } : { row: null, salt: b64(h.slice(0, 16)), legacy: !!anyOld && (h[16] & 1) === 1 };
+}
+async function saltFor(req, env) {
+  const email = String((await req.json().catch(() => ({}))).email || '').toLowerCase().trim().slice(0, 200);
+  if ((await bump(env, 'salt:' + clientIp(req))) > 100) return json({ error: 'Too many sign-in tries from this network. Wait 15 minutes.' }, 429);
+  const { salt, legacy } = await accountHint(env, email);
+  return json({ salt, iter: KDF_ITER, legacy, ...(legacy ? { note: OLD_PASSWORD } : {}) });
 }
 // Counters for sign-in limits, one row per key per 15-minute window (cleared hourly by the cron).
 async function bump(env, k) {
@@ -293,30 +293,32 @@ function signedIn(req, sid) {
 async function passwordLogin(req, env) {
   const f = await req.formData();
   const email = String(f.get('email') || '').toLowerCase().trim();
-  const key = String(f.get('key') || ''), password = String(f.get('password') || '');
-  if (!key) return loginPage('Turn on JavaScript to sign in.', email);
+  const key = String(f.get('key') || '');
+  if (!key) return loginPage(env, 'Turn on JavaScript to sign in.', email);
   const ip = clientIp(req), hit = (k) => bump(env, k);
   // Per address, per account from any address, and per account from one address.
-  if ((await hit('ip:' + ip)) > 30 || (await hit('em:' + email)) > 25 || (await hit('em:' + email + '|' + ip)) > 8) return loginPage('Too many tries. Wait 15 minutes or ask your workspace admin for a new link.', email);
-  const row = await env.DB.prepare('SELECT u.id, c.hash, c.salt FROM users u JOIN credentials c ON c.user_id=u.id WHERE u.email=? AND u.active=1').bind(email).first();
-  const { ok, upgrade } = await checkKey(row, key, password);
-  if (!ok) return loginPage('Wrong email or password.', email);
-  if (upgrade) await env.DB.prepare('UPDATE credentials SET hash=?, updated_at=? WHERE user_id=?').bind(upgrade, now(), row.id).run();
+  if ((await hit('ip:' + ip)) > 30 || (await hit('em:' + email)) > 25 || (await hit('em:' + email + '|' + ip)) > 8) return loginPage(env, 'Too many tries. Wait 15 minutes or ask your workspace admin for a new link.', email);
+  // Same answer as /auth/salt gave, so an old account and a made-up email look alike here too.
+  const { row, legacy } = await accountHint(env, email);
+  const ok = await checkKey(row, key);
+  if (legacy) return loginPage(env, OLD_PASSWORD, email);
+  if (!ok) return loginPage(env, 'Wrong email or password.', email);
   return signedIn(req, await createSession(env, row.id));
 }
-const page = (title, inner) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#fff8e6"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"><script src="/theme.js"></script><script src="/auth.js" defer></script></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard" width="64" height="64"><p class="login-brands">${escH(globalThis.__wsName || 'Yakyard')}</p>${inner}</main></body></html>`,
+const googleOn = (env) => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_ENABLED === '1');
+const page = (env, title, inner) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title><link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/brand/favicon-64.png" type="image/png"><link rel="manifest" href="/manifest.webmanifest?v=2"><link rel="apple-touch-icon" href="/brand/app-icon-180.png"><meta name="theme-color" content="#fff8e6"><meta name="apple-mobile-web-app-capable" content="yes"><link rel="stylesheet" href="/app.css"><script src="/theme.js"></script><script src="/auth.js" defer></script></head><body class="login"><main class="login-card"><img class="login-logo" src="/brand/logo.png" alt="Yakyard" width="64" height="64"><p class="login-brands">${escH(env.WORKSPACE_NAME || 'Yakyard')}</p>${inner}</main></body></html>`,
   { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', ...SEC } });
 const escH = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function joinPage(req, env, token) {
   const inv = await inviteFor(env, token);
-  if (!inv) return loginPage('This link has expired or was already used. Ask your workspace admin for a new one.');
+  if (!inv) return loginPage(env, 'This link has expired or was already used. Ask your workspace admin for a new one.');
   if (req.method === 'POST') {
     const f = await req.formData();
     const name = String(f.get('name') || '').trim().slice(0, 80);
     const nk = newKey(f);
-    if (!name || !nk) return joinForm(inv, `Add your name and a password of at least ${MIN_PW} characters.`);
+    if (!name || !nk) return joinForm(env, inv, `Add your name and a password of at least ${MIN_PW} characters.`);
     await env.DB.batch([
       env.DB.prepare('INSERT OR REPLACE INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(inv.id, await keyHash(nk.key, nk.salt), nk.salt, now()),
       env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(name, inv.id),
@@ -329,7 +331,7 @@ async function joinPage(req, env, token) {
     await broadcast(env, { type: 'user_updated', user: { id: inv.id, name } }, await audience(env, inv.id)).catch(() => {});
     return signedIn(req, await createSession(env, inv.id));
   }
-  return joinForm(inv);
+  return joinForm(env, inv);
 }
 // First run only: the first owner creates their account. They must know the SETUP_TOKEN secret
 // (made and printed by the first deploy), so nobody else can claim a fresh deploy first.
@@ -338,7 +340,7 @@ async function setupPage(req, env) {
   const done = () => new Response(null, { status: 302, headers: { location: '/' } });
   if (await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first()) return done();
   const ready = !!env.SETUP_TOKEN && env.SETUP_TOKEN.length >= 24;
-  const form = (error = '', email = '') => page('Set up Yakyard', ready ? `<h1>Set up Yakyard</h1><p>Create the owner account. The setup code was shown when you deployed.</p>
+  const form = (error = '', email = '') => page(env, 'Set up Yakyard', ready ? `<h1>Set up Yakyard</h1><p>Create the owner account. The setup code was shown when you deployed.</p>
 ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
 <form method="post" class="login-form" data-kdf="new"><input type="hidden" name="salt" value="${b64(crypto.getRandomValues(new Uint8Array(16)))}">
 <label>Setup code<input class="input" name="token" type="password" required autocomplete="off" placeholder="The SETUP_TOKEN you set"></label>
@@ -369,9 +371,9 @@ ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
   await env.DB.prepare('INSERT INTO credentials (user_id,hash,salt,updated_at) VALUES (?,?,?,?)').bind(u.id, await keyHash(nk.key, nk.salt), nk.salt, now()).run();
   return signedIn(req, await createSession(env, u.id));
 }
-function joinForm(inv, error = '') {
+function joinForm(env, inv, error = '') {
   const isNew = inv.name === inv.email.split('@')[0];
-  return page('Join Yakyard', `<h1>Join Yakyard</h1><p>You're signing in as <b>${escH(inv.email)}</b>.</p>
+  return page(env, 'Join Yakyard', `<h1>Join Yakyard</h1><p>You're signing in as <b>${escH(inv.email)}</b>.</p>
 ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
 <form method="post" class="login-form" data-kdf="new"><input type="hidden" name="salt" value="${b64(crypto.getRandomValues(new Uint8Array(16)))}">
 <label>Your name<input class="input" name="name" required maxlength="80" autocomplete="name" value="${isNew ? '' : escH(inv.name)}"></label>
@@ -379,10 +381,10 @@ ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
 <button class="login-btn primary" type="submit">Continue</button></form>`);
 }
 
-function loginPage(message = '', email = '') {
-  const google = globalThis.__googleOn ? `<div class="login-or"><span>or</span></div>
+function loginPage(env, message = '', email = '') {
+  const google = googleOn(env) ? `<div class="login-or"><span>or</span></div>
 <a class="login-btn" href="/auth/google"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Continue with Google</a>` : '';
-  return page('Sign in to Yakyard', `<h1>Sign in to Yakyard</h1>
+  return page(env, 'Sign in to Yakyard', `<h1>Sign in to Yakyard</h1>
 ${message ? `<p class="login-error" role="alert">${escH(message)}</p>` : ''}
 <form method="post" action="/auth/login" class="login-form" data-kdf="login">
 <label>Email<input class="input" name="email" type="email" required autocomplete="username" spellcheck="false" autocapitalize="off" value="${escH(email)}"></label>
@@ -502,6 +504,8 @@ async function postMessage(env, ctx, user, ch, body) {
   for (const x of files.filter((x) => x.voice && x.t === 'done' && x.transcript)) await env.DB.prepare('INSERT INTO voice_fts (text, message_id, file_key) VALUES (?,?,?)').bind(x.transcript, msg.id, x.key).run();
   if (voiceKeys.some((k) => files.find((x) => x.key === k).t === 'pending')) {
     for (const k of voiceKeys) await patchMessage(env, k, null);
+    // The app transcribes right after upload; this job finishes the job if the app was closed or the AI was busy.
+    await Promise.all(voiceKeys.filter((k) => files.find((x) => x.key === k).t === 'pending').map((k) => arm(env, 'voice', k, now() + 20e3)));
     const fresh = await env.DB.prepare('SELECT files FROM messages WHERE id=?').bind(msg.id).first();
     if (fresh) msg.files = fresh.files;
   }
@@ -846,8 +850,8 @@ async function api(req, env, user, path, ctx) {
     const row = await env.DB.prepare('SELECT hash, salt FROM credentials WHERE user_id=?').bind(user.id).first();
     if (!row) return err(400, 'You sign in with Google, so there is no password to change.');
     if ((await bump(env, 'pw:' + user.id)) > 10) return err(429, 'Too many tries. Wait 15 minutes, then try again.');
-    const { ok } = await checkKey(row, String(body.key || ''), String(body.password || ''));
-    if (!ok) return err(400, "That's not your current password.");
+    if (isOld(row)) return err(400, OLD_PASSWORD);
+    if (!(await checkKey(row, String(body.key || '')))) return err(400, "That's not your current password.");
     const nk = newKey(new Map([['key', body.new_key], ['salt', body.new_salt], ['len', body.len]]));
     if (!nk) return err(400, `Pick a new password of at least ${MIN_PW} characters.`);
     const keep = await sha256hex(cookie(req, SESSION_COOKIE) || '');
@@ -873,14 +877,14 @@ async function api(req, env, user, path, ctx) {
     const withPos = list.filter((p) => p.lat != null && p.lon != null);
     if (weatherOn(env) && withPos.length) {
       const list = withPos;
-      const key = new Request('https://weather.cache/' + list.map((p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`).join(';'));
-      let wx = await caches.default.match(key).then((x) => x && x.json()).catch(() => null);
+      const key = 'weather/' + (await sha256hex(list.map((p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`).join(';')));
+      let wx = await cacheGet(env, key).then((x) => x && x.json()).catch(() => null);
       if (!wx) {
         try {
           const q = `latitude=${list.map((p) => p.lat.toFixed(3)).join(',')}&longitude=${list.map((p) => p.lon.toFixed(3)).join(',')}`;
           const res = await fetch(`https://api.open-meteo.com/v1/forecast?${q}&current=temperature_2m,weather_code,is_day&timezone=auto`);
           const j = await res.json(); wx = Array.isArray(j) ? j : [j];
-          await caches.default.put(key, new Response(JSON.stringify(wx), { headers: { 'cache-control': 'max-age=1200', 'content-type': 'application/json' } }));
+          await cachePut(env, key, JSON.stringify(wx), 1200e3, 'application/json');
         } catch (e) { wx = []; }
       }
       list.forEach((p, i) => { const c = wx[i]?.current; if (c) Object.assign(p, { temp: c.temperature_2m, code: c.weather_code, day: c.is_day }); });
@@ -893,33 +897,20 @@ async function api(req, env, user, path, ctx) {
     const target = new URL(req.url).searchParams.get('url') || '';
     if (user.role === 'guest') return json({});
     if (!safeFetchUrl(target)) return err(400, 'Bad url');
-    const cache = caches.default;
-    const key = new Request('https://unfurl.cache/' + encodeURIComponent(target));
-    const hit = await cache.match(key);
-    if (hit) return hit;
+    const key = 'unfurl/' + (await sha256hex(target)), jh = { 'content-type': 'application/json', 'cache-control': 'private, max-age=86400' };
+    const hit = await cacheGet(env, key);
+    if (hit) return new Response(hit.body, { headers: jh });
     const r = await Promise.race([unfurl(target), new Promise((res) => setTimeout(() => res({ ok: false }), 5000))]);
-    const res = new Response(JSON.stringify(r.ok ? r.value : {}), { headers: { 'content-type': 'application/json', 'cache-control': 'max-age=86400' } });
-    await cache.put(key, res.clone());
-    return res;
+    const out = JSON.stringify(r.ok ? r.value : {});
+    await cachePut(env, key, out, r.ok ? 864e5 : 3600e3, 'application/json');
+    return new Response(out, { headers: jh });
   }
 
-  // Pictures from other sites (link previews, Google profile photos) come through here, so the app's
-  // Content-Security-Policy can allow images from this site only. Pictures only, 5 MB at most, cached a day.
+  // Pictures from other sites: see imgProxy.
   if (path === '/api/img' && method === 'GET') {
     const target = new URL(req.url).searchParams.get('u') || '';
     if (!safeFetchUrl(target)) return err(400, 'Bad url');
-    const key = new Request('https://img.cache/' + encodeURIComponent(target));
-    let r = await caches.default.match(key);
-    if (!r) {
-      const got = await safeFetch(target, { accept: 'image/avif,image/webp,image/png,image/*', 'user-agent': 'Mozilla/5.0 (compatible; YakyardBot/1.0)' }).catch(() => null);
-      const type = (got?.res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-      if (!got?.res.ok || !/^image\/(png|jpe?g|gif|webp|avif|x-icon|vnd\.microsoft\.icon)$/.test(type) || +(got.res.headers.get('content-length') || 0) > IMG_MAX) return err(404, 'Not found');
-      const buf = await got.res.arrayBuffer();
-      if (buf.byteLength > IMG_MAX) return err(404, 'Not found');
-      r = new Response(buf, { headers: { 'content-type': type, 'cache-control': 'public, max-age=86400' } });
-      await caches.default.put(key, r.clone());
-    }
-    return new Response(r.body, { headers: { 'content-type': r.headers.get('content-type'), 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" } });
+    return imgProxy(env, target);
   }
 
   if (path === '/api/ice' && method === 'GET') {
@@ -1014,7 +1005,7 @@ async function api(req, env, user, path, ctx) {
           (SELECT COUNT(*) FROM messages WHERE files<>'[]') with_files,
           (SELECT COUNT(*) FROM messages WHERE ts > ?) messages_7d,
           (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE created_at > ?) active_7d,
-          (SELECT COALESCE(SUM(size),0) FROM files) storage,
+          (SELECT CAST(value AS INTEGER) FROM settings WHERE key='storage_bytes') storage,
           (SELECT COALESCE(SUM(json_extract(voice,'$.dur')),0) FROM files WHERE t_status='done' AND t_at >= ?) voice_secs_today,
           (SELECT value FROM settings WHERE key='ai_paused_until') ai_paused_until`).bind(now() - 7 * 864e5, now() - 7 * 864e5, new Date().setUTCHours(0, 0, 0, 0)).first();
       // Rough usage against the free plan, for the Usage card. Request counts live only in the Cloudflare dashboard.
@@ -1068,15 +1059,14 @@ async function api(req, env, user, path, ctx) {
 // Storage caps keep one person (or a runaway script) from filling the free 10 GB of R2.
 // STORAGE_PER_PERSON_GB (default 2) and STORAGE_TOTAL_GB (default 9) change them.
 const GB = 1024 ** 3;
-let teamBytes = { at: 0, n: 0 };
 async function roomFor(env, user, size) {
   const per = (+env.STORAGE_PER_PERSON_GB || 2) * GB, total = (+env.STORAGE_TOTAL_GB || 9) * GB;
-  const mine = (await env.DB.prepare('SELECT COALESCE(SUM(size),0) n FROM files WHERE uploader=?').bind(user.id).first()).n;
-  if (mine + size > per) return err(413, `You've used your ${per / GB} GB of file space. Delete messages with big old files, or ask your admin for more room.`);
-  // shortcut: the team total is re-counted every 5 minutes per worker instance, so it can overshoot a little; fine for a cap.
-  if (Date.now() - teamBytes.at > 300e3) teamBytes = { at: Date.now(), n: (await env.DB.prepare('SELECT COALESCE(SUM(size),0) n FROM files').first()).n };
-  if (teamBytes.n + size > total) return err(413, `Your team's file space (${total / GB} GB) is full. Ask your admin to clear some room.`);
-  teamBytes.n += size;
+  const [mine, team] = await Promise.all([
+    env.DB.prepare('SELECT COALESCE(SUM(size),0) n FROM files WHERE uploader=?').bind(user.id).first(),
+    env.DB.prepare("SELECT CAST(value AS INTEGER) n FROM settings WHERE key='storage_bytes'").first(),   // kept exact by triggers (schema.sql)
+  ]);
+  if (mine.n + size > per) return err(413, `You've used your ${per / GB} GB of file space. Delete messages with big old files, or ask your admin for more room.`);
+  if ((team?.n || 0) + size > total) return err(413, `Your team's file space (${total / GB} GB) is full. Ask your admin to clear some room.`);
   return null;
 }
 async function uploadFile(req, env, user) {
@@ -1191,27 +1181,71 @@ async function serveFile(req, env, key) {
   return new Response(obj.body, { headers });
 }
 
+// ---------------------------------------------------------------- cache in R2
+// *.workers.dev has no edge cache (the Cache API does nothing there), so outside pictures, link previews and
+// weather are kept in R2 under cache/, each with its own lifetime. One outside fetch per item, however many people
+// look at it. The hourly job deletes expired copies and keeps the whole cache under IMG_CACHE_MB (default 200 MB).
+const CACHE = 'cache/';
+async function cacheGet(env, key) {
+  const hit = await env.FILES.get(CACHE + key);
+  if (hit && Date.now() - hit.uploaded.getTime() < +(hit.customMetadata?.ttl || 0)) return hit;
+  if (hit) await hit.body.cancel();
+  return null;
+}
+function cachePut(env, key, body, ttl, type, extra = {}) {
+  return env.FILES.put(CACHE + key, body, { httpMetadata: type ? { contentType: type } : undefined, customMetadata: { ttl: String(ttl), ...extra } }).catch((e) => console.log('cache put', e));
+}
+async function cacheCleanup(env, t = Date.now()) {
+  const cap = (+env.IMG_CACHE_MB || 200) * 1024 * 1024, all = [];
+  let cursor;
+  for (let i = 0; i < 10; i++) {   // pages of 1,000, at most 10 per run
+    const page = await env.FILES.list({ prefix: CACHE, cursor, limit: 1000, include: ['customMetadata'] });
+    all.push(...page.objects);
+    if (!page.truncated) break;
+    cursor = page.cursor;
+  }
+  const expired = (o) => t - o.uploaded.getTime() >= +(o.customMetadata?.ttl || 0);
+  const gone = all.filter(expired), keep = all.filter((o) => !expired(o)).sort((a, b) => b.uploaded - a.uploaded);
+  let total = 0;
+  for (const o of keep) { total += o.size; if (total > cap) gone.push(o); }   // over the cap: oldest go first
+  for (let i = 0; i < gone.length; i += 1000) await env.FILES.delete(gone.slice(i, i + 1000).map((o) => o.key));
+  return gone.length;
+}
+
+// Link-preview images and Google profile photos come through here, so the app's CSP can stay img-src 'self'.
+// Pictures only, 5 MB at most; kept a week, and a failed one remembered for an hour.
+const IMG_TTL = 7 * 864e5, IMG_BAD_TTL = 3600e3;
+const imgHeaders = (type) => ({ 'content-type': type, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+async function imgProxy(env, target) {
+  const key = 'img/' + (await sha256hex(target));
+  const hit = await cacheGet(env, key);
+  if (hit?.customMetadata?.bad === '1') { await hit.body.cancel(); return err(404, 'Not found'); }
+  if (hit) return new Response(hit.body, { headers: imgHeaders(hit.httpMetadata?.contentType || 'image/png') });
+  const got = await safeFetch(target, { accept: 'image/avif,image/webp,image/png,image/*', 'user-agent': 'Mozilla/5.0 (compatible; YakyardBot/1.0)' }).catch(() => null);
+  const type = (got?.res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const ok = got?.res.ok && /^image\/(png|jpe?g|gif|webp|avif|x-icon|vnd\.microsoft\.icon)$/.test(type) && +(got.res.headers.get('content-length') || 0) <= IMG_MAX;
+  const buf = ok ? await got.res.arrayBuffer() : null;
+  if (!buf || buf.byteLength > IMG_MAX) { await cachePut(env, key, '', IMG_BAD_TTL, '', { bad: '1' }); return err(404, 'Not found'); }
+  await cachePut(env, key, buf, IMG_TTL, type);
+  return new Response(buf, { headers: imgHeaders(type) });
+}
+
 // ---------------------------------------------------------------- worker entry
 export default {
-  // One heavy job per tick, so a tick stays under the free plan's 10 ms CPU: due messages and reminders
-  // first; when none were due, a Slack import slice on even minutes and a transcript on odd ones.
-  // shortcut: a queue with something due every single minute holds imports and transcripts back; fine for a team, split into two crons if it ever matters.
-  async scheduled(event, env, ctx) {
-    if (await cronTick(env, ctx, postMessage)) return;
-    if (new Date(event.scheduledTime).getUTCMinutes() % 2) await voiceCron(env, { hydrateMessages, broadcast, channelMembers }).catch((e) => console.log('voice cron', e));
-    else await runImports(env).catch((e) => console.log('imports', e));
-  },
+  // Every 5 minutes, a safety net only: background work runs as its own jobs (class Job below). This re-arms
+  // anything overdue and starts the hourly tidy-up.
+  async scheduled(event, env) { await sweep(env, event.scheduledTime); },
   fetch: (req, env, ctx) => handle(req, env, ctx),
 };
 // Nothing should crash into a Cloudflare error page, including when a free daily allowance runs out.
 async function handle(req, env0, ctx) {
   try { return await handle0(req, env0, ctx); } catch (e) {
     console.error(e);
-    const quota = /exceeded D1's free tier|daily row (read|write) limit|free tier|allocation/i.test(String(e?.message || e));
-    const msg = quota ? "Your team used up today's free database allowance on Cloudflare. It resets at midnight UTC." : "That didn't go through. Try again.";
+    const kind = dbQuotaError(e), quota = !!kind;
+    const msg = QUOTA_MSG[kind] || "That didn't go through. Try again.";
     const path = new URL(req.url).pathname;
     if (path.startsWith('/api/') || path.startsWith('/files/') || req.method !== 'GET') return json({ error: msg, quota }, 503);
-    const r = page('Yakyard', `<h1>Back soon</h1><p class="login-error" role="alert">${escH(msg)}</p><p class="login-note"><a href="/">Try again</a></p>`);
+    const r = page(env0, 'Yakyard', `<h1>Back soon</h1><p class="login-error" role="alert">${escH(msg)}</p><p class="login-note"><a href="/">Try again</a></p>`);
     return new Response(r.body, { status: 503, headers: r.headers });
   }
 }
@@ -1232,8 +1266,6 @@ async function handle0(req, env0, ctx) {
 }
 async function route(req, env, ctx, url, path) {
 
-    globalThis.__googleOn = !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_ENABLED === '1');
-    globalThis.__wsName = env.WORKSPACE_NAME || 'Yakyard';
     if (path === '/auth/login' && req.method === 'POST') {
       const o = req.headers.get('origin');
       if (o && o !== url.origin) return err(403, 'Bad origin');
@@ -1250,18 +1282,18 @@ async function route(req, env, ctx, url, path) {
       return joinPage(req, env, path.slice(6));
     }
     // Google sign-in only works when it is turned on (GOOGLE_ENABLED = "1"), not just hidden.
-    if ((path === '/auth/google' || path === '/auth/callback') && !globalThis.__googleOn) return loginPage();
+    if ((path === '/auth/google' || path === '/auth/callback') && !googleOn(env)) return loginPage(env);
     if (path === '/auth/google') return googleStart(req, env);
     if (path === '/auth/callback') return googleCallback(req, env);
     // Local testing only: needs DEV_LOGIN=1 AND a localhost address. Never reachable on the live site.
     if (path === '/auth/dev' && env.DEV_LOGIN === '1' && ['127.0.0.1', 'localhost'].includes(url.hostname)) {
       const u = await findOrCreateUser(env, { email: url.searchParams.get('email') || '', name: url.searchParams.get('name') || '' });
-      if (!u) return loginPage('No access');
+      if (!u) return loginPage(env, 'No access');
       return new Response(null, { status: 302, headers: { location: '/', 'set-cookie': setCookie(SESSION_COOKIE, await createSession(env, u.id), SESSION_DAYS * 86400, false) } });
     }
     if (path === '/auth/logout') {
       // Sign-out is a same-origin POST, so another site can't sign people out with a link or image.
-      if (req.method !== 'POST') return page('Sign out of Yakyard', `<h1>Sign out</h1><form method="post" action="/auth/logout" class="login-form"><button class="login-btn primary" type="submit">Sign out</button></form><p class="login-note"><a href="/">Back to Yakyard</a></p>`);
+      if (req.method !== 'POST') return page(env, 'Sign out of Yakyard', `<h1>Sign out</h1><form method="post" action="/auth/logout" class="login-form"><button class="login-btn primary" type="submit">Sign out</button></form><p class="login-note"><a href="/">Back to Yakyard</a></p>`);
       const o = req.headers.get('origin');
       if (o && o !== url.origin) return err(403, 'Bad origin');
       const sid = cookie(req, SESSION_COOKIE);
@@ -1281,7 +1313,7 @@ async function route(req, env, ctx, url, path) {
     if (!user) {
       if (path.startsWith('/api/') || path === '/ws' || path.startsWith('/files/')) return err(401, 'Sign in required');
       if (!(await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first())) return new Response(null, { status: 302, headers: { location: '/setup' } });
-      return loginPage();
+      return loginPage(env);
     }
 
     // Same-origin check on writes (blocks cross-site form posts).
@@ -1321,7 +1353,7 @@ async function route(req, env, ctx, url, path) {
       try {
         return await api(req, env, user, path, ctx);
       } catch (e) {
-        if (/free tier|allocation|daily row/i.test(String(e?.message || e))) throw e;   // handle() explains quota errors
+        if (dbQuotaError(e)) throw e;   // handle() explains quota errors
         console.error(e);
         return err(500, "That didn't go through. Try again.");
       }
@@ -1361,15 +1393,6 @@ export class Hub extends DurableObject {
       for (const w of this.ctx.getWebSockets(user_id)) { try { w.close(4001, 'signed out'); } catch (e) {} }
       return new Response('ok');
     }
-    if (url.pathname === '/push') {
-      // Phone notifications waiting to go out, sent a few per alarm (see pushToUsers).
-      const { subs, payload } = await req.json();
-      const q = (await this.ctx.storage.get('pushq')) || [];
-      for (const s of subs) q.push({ s, p: payload });
-      await this.ctx.storage.put('pushq', q.slice(-500));
-      if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now());
-      return new Response('ok');
-    }
     if (url.pathname === '/broadcast') {
       const { event, to } = await req.json();
       const data = JSON.stringify(event);
@@ -1382,12 +1405,11 @@ export class Hub extends DurableObject {
     return new Response('Not found', { status: 404 });
   }
 
+  // Older versions queued phone notifications here. Hand any left over to push jobs, once.
   async alarm() {
     const q = (await this.ctx.storage.get('pushq')) || [];
-    const batch = q.splice(0, PUSHES_PER_ALARM);
-    await this.ctx.storage.put('pushq', q);
-    if (q.length) await this.ctx.storage.setAlarm(Date.now());
-    await Promise.allSettled(batch.map((x) => pushOne(this.env, x.s, x.p)));
+    await this.ctx.storage.delete('pushq');
+    for (let i = 0; i < q.length; i += PUSHES_PER_JOB) await arm(this.env, 'push', 'hub' + i + '-' + Date.now(), Date.now(), { subs: q.slice(i, i + PUSHES_PER_JOB).map((x) => x.s), payload: q[i].p });
   }
 
   online() {
@@ -1538,4 +1560,22 @@ export class Hub extends DurableObject {
   }
   async webSocketClose(ws) { const was = this.att(ws).huddle; ws.serializeAttachment({}); await this.broadcastPresence().catch(() => {}); if (was) { this.broadcastHuddles(); await this.afterLeave(was); } }
   async webSocketError(ws) { return this.webSocketClose(ws); }
+}
+
+// ---------------------------------------------------------------- Job Durable Object
+// One object per background job, named "<kind>:<id>" (see arm in features.js). Its alarm runs the job in its own
+// invocation, with its own CPU budget, and sets the next alarm when the job wants to run again.
+export class Job extends DurableObject {
+  arm(job, at) { return jobArm(this.ctx.storage, job, at); }
+  alarm() { return jobAlarm(this.ctx.storage, (job) => runJob(this.env, this.ctx, job)); }
+}
+const voiceDeps = { hydrateMessages, broadcast, channelMembers };
+function runJob(env, ctx, { kind, id, data }) {
+  if (kind === 'sched') return sendScheduled(env, ctx, id, postMessage);
+  if (kind === 'rem') return sendReminder(env, ctx, id, postMessage);
+  if (kind === 'voice') return voiceJob(env, id, voiceDeps);
+  if (kind === 'import') return importJob(env, id);
+  if (kind === 'push') return pushBatch(env, data);
+  if (kind === 'house') return Promise.all([housekeeping(env), cacheCleanup(env)]).then(() => null);
+  return null;
 }

@@ -34,9 +34,19 @@ async function hint(env) {
 }
 
 // Workers AI gives 10,000 free neurons a day (about 214 minutes of voice notes). When they run out,
-// notes still send; their transcripts wait until the next day (midnight UTC), when the cron picks them up.
+// notes still send; their transcripts wait until the next day (midnight UTC), when their job wakes up again.
 const nextUtcDay = () => { const d = new Date(); d.setUTCHours(24, 1, 0, 0); return d.getTime(); };
-const quotaError = (e) => /3036|daily free allocation|neurons|4006/i.test(String(e?.message || e));
+// Workers AI errors carry a numeric code (and an HTTP status), documented at
+// developers.cloudflare.com/workers-ai/platform/errors: 3036 (429) is the daily free allocation used up, 3040 (429)
+// is busy for a moment. We read the code from the error object, or the "3036:" the binding puts first in the message,
+// never from the wording, which can change.
+export function aiErrorKind(e) {
+  const m = String(e?.message ?? e ?? '').match(/^(?:[A-Za-z]*Error:\s*)?(\d{4})\b/);
+  const code = +(e?.code ?? e?.cause?.code ?? (m ? m[1] : 0)) || 0, status = +(e?.status ?? e?.cause?.status ?? 0) || 0;
+  if (code === 3036 || code === 4006) return 'quota';   // 4006 is the older code for the same limit
+  if (code === 3040 || code === 3007 || status === 429 || status === 503 || status === 408) return 'busy';
+  return 'other';
+}
 async function aiPausedUntil(env) {
   const r = await env.DB.prepare("SELECT value FROM settings WHERE key='ai_paused_until'").first().catch(() => null);
   return +(r?.value || 0) > now() ? +r.value : 0;
@@ -71,21 +81,27 @@ export async function transcribe(env, key, deps, force = false) {
       await patchMessage(env, key, deps);
       return { status: 'failed', transcript: '' };
     }
-    const res = await env.AI.run(MODEL, { audio: b64(await obj.arrayBuffer()), language: env.VOICE_LANGUAGE || 'en', task: 'transcribe', vad_filter: true, initial_prompt: await hint(env) });
+    const res = await ai(env).run(MODEL, { audio: b64(await obj.arrayBuffer()), language: env.VOICE_LANGUAGE || 'en', task: 'transcribe', vad_filter: true, initial_prompt: await hint(env) });
     const text = String(res?.text || '').replace(/\s+/g, ' ').trim();
     await env.DB.prepare("UPDATE files SET transcript=?, t_status='done', t_at=? WHERE key=?").bind(text, now(), key).run();
     await patchMessage(env, key, deps);
     return { status: 'done', transcript: text };
   } catch (e) {
     console.log('transcribe failed', key, String(e));
-    if (quotaError(e)) {
+    const kind = aiErrorKind(e);
+    if (kind === 'busy') {
+      // Busy for a moment: try again in two minutes without using up a try.
+      await env.DB.prepare("UPDATE files SET t_status='pending', t_tries=MAX(0,t_tries-1), t_at=? WHERE key=?").bind(now() + 120e3, key).run();
+      return { status: 'pending', transcript: '', at: now() + 120e3 };
+    }
+    if (kind === 'quota') {
       const until = nextUtcDay();
       await env.DB.batch([
         env.DB.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('ai_paused_until',?)").bind(String(until)),
         env.DB.prepare("UPDATE files SET t_status='pending', t_tries=MAX(0,t_tries-1), t_at=? WHERE key=?").bind(until, key),
       ]);
       await patchMessage(env, key, deps);
-      return { status: 'later', transcript: '' };
+      return { status: 'later', transcript: '', at: until };
     }
     const f = await env.DB.prepare('SELECT t_tries FROM files WHERE key=?').bind(key).first();
     const st = (f?.t_tries || 0) >= MAX_TRIES ? 'failed' : 'pending';
@@ -136,13 +152,26 @@ export async function waitTranscripts(env, keys, ms = 20000) {
   return null;
 }
 
-// Safety net, every minute: notes whose transcript never started (app closed right after sending), and
-// notes that waited for the next day's free AI quota. One per minute, so the run stays small.
-export async function voiceCron(env, deps) {
-  if (await aiPausedUntil(env)) return;
-  const r = await env.DB.prepare(`SELECT key FROM files WHERE channel_id IS NOT NULL AND ((t_status='pending' AND COALESCE(t_at, created_at) < ?) OR (t_status='working' AND t_at < ?)) ORDER BY created_at LIMIT 1`)
-    .bind(now() - 45e3, now() - 5 * 60e3).all();
-  for (const x of r.results) await transcribe(env, x.key, deps);
+// The transcript job (see arm in features.js): one note per run, retried until it is done or out of tries.
+// Returns when to run again, or null when there is nothing left to do.
+export async function voiceJob(env, key, deps) {
+  const r = await transcribe(env, key, deps);
+  if (r.status === 'later') return r.at || (await aiPausedUntil(env)) || now() + 3600e3;
+  if (r.status === 'pending') return r.at || now() + 60e3;
+  if (r.status === 'working') return now() + 5 * 60e3 + 1000;   // another run has it; check once its claim goes stale
+  return null;
+}
+
+// Only for tests: VOICE_AI_URL points transcripts at a local stand-in for Workers AI (localhost only).
+function ai(env) {
+  const u = env.VOICE_AI_URL && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(env.VOICE_AI_URL) ? env.VOICE_AI_URL : '';
+  if (!u) return env.AI;
+  return { run: async (model, input) => {
+    const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model, input: { ...input, audio: String(input.audio).length } }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.message || 'AI error'), { code: j.code, status: r.status });
+    return j;
+  } };
 }
 
 export const fmtDur = (s) => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
