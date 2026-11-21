@@ -144,7 +144,7 @@ On iPhone, people first add Yakyard to their Home Screen (Share, then **Add to H
 
 ## 11. Optional: bring your Slack history
 
-Each person can copy their own Slack messages (DMs, group DMs, private channels) into Yakyard. It needs a small Slack app that you create once. The steps are in the README, under **Optional**, row **Slack import**. The copy runs in the background, about a thousand messages a minute, slower if Slack asks it to wait. You can close Yakyard while it runs.
+Each person can copy their own Slack messages (DMs, group DMs, private channels) into Yakyard. It needs a small Slack app that you create once. The steps are in [TECHNICAL.md](TECHNICAL.md#optional-features), row **Slack import**. The copy runs in the background, about a thousand messages a minute, slower if Slack asks it to wait. You can close Yakyard while it runs.
 
 ## Updates
 
@@ -219,7 +219,7 @@ For a team of up to about 50 people, you should stay well inside the free plan. 
 - **Voice transcripts:** about 214 minutes a day for the whole team. After that, voice notes still send and play, and their transcripts arrive the next day.
 - **Photo previews:** 5,000 new previews a month. After that, photos show at full size.
 
-The README section **Free plan** has the full math. If Yakyard gets slow to answer, or the Usage card is often full, upgrade to **Workers Paid** ($5 a month) in the Cloudflare dashboard. Nothing in Yakyard changes.
+[TECHNICAL.md](TECHNICAL.md#free-plan-math) has the full math. If Yakyard gets slow to answer, or the Usage card is often full, upgrade to **Workers Paid** ($5 a month) in the Cloudflare dashboard. Nothing in Yakyard changes.
 
 ## Check the CPU limit
 
