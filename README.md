@@ -7,7 +7,7 @@
 
 <p align="center"><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4"><img src="docs/media/yakyard-demo.gif" width="880" alt="Yakyard in the live demo: a voice note plays in the #launch channel and its written transcript opens underneath"></a><br><sub><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4">Watch the 84-second tour, with sound</a></sub></p>
 
-<p align="center"><b>Yakyard</b> is a free Slack alternative you run on your own Cloudflare account.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
+<p align="center"><b>Yakyard</b> is a free, open source Slack alternative you run on your own Cloudflare account or your own server.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
 
 <p align="center"><b>New in 2.2:</b> Yakyard runs on your own Linux server too, with Docker and Caddy. <a href="docs/releases/2.2.0.md">What changed</a></p>
 
@@ -41,7 +41,7 @@
 
 Your team's chat is your team's history: decisions, files, the reason something was built the way it was. Most chat apps rent it back to you. You pay for every person, every month. On a free plan, the old messages go behind a paywall, or go away.
 
-Yakyard is a full team chat that you deploy once to your own Cloudflare account. It fits on Cloudflare's free plan for a team of up to about 50 people, so for most small teams the bill is $0. Nobody else holds your messages, and nobody can raise the price per head.
+Yakyard is a full team chat that you deploy once to your own Cloudflare account, or run on your own Linux server with Docker. On Cloudflare it fits the free plan for a team of up to about 50 people, so for most small teams the bill is $0. Nobody else holds your messages, and nobody can raise the price per head.
 
 It started as an internal tool. It's built for and used every day by a real team that left Slack. If your people know Slack, they already know where everything is.
 
@@ -71,7 +71,7 @@ It started as an internal tool. It's built for and used every day by a real team
 
 <p align="center"><img src="docs/screens/desktop-dark.png" alt="The dark theme: a link, a mention and a voice note in a channel" width="760"></p>
 
-**Lock what's private.** Tick **Lock it** when you start a DM or private channel. Messages, files and voice notes are then encrypted on each person's device, with vodozemac, the library behind Element's encryption. The server only stores scrambled data. Your admin can't read it, and neither can someone with your Cloudflare account, or us. Locking takes two approvals, and the app tells you plainly what works differently in there (search stays on your device, no transcripts, and if you lose every device and your recovery key, those messages are gone). [How it works](docs/E2EE.md).
+**Lock what's private.** Tick **Lock it** when you start a DM or private channel. Messages, files and voice notes are then encrypted on each person's device, with vodozemac, the library behind Element's encryption. The server only stores scrambled data. Your admin can't read it, and neither can someone with your Cloudflare account or server, or us. Locking takes two approvals, and the app tells you plainly what works differently in there (search stays on your device, no transcripts, and if you lose every device and your recovery key, those messages are gone). [How it works](docs/E2EE.md).
 
 **Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
 
@@ -108,13 +108,13 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 
 **Good**
 - $0 for most teams under about 50 people. No per-seat price, ever: above that, $5 a month for the whole account.
-- Your messages and files live in your own Cloudflare account. You back them up, and you can delete all of it.
+- Your messages and files live in your own Cloudflare account, or on your own server. You back them up, and you can delete all of it.
 - Voice notes with transcripts, written automatically and searchable.
 - Calls built in: pop in to any channel or DM, with screen share.
 - Your Slack DMs, private channels and files come with you.
 - Installs on phone and desktop, with push notifications.
 - Private channels stay private, even from admins.
-- One click to deploy. No server or Docker to look after.
+- One click to deploy on Cloudflare, with no server to look after. Or run it on your own server with Docker.
 - Backups to a file you keep, with one command or every night by themselves.
 - Three themes, including Yaky, the loud one we made for fun.
 - Open source under Apache 2.0. Use it, change it, even sell it.
@@ -124,7 +124,7 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 - Someone on your team runs it. Updates and backups can run by themselves, or take one command each.
 - Built for Cloudflare. It also runs on your own server with Docker, but transcripts still need a free Cloudflare token there.
 - No app store app. It's an installable web app, with notifications.
-- Only locked conversations are end-to-end encrypted. The rest is readable to whoever controls your Cloudflare account. Locked ones have limits: search only on your device, no transcripts, and a lost recovery key means lost messages.
+- Only locked conversations are end-to-end encrypted. The rest is readable to whoever controls your Cloudflare account or server. Locked ones have limits: search only on your device, no transcripts, and a lost recovery key means lost messages.
 
 The fine print (calls, transcript languages, the Slack import, support) is in [Pros and cons](docs/PROS-AND-CONS.md).
 
@@ -184,7 +184,7 @@ Then open `https://your-domain/setup`. Backups and updates are one command each.
 
 **Can I use it at work?** Yes. Any company can run it for its own team, for free. You can also change it, host it for clients or sell it, under the Apache 2.0 terms.
 
-**Who can read our messages?** People in your workspace, and whoever has access to your Cloudflare account. Nobody at Yakyard can see them.
+**Who can read our messages?** People in your workspace, and whoever has access to your Cloudflare account, or to your server and its backups if you run it with Docker. Nobody at Yakyard can see them.
 
 **Is it end-to-end encrypted?** Yes, optionally, for DMs and private channels you lock. Only the people in a locked conversation can read it, not the admin and not the server. The trade-offs: search there only covers your device, notifications don't show the message, no transcripts or link previews, and losing every device and your recovery key loses those messages. **Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit. [Details](docs/E2EE.md).
 
@@ -192,7 +192,7 @@ Then open `https://your-domain/setup`. Backups and updates are one command each.
 
 **What happens to our Slack history?** Each person copies their own Slack DMs, group messages and private channels, with files. Public channel history stays in Slack.
 
-**What if Yakyard stops being developed?** Your copy keeps running on your account. You have the code, the database and a backup command. Nothing phones home.
+**What if Yakyard stops being developed?** Your copy keeps running on your account or server. You have the code, the database and a backup command. Nothing phones home.
 
 **Who do I call when it breaks?** Nobody sells support. There's the [setup guide](docs/SETUP.md#when-something-fails), [GitHub issues](https://github.com/yakyard/yakyard/issues) and the people who use it.
 

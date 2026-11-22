@@ -3,7 +3,9 @@
   "version": "2.2.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Self-hosted team chat on Cloudflare: channels, threads, DMs, calls, voice notes with transcripts.",
+  "description": "Free, open source team chat you run on your own Cloudflare account or your own server with Docker: channels, threads, DMs, calls, voice notes with transcripts.",
+  "keywords": ["team-chat", "slack-alternative", "self-hosted", "open-source", "cloudflare-workers", "docker", "voice-notes", "transcription", "pwa", "end-to-end-encryption"],
+  "homepage": "https://yakyard.pages.dev",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

@@ -27,16 +27,16 @@ In scope: the code in this repository, including the Worker (`src/`), the web ap
 Not in scope:
 - Cloudflare itself. Report those to Cloudflare.
 - Someone's own deployment that changed the code or settings, unless the problem is in Yakyard's defaults.
-- Limits we already list: normal conversations (not locked ones) are readable to anyone with access to the Cloudflare account, and metadata of locked conversations (who, when, sizes) is visible to the server. See [docs/E2EE.md](docs/E2EE.md#threat-model).
+- Limits we already list: normal conversations (not locked ones) are readable to anyone with access to the Cloudflare account, or to the server and its backups on a Docker install, and metadata of locked conversations (who, when, sizes) is visible to the server. See [docs/E2EE.md](docs/E2EE.md#threat-model).
 - Denial of service by using up a free plan's daily quota. Yakyard stops cleanly and resets at midnight UTC by design.
 
 ## Supported versions
 
-Only the newest release gets security fixes. Update with `npm run backup` then `npm run update`.
+Only the newest release gets security fixes. On Cloudflare, update with `npm run backup` then `npm run update`. On your own server, run `sh docker/backup.sh`, then `git pull`, `docker compose pull` and `docker compose up -d`.
 
 ## Keeping your Yakyard safe
 
-- Turn on two-factor sign-in for your Cloudflare account. Anyone who can sign in to it can read your messages, except locked conversations.
+- Turn on two-factor sign-in for your Cloudflare account. Anyone who can sign in to it can read your messages, except locked conversations. On your own server, the same goes for anyone who can get into the server or its backups.
 - For sensitive DMs and private channels, use locked conversations, and keep your recovery key in a password manager.
 - After an update, `npm run lock:verify -- https://your-yakyard` checks that your server sends the published locking code ([docs/E2EE-HASHES.md](docs/E2EE-HASHES.md)).
 - Keep `SETUP_TOKEN`, `TOKEN_KEY` and the other secrets out of git (`.dev.vars` is already ignored).

@@ -36,8 +36,8 @@ body {{ position: relative; font-family: W; -webkit-font-smoothing: antialiased;
 
 OG = [
     # name, title, line, screenshot (dir, file), hot word in title
-    ("home", "Yak all you want. <span>Pay nobody.</span>", "Free team chat you run on your own Cloudflare account.", (S, "hero-light.png")),
-    ("why", "Chat shouldn't be rent.", "Why Yakyard runs free on your own Cloudflare account.", (S, "hero-yaky.png")),
+    ("home", "Yak all you want. <span>Pay nobody.</span>", "Free, open source team chat. Run it on Cloudflare or on your own server.", (S, "hero-light.png")),
+    ("why", "Chat shouldn't be rent.", "Why we made Yakyard free, open source and yours to run.", (S, "hero-yaky.png")),
     ("compare", "Yakyard, compared.", "Slack, Teams, Google Chat, Zulip and more. Prices checked 21 November 2026.", (S, "hero-light.png")),
     ("pros-and-cons", "Read the cons first.", "What Yakyard does well, and what it doesn't.", (S, "desktop-dark.png")),
     ("faq", "Straight answers.", "Costs, privacy, phone apps, Slack history and the license.", (S, "help-panel.png")),
@@ -78,7 +78,7 @@ p {{ margin-top: 26px; width: 440px; font: 500 25px/1.4 W; color: #e6e3ff; }}
 </style></head><body>
 <div class="lock"><img src="{B}/yakyard-app-icon.svg"><img src="{B}/yakyard-wordmark-reverse.svg"></div>
 <div class="txt"><h1><span>Yak all you want.</span><span>Pay nobody.</span></h1>
-<p>Free team chat you run on your own Cloudflare account.</p></div>
+<p>Free, open source team chat. Run it on Cloudflare or on your own server.</p></div>
 <span class="sticker">$0 a seat</span>
 <div class="frame"><div class="bar"><i></i><i></i><i></i></div><img src="{S}/hero-light.png"></div>
 <div class="grain"></div></body></html>"""

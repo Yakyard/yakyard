@@ -12,7 +12,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **No price per head, ever.** Adding the 11th person, or the 40th, doesn't change the bill. Neither does keeping a client or freelancer around as a guest.
 
-**Your data sits in your account.** Messages are in a Cloudflare D1 database and files in an R2 bucket, both in your Cloudflare account. Deleting the Worker, database and bucket removes everything.
+**Your data sits in your account.** Messages are in a Cloudflare D1 database and files in an R2 bucket, both in your Cloudflare account. Deleting the Worker, database and bucket removes everything. On your own server, it's all in one Docker volume.
 
 **Your history doesn't expire.** Slack's free plan shows 90 days and deletes anything older than a year ([source](sources.md#slack)). Yakyard keeps everything until you delete it, limited only by the free database size (5 GB) and file storage (10 GB, capped at 9 GB by default).
 
@@ -48,7 +48,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 ## Worth knowing
 
-**Someone on your team runs it.** That person owns the Cloudflare account, runs updates (`npm run update`) and takes backups (`npm run backup`). Each is one command, but nobody does it for you.
+**Someone on your team runs it.** That person owns the Cloudflare account (or the server), runs updates (`npm run update`) and takes backups (`npm run backup`). Each is one command, and on a copy made with the Deploy button they can run by themselves, but nobody else is on call for you. On your own server, that person also looks after the operating system, firewall and disk.
 
 **Built for Cloudflare first.** Yakyard is built on Workers, Durable Objects, D1, R2 and Workers AI. It also runs on your own server with [Docker](DOCKER.md), in workerd, the open-source runtime Cloudflare uses. There, transcripts still need a free Cloudflare token, Cloudflare's free plan math doesn't apply, and it's one server with no automatic scaling. The Docker way is newer than the Cloudflare one, and fewer teams run it.
 

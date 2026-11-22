@@ -4,7 +4,7 @@
 
 # Set up Yakyard, free
 
-This guide puts Yakyard on your own Cloudflare account. You don't need to know how to code. You type a few commands, one at a time, and copy what the screen tells you.
+This guide puts Yakyard on your own Cloudflare account, the free way to run it. Rather have it on your own Linux server? Follow [Run Yakyard on your own server](DOCKER.md) instead. You don't need to know how to code. You type a few commands, one at a time, and copy what the screen tells you.
 
 It takes about 30 minutes the first time. It costs nothing for a small team: see [How free is free](#how-free-is-free) at the end.
 

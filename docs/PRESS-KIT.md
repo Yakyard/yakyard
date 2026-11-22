@@ -8,38 +8,42 @@ Everything you need to write about Yakyard or show it. Use it freely for article
 
 ## One-liner
 
-Yakyard is free team chat you run on your own Cloudflare account.
+Yakyard is free, open source team chat you run on your own Cloudflare account or your own server.
 
 Tagline: **Yak all you want. Pay nobody.**
 
 ## 50 words
 
-Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, voice notes with automatic transcripts, and locked conversations with end-to-end encryption. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. Free and open source.
+Yakyard is free, open source team chat for small teams. It has channels, threads, DMs, calls, and voice notes with automatic transcripts. Run it on your own Cloudflare account, where it fits the free plan for up to about 50 people, or on your own server with Docker. Apache 2.0 license.
 
 ## 150 words
 
-Yakyard is team chat for small teams that are tired of paying per seat to talk to each other. You deploy it once to your own Cloudflare account, with one command or a Deploy to Cloudflare button, and there's no server to run.
+Yakyard is team chat for small teams that are tired of paying per seat to talk to each other. You deploy it once to your own Cloudflare account, with one command or a Deploy to Cloudflare button, and there's no server to run. Teams that want it on their own hardware can use Docker instead.
 
-It covers what teams use every day: public and private channels, threads, direct and group messages, mentions, reactions, search, scheduled send, reminders, guests and push notifications. It adds voice notes with automatic, searchable transcripts, and "Pop in" calls with screen share in any channel. It installs like an app on phones and computers, and each person can bring their Slack DMs and private channels along. Since version 2, any DM or private channel can be locked: end-to-end encrypted on each device with vodozemac, the library behind Element, so not even the admin can read it.
+It has public and private channels, threads, DMs, mentions, reactions, search, scheduled send, reminders, guests and push notifications. Voice notes get automatic, searchable transcripts, and "Pop in" starts a call with screen share in any channel. It installs like an app on phones and computers, and each person can bring their Slack DMs and private channels along. Any DM or private channel can be locked with end-to-end encryption, a preview until it has an outside audit.
 
-Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 people pays $0. Messages stay in the team's own account. It's free and open source under the Apache License 2.0.
+On Cloudflare's free plan, a team of up to about 50 people pays $0. Yakyard is free and open source under Apache 2.0, made by QVINTA Ltd.
 
 ## Boilerplate
 
-> Yakyard is free team chat that runs on your own Cloudflare account. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is free and open source under the Apache License 2.0. Learn more at github.com/yakyard/yakyard.
+> Yakyard is free, open source team chat that runs on your own Cloudflare account or your own server. QVINTA Ltd, a Hong Kong company, makes and maintains it. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is under the Apache License 2.0. Learn more at yakyard.pages.dev.
 
 ## Facts
 
 | | |
 |---|---|
-| What | Self-hosted team chat on Cloudflare Workers |
+| What | Open source team chat you run yourself, on Cloudflare or on your own server |
 | Price | Free. Runs on Cloudflare's free plan for about 50 people; Cloudflare's Workers Paid plan ($5 a month minimum per account) above that |
 | Features | Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, locked conversations (end-to-end encrypted DMs and private channels), scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes |
 | Encryption | Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it (Apache-2.0, `packages/yakyard-lock`) is not independently audited yet. |
 | Runs on | Cloudflare Workers, Durable Objects, D1, R2, Workers AI. Since 2.2.0, also any Linux server with Docker (workerd and Caddy), where transcripts need a Cloudflare token |
 | Apps | Installable web app (PWA) for iPhone, Android, Mac and Windows |
 | License | Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0. |
-| Version | 2.2.0 |
+| Version | 2.2.0 (22 November 2026) |
+| Demo | [yakyard-demo.qvinta.workers.dev](https://yakyard-demo.qvinta.workers.dev): one click, no signup, resets every night. An [84-second tour](https://yakyard.pages.dev/media/yakyard-demo.mp4) with voiceover |
+| Support | No paid support. GitHub issues and the docs |
+| Maker | QVINTA Ltd (Hong Kong) |
+| Website | yakyard.pages.dev |
 | Code | github.com/yakyard/yakyard |
 
 Yakyard is open source under the Apache License 2.0, so "free and open source" is accurate.

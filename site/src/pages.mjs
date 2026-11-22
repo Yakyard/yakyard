@@ -13,14 +13,14 @@ const TOUR_SOUND = `<button class="tour__sound" type="button" hidden data-tour-s
 export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSION }) {
   const pro = [
     ["$0 for most teams under about 50 people.", "No price per seat, ever. Above that, $5 a month for the whole account."],
-    ["Your messages and files live in your own Cloudflare account.", "You back them up, and you can delete all of it."],
+    ["Your messages and files live in your own Cloudflare account,", "or on your own server. You back them up, and you can delete all of it."],
     ["Voice notes with transcripts,", "written automatically and searchable."],
     ["Calls built in.", "Pop in to any channel or DM, with screen share."],
     ["Your Slack history comes with you:", "DMs, private channels and files."],
     ["Installs on phone and desktop,", "with push notifications."],
     ["Private channels stay private,", "even from admins."],
     ["Lock what's private.", "Lock a DM or private channel and only the people in it can read it. Not even the admin."],
-    ["One click to deploy.", "No server or Docker to look after."],
+    ["One click to deploy on Cloudflare,", "with no server to look after. Or run it on yours with Docker."],
     ["Backups are one command,", "to a file you keep."],
     ["Three themes,", "including Yaky, the loud one we made for fun."],
     ["Open source, under Apache 2.0.", "Use it, change it, even sell it."],
@@ -29,7 +29,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     ["Someone on your team runs it.", "Updates and backups are one command each."],
     ["Built for Cloudflare.", "It runs on your own server with Docker too, but transcripts still need a free Cloudflare token there."],
     ["No app store app.", "It's an installable web app, with notifications."],
-    ["Only locked conversations are end-to-end encrypted.", "The rest is readable to whoever runs your Cloudflare account. Locked ones have limits, like search only on your device."],
+    ["Only locked conversations are end-to-end encrypted.", "The rest is readable to whoever runs your Cloudflare account or server. Locked ones have limits, like search only on your device."],
   ];
   const MQ = ["Channels", "Threads", "DMs", "Voice notes", "Transcripts", "Calls", "Locked", "Search", "Yak yak yak", "$0 a seat", "Your data, your account"];
   const li = ([b, t]) => `<li><b>${b}</b>${t ? ` ${t}` : ""}</li>`;
@@ -54,11 +54,11 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   const faq = [
     ["Is it really free?", "The software is free. It runs on Cloudflare's free plan for up to about 50 people. Above that, Cloudflare charges $5 a month for the whole account, not per person."],
     ["Can I use it at work?", "Yes. Any company can run it for its own team, for free. You can also change it, host it for clients or sell it, under the Apache 2.0 terms."],
-    ["Who can read our messages?", "People in your workspace, and whoever has access to your Cloudflare account. Nobody at Yakyard can see them."],
+    ["Who can read our messages?", "People in your workspace, and whoever has access to your Cloudflare account, or to your server and its backups if you run it with Docker. Nobody at Yakyard can see them."],
     ["Is it end-to-end encrypted?", `Yes, if you lock the conversation. Locked DMs and private channels are scrambled on each person's device, so only the people in them can read them, not the admin and not us. In there, search only covers your device and voice notes have no transcript. If you lose every device and your recovery key, those messages are gone. <a href="/docs/locked">How it works</a>.`],
     ["Is there a phone app?", "Yakyard installs from the browser on iPhone and Android, with its own icon and notifications. There's no App Store or Play Store app."],
     ["What happens to our Slack history?", "Each person copies their own Slack DMs, group messages and private channels, with files. Public channel history stays in Slack."],
-    ["What if Yakyard stops being developed?", "Your copy keeps running on your account. You have the code, the database and a backup command. Nothing phones home."],
+    ["What if Yakyard stops being developed?", "Your copy keeps running on your account or server. You have the code, the database and a backup command. Nothing phones home."],
     ["Who do I call when it breaks?", `Nobody sells support. There's the <a href="/docs/setup#when-something-fails">setup guide</a>, <a href="${REPO}/issues">GitHub issues</a> and the people who use it.`],
     ["Is it open source?", "Yes. Yakyard is under the Apache License 2.0, an OSI-approved open source license. Use it, change it, host it or sell it. Keep the copyright and license notices, and say what you changed."],
   ];
@@ -70,7 +70,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     <h1 class="d-xl" id="hero-title"><span class="l">${"Yak all you want.".split(" ").map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(" ")}</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
     <div class="hero__grid">
       <div class="hero__copy">
-        <p class="lede">A free Slack alternative you run on your own Cloudflare account. Channels, threads, calls, voice notes with transcripts, and locked conversations nobody else can read. Nobody pays per seat.</p>
+        <p class="lede">A free, open source Slack alternative you run on your own Cloudflare account or your own server. Channels, threads, calls, voice notes with transcripts, and locked conversations nobody else can read. Nobody pays per seat.</p>
         <div class="btn-row">
           <a class="btn btn--primary" href="${DEPLOY_URL}">${icon("cloud-arrow-up")}Deploy to Cloudflare</a>
           <a class="btn btn--secondary" href="https://yakyard-demo.qvinta.workers.dev">Try the live demo</a>
@@ -292,25 +292,25 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
 </section>`;
 
   return layout({
-    title: "Yakyard: free Slack alternative on your own Cloudflare account",
-    description: "A Slack alternative you run on your own Cloudflare account, free. Channels, threads, DMs, calls and voice notes with transcripts. No per-seat bill.",
+    title: "Yakyard: free, open source, self-hosted Slack alternative",
+    description: "Free, open source team chat you run on your own Cloudflare account or your own server. Channels, threads, DMs, calls and voice notes with transcripts.",
     jsonld: {
       "@context": "https://schema.org",
       "@graph": [
         { "@type": "WebSite", "@id": `${SITE_URL}/#website`, url: `${SITE_URL}/`, name: "Yakyard", publisher: { "@id": `${SITE_URL}/#org` } },
         { "@type": "Organization", "@id": `${SITE_URL}/#org`, name: "QVINTA Ltd", address: { "@type": "PostalAddress", addressCountry: "HK" } },
         { "@type": "SoftwareApplication", "@id": `${SITE_URL}/#app`, name: "Yakyard", url: `${SITE_URL}/`,
-          description: "Free, open source team chat you deploy to your own Cloudflare account. A Slack alternative with channels, threads, DMs, calls and voice notes with transcripts, plus optional end-to-end encrypted conversations.",
+          description: "Free, open source team chat you run on your own Cloudflare account, or on your own Linux server with Docker. A Slack alternative with channels, threads, DMs, calls and voice notes with transcripts, plus optional end-to-end encrypted conversations.",
           applicationCategory: "CommunicationApplication", applicationSubCategory: "Team chat",
           operatingSystem: "Web, iOS, Android, macOS, Windows (installable web app)",
           softwareVersion: VERSION, isAccessibleForFree: true,
           offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
           license: "https://www.apache.org/licenses/LICENSE-2.0",
           image: `${SITE_URL}/og/home.png`, screenshot: `${SITE_URL}/img/hero-light-1440.webp`,
-          featureList: ["Public and private channels", "Threads", "Direct and group messages", "Voice notes with automatic transcripts", "Calls with screen share", "Search across messages and transcripts", "Slack history import", "Optional end-to-end encrypted conversations", "Installable app for phone and desktop"],
+          featureList: ["Public and private channels", "Threads", "Direct and group messages", "Voice notes with automatic transcripts", "Calls with screen share", "Search across messages and transcripts", "Slack history import", "Optional end-to-end encrypted conversations", "Installable app for phone and desktop", "Light, dark and Yaky themes", "Runs on Cloudflare Workers or on your own server with Docker"],
           publisher: { "@id": `${SITE_URL}/#org` }, sameAs: [REPO] },
         { "@type": "SoftwareSourceCode", "@id": `${SITE_URL}/#code`, name: "Yakyard source code",
-          codeRepository: REPO, programmingLanguage: "JavaScript", runtimePlatform: "Cloudflare Workers",
+          codeRepository: REPO, programmingLanguage: "JavaScript", runtimePlatform: ["Cloudflare Workers", "Docker"],
           license: "https://www.apache.org/licenses/LICENSE-2.0", targetProduct: { "@id": `${SITE_URL}/#app` } },
       ],
     },
@@ -345,12 +345,12 @@ export function docsHubPage({ layout, shot, REPO }) {
 </div>`;
   return layout({
     title: "Docs", seoTitle: "Yakyard docs: setup, guide and technical notes",
-    description: "Set up Yakyard on your own Cloudflare account, learn how to use it, and read the technical notes.",
+    description: "Set up Yakyard on your own Cloudflare account or your own server with Docker, learn how to use it, and read the technical notes.",
     urlPath: "/docs", og: "docs", body, current: "/docs",
   });
 }
 
-export function pressPage({ layout, shot, icon, REPO }) {
+export function pressPage({ layout, shot, icon, REPO, VERSION }) {
   const logos = [
     ["yakyard-lockup.svg", "Lockup", "The default logo, on light grounds", "paper", true],
     ["yakyard-app-icon.svg", "App icon", "Avatars, favicons, profiles", "white", false, "/brand/app-icon-512.png"],
@@ -365,9 +365,9 @@ export function pressPage({ layout, shot, icon, REPO }) {
     ["phone-light-channel", "Phone, light theme"], ["phone-yaky-dms", "Phone, Yaky theme"], ["admin-usage", "Admin: free plan usage"],
   ];
   const blurbs = [
-    ["One line", "Yakyard is free team chat you run on your own Cloudflare account."],
-    ["50 words", "Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, and voice notes with automatic transcripts. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. It's free and open source under Apache 2.0."],
-    ["Boilerplate", "Yakyard is free team chat that runs on your own Cloudflare account. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is free and open source under the Apache License 2.0. Learn more at github.com/yakyard/yakyard."],
+    ["One line", "Yakyard is free, open source team chat you run on your own Cloudflare account or your own server."],
+    ["50 words", "Yakyard is free, open source team chat for small teams. It has channels, threads, DMs, calls, and voice notes with automatic transcripts. Run it on your own Cloudflare account, where it fits the free plan for up to about 50 people, or on your own server with Docker. Apache 2.0 license."],
+    ["Boilerplate", "Yakyard is free, open source team chat that runs on your own Cloudflare account or your own server. QVINTA Ltd, a Hong Kong company, makes and maintains it. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is under the Apache License 2.0. Learn more at yakyard.pages.dev."],
   ];
   const body = `
 <header class="phead"><div class="wrap"><h1>Press kit</h1><p class="lede">Logos, screenshots and words for writing about Yakyard or showing it. Use them freely in articles, reviews, videos and talks.</p></div></header>
@@ -405,15 +405,17 @@ export function pressPage({ layout, shot, icon, REPO }) {
     <h2 class="d-m" id="p-facts">Facts</h2>
     <table class="facts-t">
       <tbody>
-        <tr><th scope="row">What</th><td>Self-hosted team chat on Cloudflare Workers</td></tr>
+        <tr><th scope="row">What</th><td>Open source team chat you run yourself, on Cloudflare or on your own server</td></tr>
         <tr><th scope="row">Price</th><td>Free. Runs on Cloudflare's free plan for about 50 people; Cloudflare's Workers Paid plan ($5 a month minimum per account) above that</td></tr>
         <tr><th scope="row">Features</th><td>Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, locked conversations (end-to-end encrypted DMs and private channels), scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes</td></tr>
         <tr><th scope="row">Encryption</th><td>Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it is Apache-2.0 and not independently audited yet.</td></tr>
-        <tr><th scope="row">Version</th><td>2.2.0</td></tr>
-        <tr><th scope="row">Runs on</th><td>Cloudflare Workers, Durable Objects, D1, R2, Workers AI</td></tr>
+        <tr><th scope="row">Version</th><td>${VERSION}</td></tr>
+        <tr><th scope="row">Runs on</th><td>Cloudflare Workers, Durable Objects, D1, R2, Workers AI. Since 2.2.0, also any Linux server with Docker (workerd and Caddy), where transcripts need a Cloudflare token</td></tr>
+        <tr><th scope="row">Demo</th><td><a href="https://yakyard-demo.qvinta.workers.dev">yakyard-demo.qvinta.workers.dev</a>, one click, no signup, resets every night. An <a href="/media/yakyard-demo.mp4">84-second tour</a> with voiceover is on the home page</td></tr>
+        <tr><th scope="row">Support</th><td>No paid support. GitHub issues and the docs</td></tr>
         <tr><th scope="row">Apps</th><td>Installable web app (PWA) for iPhone, Android, Mac and Windows</td></tr>
         <tr><th scope="row">License</th><td>Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0.</td></tr>
-        <tr><th scope="row">Owner</th><td>QVINTA Ltd (Hong Kong) holds the copyright</td></tr>
+        <tr><th scope="row">Owner</th><td>QVINTA Ltd (Hong Kong) makes and maintains it and holds the copyright</td></tr>
         <tr><th scope="row">Code</th><td><a href="${REPO}">github.com/yakyard/yakyard</a></td></tr>
       </tbody>
     </table>

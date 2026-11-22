@@ -73,7 +73,7 @@ We say where others are better. Several are.
 
 **Yakyard is better at:** small teams that don't want to run a server. Mattermost Team Edition runs as a Linux binary with PostgreSQL that you host and maintain. The free Entry edition is suited to teams under 50 and shows only 10,000 channel messages of history. Paid plans are priced by quote. Yakyard needs no server, shows all your history, and costs $0 for about 50 people.
 
-**Pick Mattermost if** you need your own hardware or an enterprise vendor. **Pick Yakyard if** you'd rather not be a sysadmin.
+**Pick Mattermost if** you want years of self-hosting track record on your own hardware, or an enterprise vendor. **Pick Yakyard if** you'd rather not be a sysadmin.
 
 ## Yakyard vs Rocket.Chat
 

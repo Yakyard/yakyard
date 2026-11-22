@@ -57,7 +57,7 @@ Straight answers. Prices and limits were checked on 21 November 2026. The links 
 
 ### Is Yakyard really free?
 
-The software costs nothing. It runs on your own Cloudflare account, on Cloudflare's free plan, for a team of up to about 50 people. For most small teams, the total is $0.
+The software costs nothing. It runs on your own Cloudflare account, on Cloudflare's free plan, for a team of up to about 50 people. For most small teams, the total is $0. If you [run it on your own server](#can-i-run-it-on-my-own-server-instead-of-cloudflare) instead, you pay only for that server.
 
 ### Why does Cloudflare want my payment card?
 
@@ -85,15 +85,15 @@ Admins see storage and today's voice minutes on the **Usage** card in Admin.
 
 ### Who owns our messages?
 
-You do. They're stored in a D1 database and an R2 bucket in your Cloudflare account. We never get a copy. Cloudflare runs the hardware, under your account and Cloudflare's terms, so it isn't the same as a server in your office.
+You do. They're stored in a D1 database and an R2 bucket in your Cloudflare account. We never get a copy. Cloudflare runs the hardware, under your account and Cloudflare's terms, so it isn't the same as a server in your office. If you want that, [run it on your own server](#can-i-run-it-on-my-own-server-instead-of-cloudflare): then everything sits in one Docker volume on your disk.
 
 ### Who can read our messages?
 
-People in your workspace can read the conversations they're in. Private channels are only for their members: admins can't add themselves to one. Anyone who can sign in to your Cloudflare account can read the database, except locked conversations, which are end-to-end encrypted (see the next answer). Keep that account locked down with two-factor sign-in.
+People in your workspace can read the conversations they're in. Private channels are only for their members: admins can't add themselves to one. Anyone who can sign in to your Cloudflare account can read the database, except locked conversations, which are end-to-end encrypted (see the next answer). Keep that account locked down with two-factor sign-in. On your own server, the same goes for anyone who can get into the server or its backups.
 
 ### Is it end-to-end encrypted?
 
-Yes, optionally, for DMs and private channels. Tick **Lock it** when you start one. Messages, edits, reactions, files and voice notes are then encrypted on each person's device. The server stores only scrambled data. Your admin can't read it, someone with your Cloudflare account can't, and we can't.
+Yes, optionally, for DMs and private channels. Tick **Lock it** when you start one. Messages, edits, reactions, files and voice notes are then encrypted on each person's device. The server stores only scrambled data. Your admin can't read it, someone with your Cloudflare account or server can't, and we can't.
 
 **Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
 
@@ -217,7 +217,7 @@ Start with [When something fails](SETUP.md#when-something-fails). Then [GitHub i
 
 ### What if the project stops?
 
-Your Yakyard keeps running. It lives on your Cloudflare account, you have the code, and nothing depends on a server of ours. You'd stop getting updates from us, but the code is Apache 2.0, so you or anyone else can keep it going.
+Your Yakyard keeps running. It lives on your Cloudflare account or your server, you have the code, and nothing depends on a server of ours. You'd stop getting updates from us, but the code is Apache 2.0, so you or anyone else can keep it going.
 
 ### Is it secure?
 

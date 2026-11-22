@@ -9,12 +9,12 @@ Ready-to-post drafts for telling people about Yakyard, plus a plan for launch da
 Rules for every post:
 - Say "free and open source" and name the license (Apache 2.0). Anyone can use it, change it and sell it.
 - No made-up numbers, user counts, testimonials or "as seen on".
-- Say the limits out loud: Cloudflare only, no native mobile apps, end-to-end encryption only in locked conversations (and not audited yet), no paid support.
+- Say the limits out loud: built for Cloudflare first (it runs on your own server with Docker too, but transcripts there need a Cloudflare token and it's one server with no failover), no native mobile apps, end-to-end encryption only in locked conversations (and not audited yet), no paid support.
 - Reply to every comment for the first day, especially the critical ones. Thank people for bugs.
 
 ## Positioning
 
-> For small teams who are tired of paying per seat to talk to each other, Yakyard is team chat that runs free on their own Cloudflare account, with no server to run. Unlike Slack's free plan, it keeps all your history. Unlike most self-hosted chat, there's no server to look after.
+> For small teams who are tired of paying per seat to talk to each other, Yakyard is free, open source team chat that runs on their own Cloudflare account, or on their own server with Docker. Unlike Slack's free plan, it keeps all your history. Unlike most self-hosted chat, the Cloudflare way has no server to look after.
 
 No customer panel was run for this. The positioning comes from the competitor research in [COMPARE.md](COMPARE.md): the gap is "self-hosted, but no server".
 
@@ -46,9 +46,9 @@ Show HN: Yakyard, Slack-style team chat that runs on Cloudflare's free plan
 **Text**
 
 ```
-Yakyard is a team chat you deploy to your own Cloudflare account: channels,
-threads, DMs, mentions, search, calls, and voice notes with automatic
-transcripts (Whisper on Workers AI).
+Yakyard is a team chat you deploy to your own Cloudflare account, or run
+on your own server with Docker: channels, threads, DMs, mentions, search,
+calls, and voice notes with automatic transcripts (Whisper on Workers AI).
 
 It's free and open source under Apache 2.0. Any person or business can
 use it, change it, host it or sell it.
@@ -76,9 +76,11 @@ What it doesn't do: no native mobile apps (it's a PWA with push),
 end-to-end encryption only in the DMs and private channels you lock (Olm/Megolm
 via vodozemac, our wrapper not yet audited), calls are browser-to-browser mesh so small groups
 only, Slack import brings DMs and private channels but not public channel
-history, and it only runs on Cloudflare.
+history, and on your own server (Docker, workerd and Caddy) transcripts
+still need a Cloudflare token.
 
-There's a one-command deploy and a Deploy to Cloudflare button. Happy to
+There's a one-command deploy, a Deploy to Cloudflare button, a Docker
+setup and a live demo: https://yakyard-demo.qvinta.workers.dev. Happy to
 answer anything about the free-plan constraints.
 ```
 
@@ -89,13 +91,13 @@ answer anything about the free-plan constraints.
 **Tagline** (60 characters max)
 
 ```
-Free team chat on your own Cloudflare account
+Free, open source Slack alternative you run yourself
 ```
 
 **Description** (500 characters max)
 
 ```
-Slack-style team chat you deploy to your own Cloudflare account. Channels, threads, DMs, calls and voice notes with transcripts. Fits Cloudflare's free plan for about 50 people, so it costs $0. Free and open source (Apache 2.0).
+Slack-style team chat you run on your own Cloudflare account or your own server with Docker. Channels, threads, DMs, calls and voice notes with transcripts. On Cloudflare it fits the free plan for about 50 people, so it costs $0. Free and open source (Apache 2.0). Try the live demo with one click, no signup.
 ```
 
 **Topics:** pick from Product Hunt's list at launch time, such as Open Source, Messaging, Productivity and Remote Work.
@@ -114,9 +116,11 @@ What's in it: channels, threads, DMs, search, scheduled send, reminders,
 calls with screen share, push notifications, guests, Google sign-in, a
 Slack import, and voice notes that get written transcripts.
 
-What isn't: native app store apps (it installs from the browser), end-to-
-end encryption, or paid support. It's free and open source (Apache 2.0):
-use it, change it, build on it.
+What isn't: native app store apps (it installs from the browser),
+end-to-end encryption on every conversation (only the ones you lock, and
+that's a preview), or paid support. It's free and open source (Apache 2.0):
+use it, change it, build on it. It also runs on your own server with
+Docker.
 
 Setup takes about 30 minutes without coding. I'd love to hear what's
 missing for your team.
@@ -143,20 +147,21 @@ Rules to check on the live sidebar before posting (from a copy of the rules, see
 - Promoted apps must be production ready and have docs.
 - Don't promote your own projects too much.
 
-Also be upfront that it's not a "run on your own box" app. People in r/selfhosted will ask, so say it first.
+Be upfront about how it runs: Cloudflare first, and on your own box with Docker since 2.2.0, where transcripts still need a Cloudflare token. People in r/selfhosted will ask, so say it first.
 
 **Comment for the New Project Megathread**
 
 ```
-**Yakyard**: Slack-style team chat that runs on your own Cloudflare account
+**Yakyard**: Slack-style team chat on your own Cloudflare account or your own server
 
 - What: channels, threads, DMs, search, calls with screen share, push
   notifications, guests, Slack import, and voice notes with automatic
   transcripts.
-- Hosting: Cloudflare Workers + D1 + R2 + Durable Objects. To be clear for
-  this sub: it doesn't run on your own hardware or in Docker. "Self-hosted"
-  here means your own Cloudflare account, your own database, nobody else's
-  server.
+- Hosting: built for Cloudflare Workers + D1 + R2 + Durable Objects. Since
+  2.2.0 it also runs on your own hardware with `docker compose up -d`
+  (workerd, the open-source Workers runtime, with Caddy for HTTPS and one
+  volume for data). On your own box, transcripts need a Cloudflare token,
+  and it's one server with no failover. The Docker way is new.
 - Cost: built to fit Cloudflare's free plan, about 50 people at $0. R2
   needs a card on file.
 - License: Apache 2.0. Free and open source. Use it, fork it, sell it.
@@ -232,7 +237,7 @@ The usual. Your team will know where everything is.
 ```
 
 ```
-7/ What it doesn't have: no app store apps (it installs from the browser), no paid support, Cloudflare only. End-to-end encryption is there, but only in conversations you lock.
+7/ What it doesn't have: no app store apps (it installs from the browser), no paid support. End-to-end encryption is there, but only in conversations you lock. Built for Cloudflare, and it runs on your own server with Docker too.
 ```
 
 ```
@@ -265,7 +270,7 @@ It's free and open source. The setup guide takes about 30 minutes: github.com/ya
 
 ## 30-second demo video
 
-Screen recording of the real app, a seeded workspace with made-up names. No stock footage, no AI imagery. Calm music or none. Subtitles burned in.
+A shorter cut for social posts. The full 84-second tour with voiceover is already on the website and in the README (`site/static/media/yakyard-demo.mp4`). Screen recording of the real app, a seeded workspace with made-up names. No stock footage, no AI imagery. Calm music or none. Subtitles burned in.
 
 | Time | Screen | Voice-over |
 |---|---|---|
@@ -281,15 +286,15 @@ Screen recording of the real app, a seeded workspace with made-up names. No stoc
 **Description** (under 350 characters)
 
 ```
-Slack-style team chat that runs on your own Cloudflare account, free for teams of up to about 50. Channels, threads, DMs, calls, voice notes with transcripts, push notifications, guests and Slack import. One-command deploy. Free and open source (Apache 2.0).
+Free, open source Slack alternative for small teams. Run it on your own Cloudflare account (fits the free plan for about 50 people) or on your own server with Docker. Channels, threads, DMs, calls with screen share, voice notes with transcripts, Slack import and optional end-to-end encrypted conversations. Apache 2.0.
 ```
 
-**Website:** leave empty, or the docs link `https://github.com/yakyard/yakyard/blob/main/docs/SETUP.md`.
+**Website:** `https://yakyard.pages.dev`
 
 **Topics** (GitHub allows up to 20: lowercase letters, numbers and hyphens)
 
 ```
-team-chat, chat, slack-alternative, self-hosted, cloudflare-workers, cloudflare, durable-objects, cloudflare-d1, cloudflare-r2, workers-ai, pwa, voice-notes, transcription, whisper, webrtc, web-push, messaging, collaboration, open-source
+team-chat, slack-alternative, self-hosted, open-source, chat, messaging, collaboration, cloudflare-workers, durable-objects, cloudflare-d1, cloudflare-r2, workers-ai, docker, pwa, voice-notes, transcription, whisper, webrtc, web-push, end-to-end-encryption
 ```
 
 **Social preview** (1280 × 640): the lockup on `#FFF8E6` with the tagline, or the channel screenshot cropped to 2:1.

@@ -16,13 +16,13 @@ Per-seat pricing made sense when every new person meant another server in a rack
 
 ## So we built one that runs for free
 
-Yakyard is a full team chat you deploy to your own Cloudflare account. It started as an internal tool for a team that was done paying Slack. They switched, and they use it every day.
+Yakyard is a full team chat you run yourself: on your own Cloudflare account, or on your own Linux server with Docker. It started as an internal tool for a team that was done paying Slack. They switched, and they use it every day.
 
 **1. Free means free.** Yakyard is built to fit Cloudflare's free plan. Every request has to finish in under 10 ms of CPU, so that's how it's written. Measured on a real Cloudflare account, normal requests take 1 to 7 ms. That's enough for a team of about 50 people at $0. Bigger than that, the next step is Cloudflare's $5 a month, and that's for the whole account however many people you add.
 
-**2. Your history is yours.** Messages live in a database in your Cloudflare account, and files in your own storage bucket. One command backs it all up to a file you keep. No 90-day window, no deletion after a year, no export request to a vendor.
+**2. Your history is yours.** Messages live in a database in your Cloudflare account, and files in your own storage bucket. On your own server, it's all in one Docker volume on your disk. One command backs it all up to a file you keep. No 90-day window, no deletion after a year, no export request to a vendor.
 
-**3. No server, no sysadmin.** Self-hosted chat usually means a Linux box, Docker, PostgreSQL, certificates and patch days. Yakyard skips all of that. Cloudflare runs the machines, and you run one command.
+**3. No server, no sysadmin.** Self-hosted chat usually means a Linux box, Docker, PostgreSQL, certificates and patch days. On Cloudflare, Yakyard skips all of that. Cloudflare runs the machines, and you run one command. If you'd rather have your own box anyway, it runs there too, with [Docker](DOCKER.md) and Caddy doing the HTTPS.
 
 ## What we didn't skip
 
@@ -50,7 +50,7 @@ We'd rather lose you now than disappoint you later.
 
 - **Teams that need every conversation end-to-end encrypted, or an audited client.** Yakyard encrypts only the DMs and private channels you lock, and its own code around the encryption library isn't audited yet. Look at Element (Matrix).
 - **Regulated industries** that need SOC 2, HIPAA or similar paperwork for chat. Yakyard has none.
-- **Teams that need their own hardware** or can't use Cloudflare. Yakyard only runs on Cloudflare.
+- **Teams that want self-hosting with years of track record.** Yakyard has run on your own server with Docker only since 2.2.0. Transcripts there still need a Cloudflare token, and it's one server with no failover. Zulip, Mattermost or Campfire have been at it longer.
 - **Large organizations** that want a vendor, an SLA, a support line and a sales contact.
 - **Teams that live in integrations** (Jira bots, CI alerts, app directories). Yakyard is chat, calls and voice notes.
 - **Big video meetings.** Calls are browser to browser and suit small groups.

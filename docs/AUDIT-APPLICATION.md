@@ -10,11 +10,11 @@ Draft, ready to submit through OTF's Security Lab request form (https://www.open
 
 **Contact:** through GitHub (open an issue marked Question, or a private security advisory for anything sensitive). [Name and email of the person submitting.]
 
-**Organization:** QVINTA Ltd, which maintains Yakyard. Yakyard is free for any team to run; the encryption package is Apache-2.0.
+**Organization:** QVINTA Ltd, which maintains Yakyard. Yakyard is free and open source under Apache 2.0, and so is the encryption package.
 
 ## Summary
 
-Yakyard is team chat that anyone can run on their own Cloudflare account, for free, without a server. A small team deploys it with one command or one button, and it fits Cloudflare's free plan for up to about 50 people. It has channels, threads, DMs, calls and voice notes.
+Yakyard is open source team chat that anyone can run on their own Cloudflare account, for free, without a server. A small team deploys it with one command or one button, and it fits Cloudflare's free plan for up to about 50 people. Since version 2.2 it also runs on a team's own Linux server with Docker. It has channels, threads, DMs, calls and voice notes.
 
 Version 2 adds locked conversations: DMs and private channels with end-to-end encryption. Messages, edits, reactions, files and voice notes are encrypted in the browser with Olm and Megolm (vodozemac, the library inside Element), compiled to WebAssembly. The server only stores ciphertext, relays sealed key packages between devices and keeps a key backup encrypted with each person's recovery key.
 

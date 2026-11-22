@@ -156,7 +156,7 @@ function footer() {
     <div class="foot__top">
       <div class="foot__brand">
         <img src="/brand/yakyard-wordmark-reverse.svg" alt="Yakyard" width="190" height="42" loading="lazy">
-        <p>Free team chat you run on your own Cloudflare account.</p>
+        <p>Free, open source team chat you run on your own Cloudflare account or your own server.</p>
       </div>
       ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"]])}
       ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/docker", "Your own server"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
@@ -173,7 +173,7 @@ function footer() {
 // ---------- markdown docs ----------
 const DOCS = {
   "WHY-YAKYARD.md": { out: "/why", og: "why", title: "Why Yakyard", seo: "Why Yakyard: team chat without the per-seat bill", nav: "/why", toc: true,
-    description: "Team chat shouldn't be rent. Why Yakyard runs free on your own Cloudflare account, who it's for and who it isn't for.",
+    description: "Team chat shouldn't be rent. Why we made Yakyard free and open source, on your own Cloudflare account or server, and who it isn't for.",
     lede: "Your team's chat is your team's history. Here's why we stopped renting ours." },
   "COMPARE.md": { out: "/compare", og: "compare", title: "Yakyard compared", seo: "Yakyard vs Slack, Teams, Mattermost and 6 more", nav: "/compare", wide: true,
     description: "Yakyard next to Slack, Teams, Google Chat, Discord, Mattermost, Rocket.Chat, Zulip, Campfire and Element. Prices checked on 21 November 2026.",
@@ -383,15 +383,17 @@ ${urls.map((u) => `  <url><loc>${SITE_URL}${slashed(u)}</loc><lastmod>${lastmod[
   // plain facts for AI answer engines (llmstxt.org), same wording as the FAQ
   await writeFile(path.join(DIST, "llms.txt"), `# Yakyard
 
-> Yakyard is free, open source team chat you deploy to your own Cloudflare account. It's a Slack alternative for small teams, with channels, threads, DMs, calls, voice notes with transcripts, and optional end-to-end encrypted conversations. It fits on Cloudflare's free plan for a team of up to about 50 people, so for most small teams the bill is $0.
+> Yakyard is free, open source team chat you run on your own Cloudflare account or on your own Linux server with Docker. It's a Slack alternative for small teams, with channels, threads, DMs, calls, voice notes with transcripts, and optional end-to-end encrypted conversations. On Cloudflare it fits the free plan for a team of up to about 50 people, so for most small teams the bill is $0.
 
 Key facts:
 - Built for Cloudflare: Workers, Durable Objects, D1, R2 and Workers AI. It also runs on your own server with Docker, in workerd (the open-source Workers runtime) with Caddy for HTTPS. There, voice note transcripts need a Cloudflare API token, Cloudflare's free plan limits don't apply, and it's one server with no automatic scaling.
 - License: Apache License 2.0, an OSI-approved open source license. Anyone can use it, change it, host it for others or sell it, free, as long as they keep the copyright, license and NOTICE files. Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0.
-- Owned by QVINTA Ltd (Hong Kong). It started as the internal chat of a team that left Slack, and that team still uses it every day.
+- Made and maintained by QVINTA Ltd (Hong Kong). It started as the internal chat of a team that left Slack, and that team still uses it every day.
 - Installs from the browser as an app on iPhone, Android, Mac and Windows. There's no App Store or Play Store app.
 - Slack history: each person copies their own Slack DMs, group messages and private channels, with files. Public channel history stays in Slack.
 - No SOC 2, ISO 27001 or HIPAA certification. The encryption library underneath was audited by Least Authority in 2022. Yakyard's own code around it hasn't had an outside audit yet.
+- No paid support. Help comes from the docs and GitHub issues.
+- Live demo: https://yakyard-demo.qvinta.workers.dev (one click, no signup, resets every night). An 84-second tour video with voiceover: ${SITE_URL}/media/yakyard-demo.mp4
 - Current version: ${VERSION}.
 
 ## Docs
