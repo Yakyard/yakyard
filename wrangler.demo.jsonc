@@ -1,0 +1,33 @@
+// Public demo of Yakyard: a separate Worker with its own database and file storage. Deploy with `npm run demo:deploy`.
+// Your own Yakyard uses wrangler.jsonc and is not touched by this file. See docs/TECHNICAL.md, "Public demo".
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "yakyard-demo",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "assets": { "directory": "public", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "yakyard-demo" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "yakyard-demo-files" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "HUB", "class_name": "Hub" },
+      { "name": "JOBS", "class_name": "Job" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Hub"] },
+    { "tag": "v2", "new_sqlite_classes": ["Job"] }
+  ],
+  // No Workers AI and no Images: the demo makes no transcripts and takes no uploads.
+  // The 5-minute safety check, and the nightly reset at 03:00 UTC (DEMO_CRON in src/demo.js).
+  "triggers": { "crons": ["*/5 * * * *", "0 3 * * *"] },
+  "observability": { "enabled": true },
+  "vars": {
+    "DEMO_MODE": "1",
+    "WORKSPACE_NAME": "Yakyard demo",
+    "STORAGE_PER_PERSON_GB": "0",
+    "STORAGE_TOTAL_GB": "1",
+    "IMG_CACHE_MB": "50"
+  }
+}

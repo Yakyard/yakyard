@@ -1701,3 +1701,7 @@ button { touch-action: manipulation; }
 .lk-dev .grow, .lk-reqs li .grow { min-width: 0; overflow-wrap: anywhere; }
 .lk-banner .lk-text, .lk-warnline { overflow-wrap: anywhere; }
 .lk-foot { padding: 8px 16px 16px; }
+/* Demo mode (DEMO_MODE): one plain line above the app, which keeps the rest of the screen. */
+.demo-banner { flex: none; padding: 6px 12px; background: var(--yak-yellow); color: var(--night); font-size: var(--fs-sm); font-weight: 600; line-height: 1.35; text-align: center; }
+body:has(.demo-banner) { display: flex; flex-direction: column; }
+body:has(.demo-banner) .app { flex: 1; min-height: 0; height: auto; }

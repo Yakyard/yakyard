@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "node scripts/deploy.mjs",
+    "demo:deploy": "node scripts/demo-deploy.mjs",
     "update": "node scripts/update.mjs",
     "db:init": "node scripts/migrate.mjs --remote",
     "db:init:local": "node scripts/migrate.mjs --local",

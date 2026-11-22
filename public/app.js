@@ -109,6 +109,8 @@ const LOCK_STATUS = {
   missing: "Can't open this message on this device yet. It opens once one of your devices that has it is online, or after you add your recovery key.",
   early: 'Sent before you joined, so it stays hidden from you.', bad: "This message didn't pass the safety check, so it isn't shown.",
 };
+// Demo mode: the features the server turns off say so before anything starts.
+const demoOff = (what) => (S.workspace?.demo ? (toast(`${what} off in this demo.`), true) : false);
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), Math.max(3000, String(msg).length * 70)); // long notes stay long enough to read
@@ -1035,7 +1037,7 @@ function composer({ channelId, threadId }) {
   const also = threadId ? h('label', { class: 'also' }, h('input', { type: 'checkbox' }), ch.kind === 'dm' ? 'Also send as direct message' : `Also send to #${ch.name}`) : null;
   const sched = locked ? null : h('button', { class: 'sched', title: 'Schedule for later', onclick: (e) => scheduleMenu(e.currentTarget, (at) => submit(at)) }, svg(I.clock, 15));
   const foot = h('div', { class: 'comp-foot' },
-    h('button', { class: 'plus', title: 'Attach files', onclick: () => fileInput.click() }, svg(I.plus, 16)),
+    h('button', { class: 'plus', title: 'Attach files', onclick: () => demoOff('File uploads are') || fileInput.click() }, svg(I.plus, 16)),
     h('button', { title: 'Emoji', onmousedown: keep, onclick: (e) => { const r = saveRange(); emojiPicker(e.currentTarget, (em) => { restoreRange(r); insert(em + ' '); }); } }, svg(I.smile, 18)),
     h('button', { title: 'Mention someone', onmousedown: keep, onclick: () => { insert('@'); onInput(); } }, svg(I.at, 18)),
     h('button', { class: 'aa-btn', title: 'Formatting', onmousedown: keep, onclick: (e) => { const on = box.classList.toggle('show-fmt'); e.currentTarget.classList.toggle('on', on); ed.focus(); } }, h('b', {}, 'Aa')),
@@ -1060,6 +1062,7 @@ function composer({ channelId, threadId }) {
     S.drafts.set(key, isEmpty() ? '' : htmlToMd(ed)); clearTimeout(sync.t); sync.t = setTimeout(saveDraft, 400);
   }
   async function addFiles(files) {
+    if (demoOff('File uploads are')) return;
     for (const f of files) {
       const p = { file: f, meta: null };
       pending.push(p);
@@ -1123,7 +1126,7 @@ function composer({ channelId, threadId }) {
   // Voice note: record, then send. The transcript shows up under it a few seconds later.
   let vrec = null;
   async function startVoice() {
-    if (vrec) return;
+    if (vrec || demoOff('New voice notes are')) return;
     if (H.channel) return toast('Leave the call to record a voice note');
     const dot = h('span', { class: 'rec-dot' });
     const clock = h('span', { class: 'rec-time' }, '0:00');
@@ -1931,6 +1934,7 @@ async function channelDetails(ch, tab) {
   [['Close'], ['Save description', async () => { await api(`/api/channels/${ch.id}`, { method: 'PATCH', body: { topic: topic.value } }); ch.topic = topic.value; if (S.current === ch.id) openChannel(ch.id); }]]);
 }
 function invitePeople() {
+  if (demoOff('Invites are')) return;
   if (!['owner', 'admin'].includes(S.me.role)) return toast('Only admins can invite people');
   const email = h('input', { class: 'input', type: 'email', placeholder: 'name@anything.com' });
   const name = h('input', { class: 'input', placeholder: 'Full name' });
@@ -2346,6 +2350,7 @@ async function start() {
   let fresh = null;
   if (cb) { applyBoot(cb); fresh = bootstrap().then(() => { drawMe(); renderSidebar(); drawClocks(); }).catch(() => {}); }
   else await bootstrap();
+  if (S.workspace.demo) document.body.prepend(h('div', { class: 'demo-banner', role: 'note' }, 'This is a public demo. Everyone sees what you post. It resets every night.'));
   drawMe();
   $('#me-avatar').onclick = (e) => meMenu(e.currentTarget);
   $('#btn-find').onclick = findConversation;
@@ -3058,7 +3063,7 @@ async function openPrefs() {
       h('div', { class: 'presets' }, ...presets.map(([e, t, d]) => h('button', { class: 'preset', onclick: () => saveStatus(e, t, d === 'today' ? (() => { const x = new Date(); x.setHours(23, 59, 0, 0); return x.getTime(); })() : d ? Date.now() + d : 0) }, e, ' ', t)))),
     section('Presence', S.me.away ? 'Everyone sees you as away, even while Yakyard is open.' : 'You show as active (green dot) while Yakyard is open, away when it is closed.',
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!S.me.away, onchange: async (e) => { await setMe({ away: e.target.checked ? 1 : 0 }); openPrefs(); } }), 'Always show me as away')),
-    passwordSection(section),
+    S.workspace.demo ? '' : passwordSection(section),
     section('Notify me about', '', level),
     section('This device', devMsg,
       h('div', { class: 'pref-btns' },
@@ -3109,6 +3114,7 @@ function pickPerson(anchor, onPick) {
 const b64u = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const raw = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...raw].map((c) => c.charCodeAt(0))); };
 async function currentSub() { try { const reg = await navigator.serviceWorker.ready; return await reg.pushManager.getSubscription(); } catch { return null; } }
 async function enablePush() {
+  if (demoOff('Phone notifications are')) return false;
   if (!S.pushKey) return toast("Notifications aren't set up on this server yet. Ask your admin.");
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') { toast('Notifications were not allowed'); return false; }
@@ -3336,6 +3342,7 @@ S.imp = null;
 let impTimer = null;
 async function pollImport() {
   clearTimeout(impTimer);
+  if (S.workspace?.demo) return;   // the Slack import is off in the demo
   try { S.imp = await api('/api/slack/import'); } catch { return; }
   renderSidebar();
   if (location.hash.startsWith('#/import')) drawImport();
@@ -3366,7 +3373,8 @@ async function drawImport() {
   const kids = [];
   if (errText) kids.push(h('div', { class: 'imp-err' }, errText));
   if (S.workspace.locked) kids.push(sec('Locked conversations are skipped', h('p', { class: 'pref-sub' }, "Their messages are scrambled on each person's device, so an import can't add to them. Old Slack messages go into normal conversations.")));
-  if (!im.ready) {
+  if (S.workspace.demo) kids.push(sec('Off in this demo', h('p', { class: 'pref-sub' }, 'The Slack import works on your own Yakyard, not in this public demo.')));
+  else if (!im.ready) {
     kids.push(sec('Not ready yet', h('p', { class: 'pref-sub' }, S.me.role === 'owner' ? 'One last step for you: paste the Slack Client Secret below.' : 'Your admin still has to finish connecting Slack. Check back soon.')));
   } else if (j?.status === 'running') {
     const pct = j.convs_total ? Math.round((j.convs_done / j.convs_total) * 100) : 0;
