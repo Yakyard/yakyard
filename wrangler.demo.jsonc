@@ -28,6 +28,9 @@
     "WORKSPACE_NAME": "Yakyard demo",
     "STORAGE_PER_PERSON_GB": "0",
     "STORAGE_TOTAL_GB": "1",
-    "IMG_CACHE_MB": "50"
+    "IMG_CACHE_MB": "50",
+    // Team clocks and weather for the made-up team (their cities are in src/demo.js). Visitors are never listed.
+    "TEAM_LOCATION": "1",
+    "WEATHER": "1"
   }
 }

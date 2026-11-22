@@ -2,6 +2,18 @@
 
 What changed in each Yakyard release, newest first.
 
+## Unreleased
+
+### Public demo
+- The demo opens like a team that's been working for a while: two more channels (#design and #wholesale), a few days of messages, a pinned price list, and files (a packaging diagram, a PDF price list and a CSV order sheet).
+- Each visitor gets a first name and their own DMs from the team, including a group DM, with unread counts and an @mention, so Home, DMs and Activity aren't empty.
+- Team clocks and weather are on in the demo, with the made-up team spread over five cities.
+- Visitors no longer see each other in member lists, member counts, people pickers or team clocks.
+- A deploy that changes the seed reseeds the demo on the next visit (`SEED_VERSION` in `src/demo.js`).
+
+### Phone
+- One search box on Home and DMs: the top search bar now uses the full width instead of being cut off, and the extra "Find a conversation" box is gone on phones. Search lists matching channels and DMs above matching messages, on every screen size.
+
 ## 2.2.0 (22 November 2026)
 
 Yakyard now runs on your own Linux server with Docker too, with HTTPS from Caddy, backups and updates. The database doesn't change.

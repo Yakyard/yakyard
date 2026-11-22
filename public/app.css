@@ -338,6 +338,8 @@ body { font: var(--fs-md)/1.5 var(--font); }
 .nav-row .glyph, .chan .glyph { color: var(--ink-4); }
 .chan .glyph { font-weight: 600; }
 .chan.unread { font-weight: 700; color: var(--ink); }
+.search-convs { margin: 0 -8px 12px; }
+.search-convs .chan { min-height: 40px; border-radius: var(--radius-sm); }
 .chan.active .glyph { color: rgb(var(--surface-rgb) / .85); }
 .chan .badge { background: var(--red); font-size: var(--fs-xs); font-weight: 700; line-height: 20px; }
 .chan .av { width: 20px; height: 20px; border-radius: 6px; }
@@ -1267,8 +1269,11 @@ body.bubbles .msg.mine .text.has-bar > .hover-bar { font-size: var(--fs-lg); }
   .install .icon-btn { grid-area: x; margin: -6px -6px 0 0; }
   .chan, .nav-row { height: 44px; }
   .section-head { height: 36px; }
-  .search-bar { height: 36px; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .search-bar { height: 36px; white-space: nowrap; overflow: hidden; min-width: 0; width: calc(100vw - 112px); }
   #search-label { overflow: hidden; text-overflow: ellipsis; }
+  /* Phone lists (Home, DMs): no back button, so search takes the full width, and it is the only search there. */
+  .app:not(.view-main):not(.view-thread) .search-bar { width: calc(100vw - 32px); justify-content: flex-start; padding: 0 14px; }
+  .find { display: none; }
   #btn-help { display: none; }
   .thread-head .th-back { margin-left: -8px; margin-right: 2px; }
   .thread-head .icon-btn[title="Close"] { display: none; }

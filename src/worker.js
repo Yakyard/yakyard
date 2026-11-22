@@ -6,7 +6,7 @@ import { parseVoiceMeta, transcribe, patchMessage, voiceJob, fmtDur, VOICE_MAX, 
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { cacheGet, cachePut, cacheCleanup } from './cache.js';
 import { e2eeApi, startLockedChannel, openLockedDm, lockedAllowed, e2eeHousekeeping } from './e2ee.js';
-import { demoOn, demoGuard, demoReset, ensureSeeded, DEMO_CRON } from './demo.js';
+import { demoOn, demoGuard, demoReset, ensureSeeded, DEMO_CRON, visitorName, visitorStatements, isVisitor, VISITOR_LIKE } from './demo.js';
 
 const SESSION_DAYS = 30;
 const SESSION_COOKIE = 'yy_session', STATE_COOKIE = 'yy_state';
@@ -406,19 +406,20 @@ ${message ? `<p class="login-error" role="alert">${escH(message)}</p>` : ''}
 <p class="login-note">New here or forgot your password? Ask your workspace admin for a sign-in link.</p>`);
 }
 
-// Demo mode: one click makes a new member with a made-up name, in every public channel, and signs them in.
+// Demo mode: one click makes a new member with a first name, in every public channel with DMs from the team, and signs them in.
 async function demoSignIn(req, env) {
   await ensureSeeded(env);   // first: seeding clears the sign-in counters
   const ip = clientIp(req);
   if ((await bump(env, 'demo:' + ip)) > 5 || (await bump(env, 'demo:all')) > 60) return loginPage(env, 'The demo is busy right now. Try again in 15 minutes.');
-  const id = uid('U'), sid = uid('sess_') + uid(), t = now(), name = 'Visitor ' + (1000 + Math.floor(Math.random() * 9000));
+  const id = uid('U'), sid = uid('sess_') + uid(), t = now(), name = visitorName();
   const u = { id, email: `visitor-${id.slice(1).toLowerCase()}@demo.invalid`, name, title: 'Demo visitor', avatar: '', color: colorFor(id), role: 'member', active: 1 };
   await env.DB.batch([
     env.DB.prepare("INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,?,'',?,'member',1,?)").bind(id, u.email, name, u.title, u.color, t),
-    env.DB.prepare("INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) SELECT id,?,0,? FROM channels WHERE kind='channel' AND private=0 AND archived=0").bind(id, t),
+    ...visitorStatements(env, u, t),
     ...sessionStmts(env, id, await sha256hex(sid)),
   ]);
-  await broadcast(env, { type: 'user_updated', user: u }, await nonGuestIds(env));
+  // Other visitors get the name (for anything this visitor posts) but never see them in pickers.
+  await broadcast(env, { type: 'user_updated', user: { ...u, active: 0 } }, await nonGuestIds(env));
   return signedIn(req, sid);
 }
 
@@ -650,7 +651,8 @@ async function api_bootstrap_GET(c, m) {
     emoji: ce ? JSON.parse(ce.value) : {},
     me: pickMe(user),
     workspace: { name: env.WORKSPACE_NAME || 'Yakyard', demo: demoOn(env), location: locationOn(env), weather: locationOn(env) && weatherOn(env), locked: lockR.results[0]?.value === '1' },
-    users: users.results,
+    // Demo: other visitors stay out of people pickers and mentions (active 0 only hides them there).
+    users: demoOn(env) ? users.results.map((u) => (u.id !== user.id && isVisitor(u) ? { ...u, active: 0 } : u)) : users.results,
     channels: chans.results.map((c) => ({ ...c, members: dmMembers[c.id] })),
     sections: sections.results,
     saved: savedIds, push_key: env.VAPID_PUBLIC || '', push_devices: pushOn,
@@ -660,8 +662,9 @@ async function api_bootstrap_GET(c, m) {
 // ----- browse all public channels
 async function api_channels_GET(c, m) {
   const { req, env, user, path, ctx, method, body } = c;
+  const notVisitor = demoOn(env) ? ` AND m.user_id NOT IN (SELECT id FROM users WHERE email LIKE '${VISITOR_LIKE}')` : '';
   const r = await env.DB.prepare(
-    `SELECT c.id,c.name,c.topic,c.private,c.archived,(SELECT COUNT(*) FROM members m WHERE m.channel_id=c.id) members,
+    `SELECT c.id,c.name,c.topic,c.private,c.archived,(SELECT COUNT(*) FROM members m WHERE m.channel_id=c.id${notVisitor}) members,
       EXISTS(SELECT 1 FROM members m WHERE m.channel_id=c.id AND m.user_id=?) joined
      FROM channels c WHERE c.kind='channel' AND ((c.private=0 AND ?<>'guest') OR EXISTS(SELECT 1 FROM members m WHERE m.channel_id=c.id AND m.user_id=?))
      ORDER BY c.archived, c.name`
@@ -738,7 +741,13 @@ async function api_channels_id(c, m) {
     await env.DB.prepare('DELETE FROM members WHERE channel_id=? AND user_id=?').bind(cid, user.id).run();
     return json({ ok: true });
   }
-  if (sub === '/members' && method === 'GET') return json(await channelMembers(env, cid));
+  if (sub === '/members' && method === 'GET') {
+    if (!demoOn(env)) return json(await channelMembers(env, cid));
+    // Demo: the team first, then you; other visitors are left out.
+    const r = await env.DB.prepare(`SELECT m.user_id FROM members m JOIN users u ON u.id=m.user_id WHERE m.channel_id=? AND (u.email NOT LIKE '${VISITOR_LIKE}' OR u.id=?)
+      ORDER BY u.id=?, u.role<>'owner', u.created_at, u.id`).bind(cid, user.id, user.id).all();
+    return json(r.results.map((x) => x.user_id));
+  }
   if (sub === '/members' && method === 'POST') {
     if (ch.kind === 'dm') return err(403, 'Start a new group message instead');
     if (user.role === 'guest') return err(403, "Guests can't add people.");
@@ -960,7 +969,7 @@ async function api_team_places_GET(c, m) {
   const { req, env, user, path, ctx, method, body } = c;
   if (!locationOn(env)) return json([]);
   const r = await env.DB.prepare(`SELECT id, city, region, country, tz, lat, lon FROM users
-    WHERE active=1 AND share_location=1 AND tz IS NOT NULL AND tz<>''`).all();
+    WHERE active=1 AND share_location=1 AND tz IS NOT NULL AND tz<>''${demoOn(env) ? ` AND email NOT LIKE '${VISITOR_LIKE}'` : ''}`).all();
   const places = {};
   for (const u of r.results) {
     const k = `${u.city}|${u.country}|${u.tz}`;

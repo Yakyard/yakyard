@@ -28,7 +28,7 @@ function d1() {
 function envFor(vars = {}) {
   const { db, DB } = d1();
   const r2 = new Map();
-  const audio = readFileSync(new URL('../public/demo/voice-note.mp3', import.meta.url));
+  const asset = (k) => { try { return readFileSync(new URL('../public/' + k, import.meta.url)); } catch { return null; } };
   return {
     db, r2,
     env: {
@@ -38,7 +38,7 @@ function envFor(vars = {}) {
         put: async (k, body) => { r2.set(k, new Uint8Array(await new Response(body).arrayBuffer())); },
         get: async () => null,
       },
-      ASSETS: { fetch: async (req) => (String(req.url || req).endsWith('/demo/voice-note.mp3') ? new Response(audio) : new Response('<!doctype html><title>Yakyard</title>', { headers: { 'content-type': 'text/html' } })) },
+      ASSETS: { fetch: async (req) => { const p = new URL(String(req.url || req)).pathname.slice(1), b = p.startsWith('demo/') && asset(p); return b ? new Response(b) : new Response('<!doctype html><title>Yakyard</title>', { headers: { 'content-type': 'text/html' } }); } },
       HUB: { idFromName: () => 'x', get: () => ({ fetch: async () => new Response('ok') }) },
     },
   };
@@ -88,9 +88,10 @@ test('demo: the sign-in page has one button and the banner text; one click seeds
   const boot = await (await call(env, '/api/bootstrap', { cookie: ck })).json();
   assert.equal(boot.workspace.demo, true);
   assert.equal(boot.me.role, 'member');
-  assert.match(boot.me.name, /^Visitor \d{4}$/);
-  assert.deepEqual(boot.channels.filter((c) => c.kind === 'channel').map((c) => c.name).sort(), ['general', 'launch', 'random', 'support']);
-  assert.ok(boot.channels.every((c) => c.unread > 0), 'every channel starts with unread messages');
+  assert.match(boot.me.name, /^[A-Z][a-z]+$/, 'a first name, not "Visitor 1234"');
+  assert.deepEqual(boot.channels.filter((c) => c.kind === 'channel').map((c) => c.name).sort(), ['design', 'general', 'launch', 'random', 'support', 'wholesale']);
+  const unread = boot.channels.filter((c) => c.kind === 'channel' && c.unread > 0).map((c) => c.name).sort();
+  assert.deepEqual(unread, ['design', 'general', 'launch'], 'a few channels start unread, the rest read');
   // Posting, a thread reply and a reaction work.
   const launch = boot.channels.find((c) => c.name === 'launch');
   const m = await (await call(env, `/api/channels/${launch.id}/messages`, { method: 'POST', cookie: ck, body: { text: 'Hello from the demo' } })).json();
@@ -159,8 +160,9 @@ test('demo: the nightly reset runs as a background job, wipes visitors and their
   const { env, db } = envFor({ DEMO_MODE: '1' });
   const armed = [];
   env.JOBS = { idFromName: (n) => n, get: (n) => ({ arm: async (job) => armed.push([n, job]) }) };
-  const ck = await visitor(env);
+  await demo.demoReset(env);
   const seeded = db.prepare('SELECT COUNT(*) n FROM messages').get().n;
+  const ck = await visitor(env);
   const ch = (await (await call(env, '/api/bootstrap', { cookie: ck })).json()).channels[0];
   await call(env, `/api/channels/${ch.id}/messages`, { method: 'POST', cookie: ck, body: { text: 'gone tomorrow' } });
   await worker.scheduled({ cron: demo.DEMO_CRON, scheduledTime: Date.now() }, env);
@@ -168,7 +170,8 @@ test('demo: the nightly reset runs as a background job, wipes visitors and their
   await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: Date.now() }, env);
   assert.equal(armed.filter(([n]) => n === 'demoreset:nightly').length, 1, 'only the nightly cron arms it');
   await demo.demoReset(env);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM messages').get().n, seeded);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM messages').get().n, seeded, 'visitor DMs are gone too');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM channels WHERE kind='dm'").get().n, 0);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM users WHERE email LIKE 'visitor-%'").get().n, 0);
   assert.equal(db.prepare('SELECT COUNT(*) n FROM sessions').get().n, 0);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM messages WHERE text='gone tomorrow'").get().n, 0);
@@ -178,11 +181,97 @@ test('demo: the nightly reset runs as a background job, wipes visitors and their
   assert.equal(+db.prepare("SELECT value FROM settings WHERE key='storage_bytes'").get().value, db.prepare('SELECT SUM(size) n FROM files').get().n);
 });
 
-test('demo seed copy follows the brand voice: no em dashes, no exclamation marks, made-up emails only', () => {
+test('demo seed copy follows the brand voice: no em dashes, no exclamation marks, made-up emails only', async () => {
   const src = readFileSync(new URL('../src/demo.js', import.meta.url), 'utf8');
   assert.ok(demo.seedStatements(envFor().env).length > 50);
   assert.doesNotMatch(src, /[—–]/);
-  const strings = [...src.matchAll(/'([^'\\]|\\.)*'|"([^"\\]|\\.)*"/g)].map((m) => m[0]).filter((s) => / /.test(s));
-  assert.ok(strings.every((s) => !s.includes('!')), strings.find((s) => s.includes('!')));
   assert.ok(![...src.matchAll(/[\w.-]+@[\w.-]+/g)].some((m) => !m[0].endsWith('demo.invalid')));
+  // Every line a visitor reads: messages (shared and their own DMs), transcripts, topics, titles and statuses.
+  const { env, db } = envFor({ DEMO_MODE: '1' });
+  await visitor(env);
+  const copy = [
+    ...db.prepare('SELECT text FROM messages').all().map((r) => r.text),
+    ...db.prepare("SELECT transcript t FROM files WHERE transcript IS NOT NULL").all().map((r) => r.t),
+    ...db.prepare('SELECT topic FROM channels').all().map((r) => r.topic),
+    ...db.prepare('SELECT title, status_text FROM users').all().flatMap((r) => [r.title, r.status_text]),
+  ].filter(Boolean);
+  assert.ok(copy.length > 70);
+  const bang = (s) => s.replace(/<!(here|channel|everyone)>/g, '').includes('!');
+  assert.equal(copy.find(bang), undefined);
+  assert.equal(copy.find((s) => /[—–]/.test(s)), undefined);
+  assert.equal(copy.find((s) => /\{(name|me)\}/.test(s)), undefined, 'placeholders filled in');
+});
+
+test('demo: each visitor gets their own DMs from the team, unread badges, a mention, and nobody else sees them', async () => {
+  const { env, db } = envFor({ DEMO_MODE: '1' });
+  const a = await visitor(env, '198.51.100.10'), b = await visitor(env, '198.51.100.11');
+  const boot = await (await call(env, '/api/bootstrap', { cookie: a })).json();
+  const name = (id) => boot.users.find((u) => u.id === id)?.name;
+  const dms = boot.channels.filter((c) => c.kind === 'dm');
+  assert.equal(dms.length, 5);
+  assert.ok(dms.every((c) => c.members.includes(boot.me.id)));
+  assert.equal(dms.filter((c) => c.members.length > 2).length, 1, 'one group DM');
+  assert.ok(dms.filter((c) => c.mentions > 0).length >= 3, 'most DMs start unread with a count');
+  assert.equal(dms.find((c) => c.members.length === 2 && c.members.some((u) => name(u) === 'Elif Demir')).mentions, 0, 'one starts read');
+  // The welcome greets the visitor by name, the group DM @mentions them, and the @here messages count for them.
+  const miraDm = dms.find((c) => c.members.length === 2 && c.members.some((u) => name(u) === 'Mira Okafor'));
+  const msgs = (await (await call(env, `/api/channels/${miraDm.id}/messages`, { cookie: a })).json()).messages;
+  assert.match(msgs[0].text, new RegExp(`^Hi ${boot.me.name}, welcome in`));
+  const mentions = await (await call(env, '/api/mentions', { cookie: a })).json();
+  assert.ok(mentions.some((m) => m.text.includes(`<@${boot.me.id}>`)), 'an @mention of the visitor');
+  assert.ok(mentions.some((m) => m.text.startsWith('<!here>')), '@here in a channel counts');
+  for (const c of ['general', 'launch']) assert.equal(boot.channels.find((x) => x.name === c).mentions, 1, c);
+  // Visitor B never sees A's DMs.
+  const bBoot = await (await call(env, '/api/bootstrap', { cookie: b })).json();
+  assert.ok(!bBoot.channels.some((c) => dms.some((d) => d.id === c.id)));
+  assert.equal((await call(env, `/api/channels/${miraDm.id}/messages`, { cookie: b })).status, 403);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM channels WHERE kind='dm'").get().n, 10);
+});
+
+test('demo: other visitors stay out of member lists, counts, pickers and team clocks; the team shows first', async () => {
+  const { env } = envFor({ DEMO_MODE: '1', TEAM_LOCATION: '1' });
+  const cks = [];
+  for (let i = 0; i < 4; i++) cks.push(await visitor(env, '198.51.100.2' + i));
+  const boot = await (await call(env, '/api/bootstrap', { cookie: cks[0] })).json();
+  const general = boot.channels.find((c) => c.name === 'general');
+  const ids = await (await call(env, `/api/channels/${general.id}/members`, { cookie: cks[0] })).json();
+  assert.equal(ids.length, 7, 'six teammates and you');
+  assert.equal(boot.users.find((u) => u.id === ids[0]).name, 'Mira Okafor');
+  assert.equal(ids[6], boot.me.id);
+  const list = await (await call(env, '/api/channels', { cookie: cks[0] })).json();
+  assert.ok(list.every((c) => c.members <= 6), 'counts leave visitors out');
+  const others = boot.users.filter((u) => u.email.startsWith('visitor-') && u.id !== boot.me.id);
+  assert.equal(others.length, 3);
+  assert.ok(others.every((u) => u.active === 0), 'other visitors hidden from pickers');
+  assert.equal(boot.users.find((u) => u.id === boot.me.id).active, 1);
+  // Team clocks: the six teammates in their cities, never a visitor.
+  assert.equal(boot.workspace.location, true);
+  const places = await (await call(env, '/api/team/places', { cookie: cks[0] })).json();
+  assert.deepEqual(places.map((p) => p.city).sort(), ['Bangkok', 'Berlin', 'Istanbul', 'Lisbon', 'Mexico City']);
+  assert.equal(places.flatMap((p) => p.people).length, 6);
+  // A normal install still counts and lists everyone.
+  const { env: plain, db } = envFor({});
+  db.prepare("INSERT INTO users (id,email,name,role,active,created_at) VALUES ('U1','visitor-x@demo.invalid','V','member',1,0)").run();
+  assert.equal(demo.isVisitor({ email: 'visitor-x@demo.invalid' }), true);
+  assert.equal(demo.demoOn(plain), false);
+});
+
+test('demo: the seed has files, a pinned price list and a reseed after a deploy changes the seed', async () => {
+  const { env, db, r2 } = envFor({ DEMO_MODE: '1' });
+  const ck = await visitor(env);
+  for (const f of Object.values(demo.DEMO_FILES)) assert.ok(r2.get(f.key)?.length > 300, f.key + ' copied to file storage');
+  const types = db.prepare("SELECT files FROM messages WHERE files <> '[]'").all().flatMap((r) => JSON.parse(r.files).map((f) => f.type)).sort();
+  assert.deepEqual(types, ['application/pdf', 'audio/mpeg', 'image/png', 'text/csv']);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM pins').get().n, 2);
+  const files = await (await call(env, '/api/files', { cookie: ck })).json();
+  assert.ok(files.files.length >= 3);
+  // Every channel has enough to scroll.
+  for (const r of db.prepare("SELECT c.name, COUNT(*) n FROM messages m JOIN channels c ON c.id=m.channel_id WHERE c.kind='channel' GROUP BY c.id").all()) assert.ok(r.n >= 5, r.name);
+  // A newer seed version wipes and seeds on the next sign-in.
+  db.prepare("UPDATE settings SET value='old' WHERE key='demo_seed_v'").run();
+  await call(env, `/api/channels/Cdemorandom/messages`, { method: 'POST', cookie: ck, body: { text: 'before the deploy' } });
+  await visitor(env, '198.51.100.99');
+  assert.equal(db.prepare("SELECT value FROM settings WHERE key='demo_seed_v'").get().value, demo.SEED_VERSION);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM messages WHERE text='before the deploy'").get().n, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM users WHERE email LIKE 'visitor-%'").get().n, 1);
 });

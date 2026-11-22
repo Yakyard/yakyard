@@ -1883,7 +1883,10 @@ function searchMessages(initial = '') {
     history.replaceState(null, '', '#/search/' + encodeURIComponent(v));
     if (v.length < 2) return list.replaceChildren(h('div', { class: 'empty-row' }, 'Type at least two letters.'));
     const res = await api('/api/search?q=' + encodeURIComponent(v));
-    list.replaceChildren(h('div', { class: 'fcount' }, `${res.length}${res.length >= 40 ? '+' : ''} result${res.length === 1 ? '' : 's'}`), ...res.map((m) => feedItem(m)));
+    // Conversations whose name matches come first, so one search box finds both (the phone has only this one).
+    const convs = [...S.channels.values()].filter((c) => chanLabel(c).toLowerCase().includes(v.toLowerCase())).slice(0, 5);
+    list.replaceChildren(...(convs.length ? [h('div', { class: 'search-convs' }, ...convs.map(chanRow))] : []),
+      h('div', { class: 'fcount' }, `${res.length}${res.length >= 40 ? '+' : ''} message${res.length === 1 ? '' : 's'}`), ...res.map((m) => feedItem(m)));
   };
   q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(run, 250); });
   setTimeout(() => q.focus()); if (initial) run();
@@ -3082,7 +3085,7 @@ async function openPrefs() {
       h('div', { class: 'theme-picks', role: 'radiogroup', 'aria-label': 'Theme' }, ...THEMES.map(([v, l]) =>
         h('label', { class: 'theme-pick t-' + v }, h('input', { type: 'radio', name: 'theme', value: v, checked: themePick() === v, onchange: () => setTheme(v) }),
           h('span', { class: 'tp-swatch', 'aria-hidden': 'true' }, h('i'), h('i'), h('i')), h('span', {}, l))))),
-    S.workspace.location ? section('Team clocks', S.me.share_location ? 'Your teammates see your city and local time' + (S.workspace.weather ? ', with the weather there.' : '.') : 'Off. Nobody sees where you are.',
+    S.workspace.location && !S.workspace.demo ? section('Team clocks', S.me.share_location ? 'Your teammates see your city and local time' + (S.workspace.weather ? ', with the weather there.' : '.') : 'Off. Nobody sees where you are.',
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!S.me.share_location, onchange: async (e) => {
         await api('/api/me', { method: 'PATCH', body: { share_location: e.target.checked ? 1 : 0 } }); S.me.share_location = e.target.checked ? 1 : 0;
         toast(e.target.checked ? 'Sharing your city from your next visit.' : 'Stopped. Your city was removed.'); await bootstrap(); loadClocks(); openPrefs(); } }),

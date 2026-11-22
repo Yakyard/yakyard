@@ -241,11 +241,15 @@ npm run demo:deploy
 ```
 
 With `DEMO_MODE` set to `"1"`:
-- The sign-in page has one button, **Try the demo**. Each click makes a new member called "Visitor" and a number, in every public channel of a made-up team, and signs them in. No email, no password.
+- The sign-in page has one button, **Try the demo**. Each click makes a new member with a first name, in every public channel of a made-up team, and signs them in. No email, no password.
+- Each visitor gets their own DMs from the team (a welcome, a group DM that @mentions them, pointers to things to try), a few unread channels and a mention for each @here message, so the app opens looking lived in. Nobody else sees those DMs.
+- Visitors don't see each other in member lists, member counts, people pickers or team clocks. They still see each other's posts.
+- Team clocks and weather are on (`TEAM_LOCATION` and `WEATHER` in `wrangler.demo.jsonc`), with made-up cities for the team. Visitors can't share their own location.
 - A line at the top of the app says: "This is a public demo. Everyone sees what you post. It resets every night."
-- Off, each with a short message: file uploads, new voice notes and transcripts, admin settings, the Slack import, invites, phone notifications, locked conversations and passwords. The seeded voice note (audio in `public/demo/`, transcript in `src/demo.js`) plays and shows its transcript without Workers AI.
+- Off, each with a short message: file uploads, new voice notes and transcripts, admin settings, the Slack import, invites, phone notifications, locked conversations and passwords. The seeded voice note plays and shows its transcript without Workers AI.
 - Limits: 5 new visitors per network address and 60 in total per 15 minutes; per visitor, 30 messages and 120 other changes per 15 minutes. Read marks don't count.
-- Every night at 03:00 UTC a background job wipes everything and seeds the team again (`src/demo.js`). The first visitor after a deploy seeds it too.
+- The seeded voice note, packaging diagram, price list (PDF) and order sheet (CSV) are in `public/demo/` and are copied to file storage on the first reset.
+- Every night at 03:00 UTC a background job wipes everything and seeds the team again (`src/demo.js`). The first visitor after a deploy that changes the seed (`SEED_VERSION`) seeds it too.
 
 `DEMO_MODE` is not in `wrangler.jsonc`, so a normal install never has it.
 
