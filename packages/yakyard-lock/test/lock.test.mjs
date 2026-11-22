@@ -229,3 +229,15 @@ test('device codes are 20 digits and differ per device', async () => {
   const ca = await deviceCode(a.curve25519(), a.ed25519()), cb = await deviceCode(b.curve25519(), b.ed25519());
   assert.match(ca, /^\d{4}( \d{4}){4}$/); assert.notEqual(ca, cb);
 });
+
+test('a message only opens as its real sender: the server cannot relabel who wrote it', async () => {
+  const server = fakeServer();
+  const ana = await setUp(server, 'UA'), mal = await setUp(server, 'UM'), ben = await setUp(server, 'UB');
+  server.S.members.C1 = ['UA', 'UM', 'UB'];
+  const fromAna = await send(ana, 'C1', 'from ana');
+  const fromMal = await send(mal, 'C1', 'pretending');
+  assert.equal((await read(ben, 'C1', 'UA', fromAna, 'M1')).data.t, 'from ana');
+  assert.equal((await read(ben, 'C1', 'UM', fromAna, 'M2')).ok, false, "Ana's words shown as Mallory's");
+  assert.equal((await read(ben, 'C1', 'UA', fromMal, 'M3')).ok, false, "Mallory's words shown as Ana's");
+  assert.equal((await read(ben, 'C1', 'UM', fromMal, 'M4')).data.t, 'pretending');
+});

@@ -782,7 +782,7 @@ function filesEl(files) {
       box.append(h('video', { class: 'file-video', src: url, controls: true, preload: 'metadata', playsinline: true }));
     } else {
       const ext = (f.name.split('.').pop() || 'file').slice(0, 4);
-      box.append(h('a', { class: 'file-card', href: url, target: '_blank', rel: 'noopener', ...(f.enc ? { download: f.name } : {}) },
+      box.append(h('a', { class: 'file-card', href: url, ...(f.enc ? { download: f.name } : { target: '_blank', rel: 'noopener' }) },
         h('span', { class: 'file-ico', style: { background: fileColor(ext) } }, ext),
         h('div', {}, h('div', { class: 'fname' }, f.name), h('div', { class: 'fmeta' }, (f.size ? sizeStr(f.size) + ' · ' : '') + ext.toUpperCase()))));
     }

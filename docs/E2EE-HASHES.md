@@ -4,12 +4,12 @@ Each Yakyard release lists the security code of its locking code and the SHA-256
 
 ## Yakyard 2.0.0 (yakyard-lock 1.0.0)
 
-Security code: **64A5-577D-AA3E-67A8**
+Security code: **0EE9-506A-B96E-F2BF**
 
 | File | SHA-256 |
 |---|---|
-| `/lock/lock.js` | `132bb72f5767ceade8fd5a5fd13b2e4dfe2b9bbf05bc7757673b55242cb4389b` |
+| `/lock/lock.js` | `753c9f45f876e3386447511a4ca4e6c9f9dc2bfbeb23f137908cdba1e09c734c` |
 | `/lock/store-idb.js` | `ec8323fe7478c07ae50eac21741dd5792d01275b2562be5b73b36ff2db65193d` |
 | `/lock/yakyard-crypto.js` | `f9847c7870c29ed7187348a1bada2cfd6c73b838e63108c4b333b81e7f8dec8e` |
 | `/lock/yakyard-crypto_bg.wasm` | `fa7877cdfd3d64950f75159f6f974ed5b617e4e8f8604e503fddf3335b0840bf` |
-| `/locked.js` | `8f79419e7ee7601eedb07c8371710fbe72424f625b81aecf4eb1ca0d06d64ead` |
+| `/locked.js` | `1257ea529869863efbd153b1942a06a2831c6738c9438cc56cbcd47a8865d08f` |

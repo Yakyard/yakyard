@@ -26,6 +26,7 @@ const sha256 = async (data) => new Uint8Array(await subtle.digest('SHA-256', typ
 const ROTATE_AFTER_MSGS = 100;
 const ROTATE_AFTER_MS = 7 * 864e5;
 const OTK_TARGET = 50, OTK_LOW = 20;
+const owners = (rec) => rec.owners || (rec.user ? [{ user: rec.user, curve: rec.curve }] : []);
 
 // ---------------------------------------------------------------- recovery key
 // 32 random bytes plus one checksum byte, written in Crockford base32 (no I, L, O, U), in groups of four.
@@ -291,7 +292,14 @@ export function createLock({ api, store, wasm, me, label = '' }) {
             if (p.type === 'room_key' && sender && typeof p.cid === 'string') {
               const igs = new W.InboundGroupSession(p.key);
               if (igs.session_id() !== p.sid) continue;
-              if (!(await store.get('in:' + p.sid))) { const rec = { pickle: igs.pickle(), cid: p.cid, user: p.from, curve: row.sender_key }; await store.put('in:' + p.sid, rec); await backup(p.sid, rec); n++; }
+              // Several people can hold (and pass on) the same session key. Each one who sent it is noted as a
+              // possible owner; a message only opens if its sender is one of them AND the sender named inside the
+              // signed Megolm payload is that same person. Re-sending someone else's key can't make their messages yours.
+              const have = await store.get('in:' + p.sid);
+              const owner = { user: p.from, curve: row.sender_key };
+              if (!have) { const rec = { pickle: igs.pickle(), cid: p.cid, owners: [owner] }; await store.put('in:' + p.sid, rec); await backup(p.sid, rec); n++; }
+              else if (have.cid === p.cid && !owners(have).some((o) => o.user === owner.user && o.curve === owner.curve)) { have.owners = [...owners(have), owner].slice(0, 20); await store.put('in:' + p.sid, have); inCache.delete(p.sid); }
+              igs.free();
             } else if (p.type === 'secrets' && p.from === me && sender && p.rk) {
               const m = await deriveFromRecovery(W, unb64(p.rk));
               if (m.masterPub !== k.master) continue;
@@ -314,7 +322,7 @@ export function createLock({ api, store, wasm, me, label = '' }) {
   async function backup(sid, rec) {
     if (!master) return;
     const igs = W.InboundGroupSession.from_pickle(rec.pickle);
-    const iv = rand(12), plain = enc.encode(JSON.stringify({ sid, cid: rec.cid, user: rec.user, curve: rec.curve, key: igs.export_at_first_known_index() }));
+    const iv = rand(12), plain = enc.encode(JSON.stringify({ sid, cid: rec.cid, owners: owners(rec), key: igs.export_at_first_known_index() }));
     igs.free();
     const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: enc.encode(`${me}:${sid}`) }, master.backupKey, plain));
     const all = new Uint8Array(12 + ct.length); all.set(iv); all.set(ct, 12);
@@ -338,7 +346,7 @@ export function createLock({ api, store, wasm, me, label = '' }) {
           if (igs.session_id() !== it.session_id) { igs.free(); continue; }
           const have = await store.get('in:' + it.session_id);
           if (!have || W.InboundGroupSession.from_pickle(have.pickle).first_known_index() > igs.first_known_index()) {
-            await store.put('in:' + it.session_id, { pickle: igs.pickle(), cid: o.cid, user: o.user, curve: o.curve }); n++;
+            await store.put('in:' + it.session_id, { pickle: igs.pickle(), cid: o.cid, owners: o.owners || [{ user: o.user, curve: o.curve }] }); n++;
             inCache.delete(it.session_id);
           }
           igs.free();
@@ -369,7 +377,7 @@ export function createLock({ api, store, wasm, me, label = '' }) {
         gs = new W.GroupSession();
         out = { pickle: gs.pickle(), sid: gs.session_id(), shared: [], at: Date.now(), n: 0 };
         const igs = new W.InboundGroupSession(gs.session_key());
-        const rec = { pickle: igs.pickle(), cid, user: me, curve: account.curve25519() };
+        const rec = { pickle: igs.pickle(), cid, owners: [{ user: me, curve: account.curve25519() }] };
         igs.free();
         await store.put('in:' + out.sid, rec); await backup(out.sid, rec);
       } else gs = W.GroupSession.from_pickle(out.pickle);
@@ -379,7 +387,7 @@ export function createLock({ api, store, wasm, me, label = '' }) {
         await sendToDevices(fresh, () => ({ type: 'room_key', cid, sid: out.sid, key }));
         out.shared = [...new Set([...out.shared.filter((s) => ids.has(s)), ...fresh.map((t) => `${t.user_id}|${t.device_id}|${t.curve}`)])];
       }
-      const ct = gs.encrypt(JSON.stringify({ ...content, cid }));
+      const ct = gs.encrypt(JSON.stringify({ ...content, cid, u: me }));
       out.n += 1; out.pickle = gs.pickle(); gs.free();
       await store.put('out:' + cid, out);
       await flushBackup();
@@ -403,11 +411,11 @@ export function createLock({ api, store, wasm, me, label = '' }) {
     // Another of my devices may have backed this key up since: look again, at most every 30 seconds.
     if (!s && master && Date.now() - lastPull > 30e3) { lastPull = Date.now(); await serial(() => restoreBackup()); s = await inbound(e.s); }
     if (!s) return { ok: false, reason: 'missing' };
-    if (s.rec.cid !== cid || s.rec.user !== senderId) return { ok: false, reason: 'bad' };
+    if (s.rec.cid !== cid || !owners(s.rec).some((o) => o.user === senderId)) return { ok: false, reason: 'bad' };
     let r; try { r = s.igs.decrypt(e.c); } catch (er) { return { ok: false, reason: /index/i.test(String(er?.message || er)) ? 'early' : 'bad' }; }
     const i = r.indexOf(':'), index = Number(r.slice(0, i));
     let data; try { data = JSON.parse(r.slice(i + 1)); } catch { return { ok: false, reason: 'bad' }; }
-    if (data.cid !== cid) return { ok: false, reason: 'bad' };
+    if (data.cid !== cid || data.u !== senderId) return { ok: false, reason: 'bad' };
     // The same encrypted piece showing up as a second message means the server copied it.
     if (ref) {
       const seen = (await store.get('seen:' + e.s)) || {};

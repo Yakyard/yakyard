@@ -321,7 +321,7 @@ function apply(m, res) {
   if (res.ok) {
     const secret = Array.isArray(res.data.f) ? res.data.f : [];
     m.files = secret.map((f) => {
-      const o = { ...f, enc: 1, t: f.voice ? 'locked' : undefined };
+      const o = { ...f, type: safeType(f.type), name: String(f.name || 'file').slice(0, 200), enc: 1, t: f.voice ? 'locked' : undefined };
       if (blobs.has(f.key)) o.url = blobs.get(f.key); else { o.opening = true; openFile(m, f); }
       return o;
     });
@@ -335,13 +335,17 @@ async function openMsg(m) {
   return res;
 }
 const opening = new Set();
+const SAFE = /^(image\/(png|jpeg|gif|webp|avif|heic|heif)|audio\/(webm|ogg|mp4|mpeg|aac|wav|x-m4a)|video\/(mp4|webm|quicktime))$/;
+export const safeType = (t) => (SAFE.test(String(t || '').toLowerCase()) ? String(t).toLowerCase() : 'application/octet-stream');
 async function openFile(m, f) {
   if (opening.has(f.key)) return; opening.add(f.key);
   try {
     const r = await fetch('/files/' + encodeURIComponent(f.key), { credentials: 'same-origin' });
     if (!r.ok) throw new Error('gone');
     const data = await decryptFile(new Uint8Array(await r.arrayBuffer()), f);
-    blobs.set(f.key, URL.createObjectURL(new Blob([data], { type: f.type || 'application/octet-stream' })));
+    // The type comes from the sender. Only types the page shows inline keep it; anything else (HTML, SVG, PDF…)
+    // becomes a plain download, so a file can never run as a page of this site.
+    blobs.set(f.key, URL.createObjectURL(new Blob([data], { type: safeType(f.type) })));
     plain.delete(m.id); X.rerender(m);
   } catch { blobs.set(f.key, ''); }
   finally { opening.delete(f.key); }
