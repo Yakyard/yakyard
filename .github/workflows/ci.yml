@@ -9,6 +9,19 @@ permissions:
   contents: read
 
 jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep (JavaScript and secrets rules, must pass)
+        run: >
+          semgrep scan --config p/javascript --config p/secrets --error --metrics=off
+          --exclude node_modules --exclude public/vendor --exclude packages/yakyard-lock/dist
+          --exclude public/lock/yakyard-crypto.js --exclude site/dist
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -37,10 +50,13 @@ jobs:
 
       - name: Syntax check
         run: |
-          for f in src/*.js public/*.js scripts/*.mjs test/*.mjs; do node --check "$f"; done
+          for f in src/*.js public/*.js public/lock/*.js packages/yakyard-lock/src/*.js scripts/*.mjs test/*.mjs packages/yakyard-lock/test/*.mjs; do node --check "$f"; done
 
       - name: Unit tests
-        run: node --test test/*.test.mjs
+        run: node --test test/*.test.mjs packages/yakyard-lock/test/*.test.mjs
+
+      - name: Locking code matches its package and published hashes
+        run: node scripts/lock-sync.mjs --check
 
       - name: Website builds
         run: npm run site:build

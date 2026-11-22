@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://github.com/yakyard/yakyard/actions/workflows/ci.yml"><img src="https://github.com/yakyard/yakyard/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-2B1BD6" alt="License: PolyForm Shield 1.0.0"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/yakyard/yakyard"><img src="https://api.scorecard.dev/projects/github.com/yakyard/yakyard/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
 <p align="center">
