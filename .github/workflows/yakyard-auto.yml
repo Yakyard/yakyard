@@ -42,7 +42,7 @@ jobs:
       UPSTREAM: https://github.com/yakyard/yakyard.git
       STEP: /tmp/yakyard-step   # the sentence the issue uses if the step that wrote it fails
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
