@@ -96,6 +96,7 @@ export function layout({ title, seoTitle = null, description, urlPath, og = "hom
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="google-site-verification" content="ShLCnFfmQo0s-xHpGL5QxNrNFnBC62-aAmqJn3fPNpo">
 <title>${esc(fullTitle)}</title>
 <meta name="description" content="${esc(description)}">
 ${noindex ? `<meta name="robots" content="noindex">` : `<link rel="canonical" href="${canonical}">`}
