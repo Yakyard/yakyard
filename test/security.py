@@ -236,8 +236,14 @@ check('M6 9th attempt for one account in 15 min is throttled', codes[:7] == [Fal
 r = requests.post(B + '/auth/login', data={'email': 'carol@example.com', 'password': 'memberpassword1'})
 check('M6 even the right password is held back while throttled', 'Too many' in r.text)
 dk = 'A' * 43 + '='
-t0 = time.time(); requests.post(B + '/auth/login', data={'email': 'owner@example.com', 'key': dk}); ta = time.time() - t0
-t0 = time.time(); requests.post(B + '/auth/login', data={'email': 'nobody@example.com', 'key': dk}); tb = time.time() - t0
+def _login_time(email):
+    t0 = time.time(); requests.post(B + '/auth/login', data={'email': email, 'key': dk}); return time.time() - t0
+# One request is too noisy on shared CI runners: warm up, then compare medians of alternating samples.
+_login_time('owner@example.com'); _login_time('nobody@example.com')
+_a, _b = [], []
+for _ in range(7):
+    _a.append(_login_time('owner@example.com')); _b.append(_login_time('nobody@example.com'))
+ta, tb = sorted(_a)[3], sorted(_b)[3]
 print(f'  timing: existing {ta*1000:.0f} ms, unknown {tb*1000:.0f} ms')
 check('M6 unknown email does the same server work (timing within 3x)', tb > ta / 3 and ta > tb / 3, (ta, tb))
 
