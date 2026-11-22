@@ -1,0 +1,11 @@
+# HTTPS for Yakyard: Caddy gets and renews the certificate for DOMAIN by itself.
+{$DOMAIN} {
+	encode zstd gzip
+	# The local runtime's own tools: never public.
+	@internal path /cdn-cgi/* /__scheduled*
+	respond @internal 404
+	reverse_proxy yakyard:8787 {
+		# Yakyard limits sign-in attempts per address and reads it from this header, as it does on Cloudflare.
+		header_up Cf-Connecting-Ip {remote_host}
+	}
+}

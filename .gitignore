@@ -11,3 +11,4 @@ cpu-check-report.json
 wrangler.toml.old
 site/dist/
 packages/yakyard-lock/crypto/target/
+.env

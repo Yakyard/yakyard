@@ -2,6 +2,16 @@
 
 What changed in each Yakyard release, newest first.
 
+## Unreleased
+
+### Run it on your own server
+- Yakyard now runs on any Linux server with Docker: `docker compose up -d` starts it with Caddy in front for HTTPS, set by one `DOMAIN` line in `.env`. All data (database, files, background jobs) lives in one volume. [Step by step](docs/DOCKER.md), about 15 minutes.
+- It runs in workerd, the open-source runtime Cloudflare Workers is built on, through Wrangler's local mode, with a non-root user and a health check. The database is brought up to date on every start.
+- Voice notes work there. Transcripts use Workers AI over its REST API when you set `CF_ACCOUNT_ID` and `CF_API_TOKEN`. Without them, each voice note says "Transcripts are off on this server" instead of waiting for one. Photo previews are made on the server.
+- `sh docker/backup.sh` and `sh docker/restore.sh` back up and restore the whole volume, files included. Updates are `git pull`, `docker compose pull`, `docker compose up -d`.
+- Release tags publish the image to `ghcr.io/yakyard/yakyard`. CI builds the image on every change and runs the full security suite against the container, then restarts it and checks nothing was lost.
+- The FAQ, pros and cons, comparison and website now say it runs on your own server too, with the limits: transcripts need a Cloudflare token, Cloudflare's free plan math doesn't apply, and it's one server with no automatic scaling.
+
 ## 2.1.0 (22 November 2026)
 
 Yakyard is now open source under Apache 2.0, with a live demo anyone can click into. Versions 1.0.0 and 2.0.0 stay under PolyForm Shield 1.0.0.

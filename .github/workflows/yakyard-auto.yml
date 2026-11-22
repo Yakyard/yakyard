@@ -1,5 +1,6 @@
 # Updates and backups that run by themselves, for your own copy of Yakyard (the one the Deploy to Cloudflare
 # button made in your GitHub). Off until you turn it on: docs/SETUP.md, "Updates and backups by themselves".
+# For Cloudflare installs only. A Yakyard running in Docker on your own server uses docs/DOCKER.md instead.
 #   Every night: backs up the database into your R2 bucket, one file per weekday (backups/yakyard-monday.sql...),
 #   so the last 7 nights are kept and nothing piles up.
 #   Sunday night (every night if YAKYARD_AUTO is "daily"): if a newer Yakyard release is out, backs up to

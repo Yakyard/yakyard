@@ -12,7 +12,7 @@ We say where others are better. Several are.
 
 | | Cheapest paid price | Free option | Run it yourself | Needs a server | License | Voice notes with transcripts | End-to-end encryption |
 |---|---|---|---|---|---|---|---|
-| **Yakyard** | $0 for the software; Cloudflare $5 a month per account above about 50 people | Yes, about 50 people on Cloudflare's free plan | Yes, on your Cloudflare account | No | Apache 2.0 (open source) | Yes | Optional: locked DMs and private channels (Olm/Megolm via vodozemac). Not in normal channels. |
+| **Yakyard** | $0 for the software; Cloudflare $5 a month per account above about 50 people | Yes, about 50 people on Cloudflare's free plan | Yes, on your Cloudflare account, or your own server with Docker | No (optional with Docker) | Apache 2.0 (open source) | Yes | Optional: locked DMs and private channels (Olm/Megolm via vodozemac). Not in normal channels. |
 | Slack | Pro $7.25 yearly / $8.75 monthly | 90 days of history, 10 apps, 1:1 huddles | No | n/a | Closed | Not compared | Not compared |
 | Microsoft Teams | Essentials $4 (yearly) | Free Teams: 60-minute group calls, 100 people, 5 GB each | No | n/a | Closed | Not compared | Not compared |
 | Google Chat | Workspace Business Starter $7 yearly / $8.40 flexible | No free business plan | No | n/a | Closed | Not compared | Not compared |
@@ -113,7 +113,7 @@ Campfire, from 37signals, is the closest in spirit: free, simple, self-hosted.
 
 - Want **no bill and no server**, and you're under about 50 people? **Yakyard.**
 - Need **end-to-end encryption for a few sensitive conversations**? Yakyard's locked conversations. **For everything, with an audited client?** Element.
-- Want **open source on your own server**, not Cloudflare? Zulip, Campfire, Mattermost Team Edition, Rocket.Chat Community or Element.
+- Want **open source on your own server**? Yakyard runs there with [Docker](DOCKER.md), transcripts aside. For a chat with years of self-hosting behind it: Zulip, Campfire, Mattermost Team Edition, Rocket.Chat Community or Element.
 - Need **integrations, native apps, a vendor and compliance**? Slack, Teams or Google Chat, and the per-seat bill that comes with them.
 - Running a **community**? Discord.
 

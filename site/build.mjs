@@ -159,7 +159,7 @@ function footer() {
         <p>Free team chat you run on your own Cloudflare account.</p>
       </div>
       ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"]])}
-      ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
+      ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/docker", "Your own server"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
       ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE`, "License"], ["/press", "Press kit"], ["/releases/2.1.0", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
     </div>
     <div class="foot__base">
@@ -193,6 +193,9 @@ const DOCS = {
   "TECHNICAL.md": { out: "/docs/technical", og: "technical", title: "Technical notes", seo: "Yakyard technical notes: limits, settings, backups", nav: "/docs", toc: true, crumb: true,
     description: "Yakyard's free plan math, deploy, notifications, settings, updates, backups and how it's built.",
     lede: "For whoever runs Yakyard: limits, settings, updates and backups." },
+  "DOCKER.md": { out: "/docs/docker", og: "technical", title: "Run it on your own server", seo: "Run Yakyard on your own server with Docker", nav: "/docs", toc: true, crumb: true,
+    description: "Run Yakyard on your own Linux server with Docker and Caddy: setup in about 15 minutes, backups, updates, and what's different from Cloudflare.",
+    lede: "Same app, your hardware. About 15 minutes if you've used docker compose before." },
   "E2EE.md": { out: "/docs/locked", og: "technical", title: "Locked conversations", seo: "Yakyard locked conversations: end-to-end encryption", nav: "/docs", toc: true, crumb: true,
     description: "How Yakyard's locked conversations work: end-to-end encryption, what the server can and can't see, and the limits.",
     lede: "Who can read a locked conversation, and what works differently in there." },
@@ -383,7 +386,7 @@ ${urls.map((u) => `  <url><loc>${SITE_URL}${slashed(u)}</loc><lastmod>${lastmod[
 > Yakyard is free, open source team chat you deploy to your own Cloudflare account. It's a Slack alternative for small teams, with channels, threads, DMs, calls, voice notes with transcripts, and optional end-to-end encrypted conversations. It fits on Cloudflare's free plan for a team of up to about 50 people, so for most small teams the bill is $0.
 
 Key facts:
-- Runs only on Cloudflare: Workers, Durable Objects, D1, R2 and Workers AI. It doesn't run on your own server or another cloud.
+- Built for Cloudflare: Workers, Durable Objects, D1, R2 and Workers AI. It also runs on your own server with Docker, in workerd (the open-source Workers runtime) with Caddy for HTTPS. There, voice note transcripts need a Cloudflare API token, Cloudflare's free plan limits don't apply, and it's one server with no automatic scaling.
 - License: Apache License 2.0, an OSI-approved open source license. Anyone can use it, change it, host it for others or sell it, free, as long as they keep the copyright, license and NOTICE files. Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0.
 - Owned by QVINTA Ltd (Hong Kong). It started as the internal chat of a team that left Slack, and that team still uses it every day.
 - Installs from the browser as an app on iPhone, Android, Mac and Windows. There's no App Store or Play Store app.
@@ -395,6 +398,7 @@ Key facts:
 - [Set up Yakyard](${SITE_URL}/docs/setup/): from a new Cloudflare account to your team signing in, in about 30 minutes, no coding
 - [Using Yakyard](${SITE_URL}/docs/guide/): channels, threads, voice notes, calls, search and notifications
 - [Technical notes](${SITE_URL}/docs/technical/): free plan math, settings, updates and backups
+- [Run it on your own server](${SITE_URL}/docs/docker/): Docker and Caddy, backups, updates and what's different from Cloudflare
 - [Locked conversations](${SITE_URL}/docs/locked/): how the end-to-end encryption works, and its limits
 
 ## Decide

@@ -244,4 +244,4 @@ Yakyard has no certifications. You run it, so you're the one responsible for how
 
 ### Can I run it on my own server instead of Cloudflare?
 
-No. It's built for Cloudflare Workers, Durable Objects, D1 and R2. If you need your own hardware, see the [comparison](COMPARE.md) for chat apps that run there.
+Yes, with Docker. The same app runs in workerd, the open-source runtime Cloudflare Workers is built on, with its database and files on your disk and HTTPS from Caddy. Two things change: voice note transcripts need a free Cloudflare token (without one, voice notes still work, with no transcript), and it's one server with no automatic scaling. [Run Yakyard on your own server](DOCKER.md) has the steps, backups and updates.

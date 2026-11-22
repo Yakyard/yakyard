@@ -121,7 +121,7 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 
 **Worth knowing**
 - Someone on your team runs it. Updates and backups can run by themselves, or take one command each.
-- Cloudflare only. It doesn't run on your own server or another cloud.
+- Built for Cloudflare. It also runs on your own server with Docker, but transcripts still need a free Cloudflare token there.
 - No app store app. It's an installable web app, with notifications.
 - Only locked conversations are end-to-end encrypted. The rest is readable to whoever controls your Cloudflare account. Locked ones have limits: search only on your device, no transcripts, and a lost recovery key means lost messages.
 
@@ -131,7 +131,7 @@ The fine print (calls, transcript languages, the Slack import, support) is in [P
 
 | | Price per person a month | Free plan catch | Run it yourself | License |
 |---|---|---|---|---|
-| **Yakyard** | $0. Above about 50 people, $5 a month for the whole team (Cloudflare) | Cloudflare's daily limits | Yes, on your Cloudflare account, no server | Apache 2.0 |
+| **Yakyard** | $0. Above about 50 people, $5 a month for the whole team (Cloudflare) | Cloudflare's daily limits | Yes, on your Cloudflare account with no server, or on your own server with Docker | Apache 2.0 |
 | Slack | Pro $7.25 yearly / $8.75 monthly | 90 days of history; older than a year is deleted | No | Closed |
 | Microsoft Teams | Essentials $4 (yearly) | Free Teams: 60-minute group calls | No | Closed |
 | Google Chat | In Workspace, from $7 yearly / $8.40 flexible | No free business plan | No | Closed |
@@ -142,7 +142,7 @@ The fine print (calls, transcript languages, the Slack import, support) is in [P
 | Campfire | Free | No calls listed | Yes, your server | MIT |
 | Element (Matrix) | Enterprise per seat, by quote | Community is for non-professional use | Yes, your server | AGPL-3.0 / commercial |
 
-Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of these beat Yakyard at things that might matter to you. Need it on your own server instead of Cloudflare? Zulip, Mattermost or Campfire. Need end-to-end encryption on every conversation, with an audited client? Element. The app-by-app version is in [COMPARE.md](docs/COMPARE.md).
+Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of these beat Yakyard at things that might matter to you. Want a chat with years of self-hosting behind it? Zulip, Mattermost or Campfire. Need end-to-end encryption on every conversation, with an audited client? Element. The app-by-app version is in [COMPARE.md](docs/COMPARE.md).
 
 ## Install
 
@@ -163,6 +163,19 @@ npm run deploy        # prints your address and a one-time setup code
 The full walkthrough for people who don't code, with notifications, Google sign-in and Slack import, is [Set up Yakyard, free](docs/SETUP.md). About 30 minutes.
 
 Phone notifications, Slack import, Google sign-in, team clocks and every other setting are in [TECHNICAL.md](docs/TECHNICAL.md): see [Notifications](docs/TECHNICAL.md#notifications), [Optional features](docs/TECHNICAL.md#optional-features) and [All settings](docs/TECHNICAL.md#all-settings). Updates and backups are one command each, or can run by themselves: [Updating](docs/TECHNICAL.md#updating), [Backups](docs/TECHNICAL.md#backups), [By themselves](docs/SETUP.md#updates-and-backups-by-themselves).
+
+## Run it on your own server
+
+Yakyard also runs on any Linux server with Docker, with HTTPS from Caddy and all your data in one volume:
+
+```bash
+git clone https://github.com/yakyard/yakyard.git
+cd yakyard
+cp .env.example .env      # set DOMAIN and SETUP_TOKEN
+docker compose up -d
+```
+
+Then open `https://your-domain/setup`. Backups and updates are one command each. Voice notes work, but transcripts need a free Cloudflare token, and it's one server with no automatic scaling. Step by step, with the limits: [Run Yakyard on your own server](docs/DOCKER.md). About 15 minutes.
 
 ## FAQ
 

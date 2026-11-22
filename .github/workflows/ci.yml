@@ -80,3 +80,65 @@ jobs:
       - name: Server log
         if: failure()
         run: tail -n 200 wrangler-dev.log
+
+  # The Docker image (docs/DOCKER.md): build it, start it, run the same security suite against the container,
+  # then restart it and check nothing was lost.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      WRANGLER_SEND_METRICS: "false"
+      YY_BASE: http://localhost:8811
+      YY_PERSIST: /tmp/yy-docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install (the suite reads the database with wrangler)
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install requests playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Build the image
+        run: docker build -t yakyard:ci .
+
+      - name: Start the container
+        run: |
+          # The data folder is shared with the runner, so the container runs as the runner's user.
+          mkdir -p $YY_PERSIST
+          docker run -d --name yy --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -e SETUP_TOKEN=testsetuptoken123456789012 -v $YY_PERSIST:/data -p 8811:8787 yakyard:ci
+          for i in $(seq 1 90); do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' yy)" = healthy ]; then echo "healthy after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          docker logs yy
+          exit 1
+
+      - name: Security suite
+        run: python test/security.py
+
+      - name: Data survives a restart
+        run: |
+          count() { npx wrangler d1 execute DB --local --persist-to=$YY_PERSIST --json --command "SELECT COUNT(*) n FROM messages" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].results[0].n))"; }
+          before=$(count)
+          docker restart yy
+          for i in $(seq 1 90); do [ "$(docker inspect -f '{{.State.Health.Status}}' yy)" = healthy ] && break; sleep 1; done
+          after=$(count)
+          echo "messages before: $before, after: $after"
+          [ "$before" -gt 0 ] && [ "$before" = "$after" ]
+          curl -sf -o /dev/null http://localhost:8811/setup
+
+      - name: Container log
+        if: failure()
+        run: docker logs yy 2>&1 | tail -n 200

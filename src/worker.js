@@ -2,7 +2,7 @@
 import { unfurl, safeFetchUrl, safeFetch } from './unfurl.js';
 import { slackRoutes, slackApi, importJob } from './slackimport.js';
 import { sendPushes, featureApi, hydrateExtras, openDm, v6, arm, routes, runRoutes, jobArm, jobAlarm, sweep, housekeeping, sendScheduled, sendReminder, pushBatch, PUSHES_PER_JOB, dbQuotaError, QUOTA_MSG } from './features.js';
-import { parseVoiceMeta, transcribe, patchMessage, voiceJob, fmtDur, VOICE_MAX } from './voice.js';
+import { parseVoiceMeta, transcribe, patchMessage, voiceJob, fmtDur, VOICE_MAX, transcriptsOn } from './voice.js';
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { cacheGet, cachePut, cacheCleanup } from './cache.js';
 import { e2eeApi, startLockedChannel, openLockedDm, lockedAllowed, e2eeHousekeeping } from './e2ee.js';
@@ -500,7 +500,7 @@ async function postMessage(env, ctx, user, ch, body) {
     if (!rec || rec.uploader !== user.id || (rec.channel_id && rec.channel_id !== ch.id)) continue;
     if (encd && rec.voice) continue; // a plain voice note never goes into a locked conversation
     const item = { key: f.key, name: String(f.name || 'file').slice(0, 200), size: +f.size || 0, type: String(f.type || 'application/octet-stream').slice(0, 100) };
-    if (rec.voice) { try { item.voice = JSON.parse(rec.voice); } catch { item.voice = { dur: 0, wave: [] }; } item.t = rec.t_status === 'done' ? 'done' : rec.t_status === 'failed' ? 'failed' : 'pending'; item.transcript = rec.transcript || ''; }
+    if (rec.voice) { try { item.voice = JSON.parse(rec.voice); } catch { item.voice = { dur: 0, wave: [] }; } item.t = ['done', 'failed', 'off'].includes(rec.t_status) ? rec.t_status : 'pending'; item.transcript = rec.transcript || ''; }
     files.push(item);
     stmts.push(env.DB.prepare('UPDATE files SET channel_id=? WHERE key=?').bind(ch.id, f.key));
   }
@@ -1180,8 +1180,9 @@ async function uploadFile(req, env, user) {
     customMetadata: { uploader: user.id, name: file.name },
   });
   const voice = parseVoiceMeta(form);
-  await env.DB.prepare('INSERT OR REPLACE INTO files (key,uploader,channel_id,created_at,voice,t_status,size) VALUES (?,?,NULL,?,?,?,?)').bind(key, user.id, now(), voice ? JSON.stringify(voice) : null, voice ? 'pending' : null, file.size).run();
-  return json({ key, name: file.name, size: file.size, type: file.type || 'application/octet-stream', ...(voice ? { voice, t: 'pending' } : {}) });
+  const t = voice ? (transcriptsOn(env) ? 'pending' : 'off') : null;
+  await env.DB.prepare('INSERT OR REPLACE INTO files (key,uploader,channel_id,created_at,voice,t_status,size) VALUES (?,?,NULL,?,?,?,?)').bind(key, user.id, now(), voice ? JSON.stringify(voice) : null, t, file.size).run();
+  return json({ key, name: file.name, size: file.size, type: file.type || 'application/octet-stream', ...(voice ? { voice, t } : {}) });
 }
 
 // Big files (up to 1 GB): sent in 20 MB pieces, put back together in R2.

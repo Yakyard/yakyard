@@ -1,0 +1,13 @@
+# Only what the image needs; the Dockerfile copies files by name.
+node_modules
+.git
+.github
+.wrangler
+.dev.vars
+.env
+backups
+docs
+site
+test
+tools
+packages

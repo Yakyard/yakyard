@@ -25,7 +25,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   ];
   const con = [
     ["Someone on your team runs it.", "Updates and backups are one command each."],
-    ["Cloudflare only.", "It doesn't run on your own server or another cloud."],
+    ["Built for Cloudflare.", "It runs on your own server with Docker too, but transcripts still need a free Cloudflare token there."],
     ["No app store app.", "It's an installable web app, with notifications."],
     ["Only locked conversations are end-to-end encrypted.", "The rest is readable to whoever runs your Cloudflare account. Locked ones have limits, like search only on your device."],
   ];
@@ -211,7 +211,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   <div class="wrap">
     <div class="sec__head">
       <h2 class="d-l" id="compare-title">Where Yakyard wins, and where it doesn't.</h2>
-      <p>Some of these beat Yakyard at things that might matter to you. Need it on your own server instead of Cloudflare? Zulip, Mattermost or Campfire. Need every conversation encrypted, with an audited client? Element.</p>
+      <p>Some of these beat Yakyard at things that might matter to you. Want a chat with years of self-hosting behind it? Zulip, Mattermost or Campfire. Need every conversation encrypted, with an audited client? Element.</p>
     </div>
     ${table}
     <p class="after">Prices checked on 21 November 2026. <a href="/compare">Read the app-by-app comparison</a>, with Discord and Rocket.Chat too.</p>
@@ -236,7 +236,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     <div>
       <div class="sec__head">
         <h2 class="d-l" id="install-title">Live in about 30 minutes.</h2>
-        <p>No server, no Docker, no database to patch. One button, or four commands.</p>
+        <p>No server, no Docker, no database to patch. One button, or four commands. Rather use your own server? <a href="/docs/docker">Run it with Docker</a>.</p>
       </div>
       <div class="steps-wrap"><span class="rail" aria-hidden="true"><i></i></span><ol class="steps">
         <li><div><h3>Make a free Cloudflare account</h3><p>Then turn on R2, the file storage, in the dashboard. Cloudflare asks for a payment card first. Nothing is charged under 10 GB.</p></div></li>
@@ -320,7 +320,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
 
 export function docsHubPage({ layout, shot, REPO }) {
   const body = `
-<header class="phead"><div class="wrap"><h1>Docs</h1><p class="lede">Everything you need to put Yakyard on your Cloudflare account and run it. Written for people who don't code.</p></div></header>
+<header class="phead"><div class="wrap"><h1>Docs</h1><p class="lede">Everything you need to put Yakyard on your Cloudflare account, or your own server, and run it. Written for people who don't code.</p></div></header>
 <div class="wrap">
   <div class="hub">
     <a class="big" href="/docs/setup">
@@ -332,6 +332,7 @@ export function docsHubPage({ layout, shot, REPO }) {
     <div class="side">
       <a href="/docs/guide"><h2>Use it</h2><p>Channels, threads, voice notes, calls, search, Later, notifications and themes. Five minutes if you know Slack.</p><span class="meta">For everyone on the team</span></a>
       <a href="/docs/technical"><h2>Technical notes</h2><p>The free plan math, every setting, updates, backups and how it's built.</p><span class="meta">For whoever runs it</span></a>
+      <a href="/docs/docker"><h2>Your own server</h2><p>Run it with Docker and Caddy instead of Cloudflare. Backups, updates and what changes.</p><span class="meta">About 15 minutes with Docker</span></a>
     </div>
     <a href="/docs/locked" class="half"><h2>Locked conversations</h2><p>How end-to-end encryption works here, what the server can and can't see, and the limits.</p><span class="meta">For anyone who asks "who can read this?"</span></a>
     <a class="half" href="/faq"><h2>FAQ</h2><p>Costs, privacy, encryption, phone apps, Slack history, the license and support.</p></a>

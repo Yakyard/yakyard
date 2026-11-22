@@ -26,7 +26,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **Private channels stay private.** Only members can read them. Admins can't add themselves to one.
 
-**No server to babysit.** One click on Deploy to Cloudflare, or one command. No VPS, no Docker, no PostgreSQL, no TLS certificates, no OS updates. Cloudflare runs the infrastructure.
+**No server to babysit.** One click on Deploy to Cloudflare, or one command. No VPS, no Docker, no PostgreSQL, no TLS certificates, no OS updates. Cloudflare runs the infrastructure. Prefer your own hardware? It [runs there too](DOCKER.md), with Docker.
 
 **Backups you keep.** `npm run backup` writes the whole database to a plain SQL file on your computer.
 
@@ -50,7 +50,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **Someone on your team runs it.** That person owns the Cloudflare account, runs updates (`npm run update`) and takes backups (`npm run backup`). Each is one command, but nobody does it for you.
 
-**Cloudflare only.** Yakyard is built on Workers, Durable Objects, D1, R2 and Workers AI. It doesn't run on your own server, in Docker, or on another cloud. If you leave Cloudflare, you take the data (SQL backup plus files), not a running app.
+**Built for Cloudflare first.** Yakyard is built on Workers, Durable Objects, D1, R2 and Workers AI. It also runs on your own server with [Docker](DOCKER.md), in workerd, the open-source runtime Cloudflare uses. There, transcripts still need a free Cloudflare token, Cloudflare's free plan math doesn't apply, and it's one server with no automatic scaling. The Docker way is newer than the Cloudflare one, and fewer teams run it.
 
 **No app store app.** Yakyard installs from the browser and sends push notifications, including on iPhone (after Add to Home Screen). It isn't in the App Store or Play Store, and it needs a connection to load messages.
 

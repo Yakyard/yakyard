@@ -705,6 +705,8 @@ function makePlayer(f) {
         tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No speech heard'));
       } else if (nf.t === 'failed') {
         tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No transcript yet. ', h('button', { class: 'vn-link', onclick: (e) => { e.target.disabled = true; tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'Turning your yak into words…')); last = null; api('/api/voice/transcribe', { method: 'POST', body: { key: nf.key, retry: true } }).catch((er) => toast(er.message)); } }, 'Try again')));
+      } else if (nf.t === 'off') {
+        tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'Transcripts are off on this server. The audio plays as usual.'));
       } else if (nf.t === 'later') {
         tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'The transcript comes tomorrow. Today\'s free transcribing time is used up.'));
       } else {

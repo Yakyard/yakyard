@@ -123,7 +123,7 @@ export async function patchMessage(env, key, deps) {
   let changed = false;
   for (const x of files) {
     if (x.key !== key) continue;
-    const t = f.t_status === 'done' ? 'done' : f.t_status === 'failed' ? 'failed' : f.t_at > now() + 60e3 ? 'later' : 'pending';
+    const t = ['done', 'failed', 'off'].includes(f.t_status) ? f.t_status : f.t_at > now() + 60e3 ? 'later' : 'pending';
     if (x.t !== t || (x.transcript || '') !== (f.transcript || '')) { x.t = t; x.transcript = f.transcript || ''; changed = true; }
   }
   if (!changed) return false;
@@ -152,15 +152,29 @@ export async function voiceJob(env, key, deps) {
 }
 
 // Only for tests: VOICE_AI_URL points transcripts at a local stand-in for Workers AI (localhost only).
+const testUrl = (env) => env.VOICE_AI_URL && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(env.VOICE_AI_URL) ? env.VOICE_AI_URL : '';
+// On your own server there is no Workers AI binding: with CF_ACCOUNT_ID and CF_API_TOKEN set, transcripts use its REST API.
+const restOn = (env) => !env.AI && !!(env.CF_ACCOUNT_ID && env.CF_API_TOKEN);
+// False on a server with no way to transcribe: voice notes still send, marked "off" instead of waiting forever.
+export const transcriptsOn = (env) => !!(env.AI || restOn(env) || testUrl(env));
+async function post(url, headers, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  return { r, j };
+}
 function ai(env) {
-  const u = env.VOICE_AI_URL && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(env.VOICE_AI_URL) ? env.VOICE_AI_URL : '';
-  if (!u) return env.AI;
-  return { run: async (model, input) => {
-    const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model, input: { ...input, audio: String(input.audio).length } }) });
-    const j = await r.json().catch(() => ({}));
+  const u = testUrl(env);
+  if (u) return { run: async (model, input) => {
+    const { r, j } = await post(u, {}, { model, input: { ...input, audio: String(input.audio).length } });
     if (!r.ok) throw Object.assign(new Error(j.message || 'AI error'), { code: j.code, status: r.status });
     return j;
   } };
+  if (restOn(env)) return { run: async (model, input) => {
+    const { r, j } = await post(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(env.CF_ACCOUNT_ID)}/ai/run/${model}`, { authorization: `Bearer ${env.CF_API_TOKEN}` }, input);
+    if (!r.ok || j.success === false) { const e = j.errors?.[0] || {}; throw Object.assign(new Error(`${e.code || r.status}: ${e.message || 'AI error'}`), { code: e.code, status: r.status }); }
+    return j.result;
+  } };
+  return env.AI;
 }
 
 export const fmtDur = (s) => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };

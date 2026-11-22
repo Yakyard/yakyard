@@ -225,7 +225,7 @@ Files and voice notes stay in R2 and are not in the backup. Cloudflare stores th
 
 ## Updates and backups by themselves
 
-For a Yakyard you made with the **Deploy to Cloudflare** button. It lives in your own GitHub, and GitHub can look after it for you:
+For a Yakyard you made with the **Deploy to Cloudflare** button. It lives in your own GitHub, and GitHub can look after it for you. This is for Cloudflare installs only: on your own server with Docker, use the [backup and update commands](DOCKER.md#backups) instead.
 
 - Every night it backs up the database into your Cloudflare file storage (R2). It keeps the last 7 nights, one file per weekday, plus one from just before the latest update.
 - On Sunday nights it checks for a new Yakyard release. If there is one, it backs up again, brings the release into your copy, updates the database and deploys.
