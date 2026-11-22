@@ -71,6 +71,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
         <p class="lede">A free Slack alternative you run on your own Cloudflare account. Channels, threads, calls, voice notes with transcripts, and locked conversations nobody else can read. Nobody pays per seat.</p>
         <div class="btn-row">
           <a class="btn btn--primary" href="${DEPLOY_URL}">${icon("cloud-arrow-up")}Deploy to Cloudflare</a>
+          <a class="btn btn--secondary" href="https://yakyard-demo.qvinta.workers.dev">Try the live demo</a>
           <a class="btn btn--ghost" href="/docs/setup">Read the setup guide</a>
         </div>
       </div>

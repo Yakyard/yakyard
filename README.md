@@ -9,6 +9,8 @@
 
 <p align="center"><b>New in Yakyard 2:</b> locked conversations, end-to-end encrypted, as a preview. <a href="CHANGELOG.md">What changed</a></p>
 
+<p align="center"><a href="https://yakyard-demo.qvinta.workers.dev"><b>Try the live demo</b></a>. One click, no signup. It resets every night.</p>
+
 <p align="center">
   <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32"></a>
 </p>
