@@ -1651,7 +1651,7 @@ button { touch-action: manipulation; }
 .lk-banner .lk-badge { display: inline-flex; color: var(--accent-ink); }
 .lk-banner .lk-badge svg { fill: currentColor; }
 .lk-banner .lk-text { font-weight: 600; color: var(--ink); }
-.lk-banner.pending { background: var(--mention-bg); }
+.lk-banner.lk-wait { background: var(--mention-bg); }
 .lk-banner.ask .btn { margin-left: auto; }
 .lk-banner.ask .btn + .btn { margin-left: 0; }
 .lk-foot { padding: 8px 0 16px; }
@@ -1686,3 +1686,6 @@ button { touch-action: manipulation; }
 .lk-reqs li .grow, .lk-dev .grow { flex: 1; }
 .lk-admin h4 { margin: 12px 0 6px; font-size: var(--fs-md); }
 .file-dl { display: inline-block; }
+.lk-foot { align-self: stretch; width: 100%; box-sizing: border-box; }
+.lk-foot .lk-banner { margin: 0; width: 100%; box-sizing: border-box; padding: 12px 14px; }
+.lk-status .linkish { font-style: normal; }

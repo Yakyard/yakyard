@@ -127,6 +127,9 @@ test('key relay: sealed packages only, to the device asked for; inbox is per dev
   const c2 = (await t.call('cara', 'POST', '/api/e2ee/claim', { devices: [{ user_id: 'ben', device_id: 'DBEN0000001' }] })).body;
   const c3 = (await t.call('cara', 'POST', '/api/e2ee/claim', { devices: [{ user_id: 'ben', device_id: 'DBEN0000001' }] })).body;
   assert.notEqual(c1[0].key, c2[0].key, 'each one-time key is handed out once'); assert.equal(c3[0].fallback, true);
+  assert.equal((await t.call('cara', 'POST', '/api/e2ee/send', { device_id: 'DCARA000001', messages: [{ user_id: 'ben', device_id: 'DBEN0000001', sender_key: k, body: '0:sealed' }] })).body.sent, 0, 'strangers cannot send');
+  t.db.prepare("INSERT INTO channels (id,kind,created_at) VALUES ('D8','dm',0)").run();
+  for (const u of ['ben', 'cara']) t.db.prepare("INSERT INTO members (channel_id,user_id,joined_at) VALUES ('D8',?,0)").run(u);
   await t.call('cara', 'POST', '/api/e2ee/send', { device_id: 'DCARA000001', messages: [{ user_id: 'ben', device_id: 'DBEN0000001', sender_key: k, body: '0:sealed' }] });
   assert.equal((await t.call('ben', 'GET', '/api/e2ee/inbox?device=DOTHER00001')).body.length, 0);
   const inbox = (await t.call('ben', 'GET', '/api/e2ee/inbox?device=DBEN0000001')).body;
@@ -137,9 +140,7 @@ test('key relay: sealed packages only, to the device asked for; inbox is per dev
   assert.equal((await t.call('cara', 'GET', '/api/e2ee/backup')).body.items.length, 0);
   assert.equal((await t.call('ben', 'GET', '/api/e2ee/backup')).body.items.length, 1);
   // Public keys: only of people you share a conversation with.
-  assert.deepEqual((await t.call('cara', 'POST', '/api/e2ee/keys', { user_ids: ['ben'] })).body, {});
-  t.db.prepare("INSERT INTO channels (id,kind,created_at) VALUES ('D9','dm',0)").run();
-  for (const u of ['ben', 'cara']) t.db.prepare("INSERT INTO members (channel_id,user_id,joined_at) VALUES ('D9',?,0)").run(u);
+  assert.deepEqual((await t.call('ada', 'POST', '/api/e2ee/keys', { user_ids: ['ben'] })).body, {});
   assert.equal((await t.call('cara', 'POST', '/api/e2ee/keys', { user_ids: ['ben'] })).body.ben.devices.length, 1);
 });
 

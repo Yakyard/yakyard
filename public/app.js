@@ -105,7 +105,7 @@ function lockFill(m) {
   return m;
 }
 const LOCK_STATUS = {
-  pending: 'Unlocking…', setup: 'Locked message. Set up locked conversations on this device to read it.',
+  pending: 'Unlocking…', setup: 'Locked message.',
   missing: "Can't open this message on this device yet. It opens once one of your devices that has it is online, or after you add your recovery key.",
   early: 'Sent before you joined, so it stays hidden from you.', bad: "This message didn't pass the safety check, so it isn't shown.",
 };
@@ -572,7 +572,7 @@ function messageEl(m, { cont, inThread, isParent }) {
   else if (m.source === 'huddle') body.append(huddleCardEl(m));
   else {
     const locked = m.enc && m._lock !== 'ok';
-    const text = locked ? h('div', { class: 'text lk-status' + (m._lock === 'pending' ? ' pending' : ''), role: m._lock === 'pending' ? 'status' : null }, svg(I.lockSolid, 12), ' ', LOCK_STATUS[m._lock] || LOCK_STATUS.pending, m._lock === 'setup' ? h('button', { class: 'linkish', onclick: () => lockMod().then((x) => x.ensureReady()).then(() => rerender()) }, ' Set up') : '')
+    const text = locked ? h('div', { class: 'text lk-status' + (m._lock === 'pending' ? ' pending' : ''), role: m._lock === 'pending' ? 'status' : null }, svg(I.lockSolid, 12), ' ', LOCK_STATUS[m._lock] || LOCK_STATUS.pending, m._lock === 'setup' ? h('button', { class: 'linkish', onclick: () => lockMod().then((x) => x.ensureReady()).then(() => rerender()) }, 'Set up this device to read it') : '')
       : h('div', { class: 'text', html: fmt(m.text) });
     if (m.edited_ts && !locked) text.append(' ', h('span', { class: 'edited' }, '(edited)'));
     body.append(text);
@@ -3359,6 +3359,7 @@ async function drawImport() {
   const sec = (title, ...kids) => h('section', { class: 'pref-sec' }, title ? h('h2', {}, title) : '', ...kids);
   const kids = [];
   if (errText) kids.push(h('div', { class: 'imp-err' }, errText));
+  if (S.workspace.locked) kids.push(sec('Locked conversations are skipped', h('p', { class: 'pref-sub' }, "Their messages are scrambled on each person's device, so an import can't add to them. Old Slack messages go into normal conversations.")));
   if (!im.ready) {
     kids.push(sec('Not ready yet', h('p', { class: 'pref-sub' }, S.me.role === 'owner' ? 'One last step for you: paste the Slack Client Secret below.' : 'Your admin still has to finish connecting Slack. Check back soon.')));
   } else if (j?.status === 'running') {
@@ -3374,7 +3375,6 @@ async function drawImport() {
       h('li', {}, 'Tap ', h('b', {}, 'Connect Slack'), '. Slack opens.'),
       h('li', {}, 'Check it says ', h('b', {}, S.workspace.name), ' at the top right, then tap ', h('b', {}, 'Allow'), '.'),
       h('li', {}, 'You come back here and the copy starts. It runs in the background.')),
-      S.workspace.locked ? h('p', { class: 'pref-sub' }, "Locked conversations are skipped. Their messages are scrambled on each person's device, so an import can't add to them. Old Slack messages go into normal conversations.") : '',
       h('p', { class: 'pref-sub' }, 'Read only: Yakyard can only read your conversations, never post or change anything in Slack. Only you can start this for your account, and access is cancelled as soon as the copy is done. Nothing is doubled if you run it again.'),
       j?.status === 'error' ? h('div', { class: 'imp-err' }, 'The last try stopped. Start again and it picks up what is missing.') : '',
       h('div', { class: 'pref-btns' }, h('a', { class: 'btn primary', href: '/slack/connect' }, 'Connect Slack'))));

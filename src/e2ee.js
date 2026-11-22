@@ -252,9 +252,13 @@ export async function e2eeApi(c) {
   if (path === '/api/e2ee/send' && method === 'POST') {
     const list = (Array.isArray(body.messages) ? body.messages : []).slice(0, 200);
     if (!devId(body.device_id)) return err(400, 'Bad device');
+    // Only to myself or to people I share a conversation with: nobody else can fill someone's inbox.
+    const wanted = [...new Set(list.map((mm) => String(mm?.user_id || '')))].filter((u) => u && u !== user.id).slice(0, 100);
+    const ok = new Set([user.id]);
+    if (wanted.length) for (const r of (await q(`SELECT DISTINCT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=? AND a.user_id IN (${wanted.map(() => '?').join(',')})`, user.id, ...wanted).all()).results) ok.add(r.user_id);
     const stmts = [], to = new Set();
     for (const mm of list) {
-      if (!mm || !devId(mm.device_id) || typeof mm.body !== 'string' || mm.body.length > 65536 || !key64(mm.sender_key)) continue;
+      if (!mm || !ok.has(String(mm.user_id)) || !devId(mm.device_id) || typeof mm.body !== 'string' || mm.body.length > 65536 || !key64(mm.sender_key)) continue;
       stmts.push(q('INSERT INTO e2ee_inbox (id, user_id, device_id, sender_user, sender_device, sender_key, body, created_at) VALUES (?,?,?,?,?,?,?,?)',
         uid('K'), String(mm.user_id), mm.device_id, user.id, body.device_id, mm.sender_key, mm.body, now()));
       to.add(String(mm.user_id));

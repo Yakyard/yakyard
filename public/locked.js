@@ -281,14 +281,14 @@ function pendingBanner(ch) {
   const { h } = X;
   const accepts = JSON.parse(ch.lock_accepts || '[]');
   if (ch.kind === 'channel') {
-    return h('div', { class: 'lk-banner pending', role: 'status' }, h('span', { class: 'lk-text' }, 'Waiting for an admin to approve locking. Nobody can post until then.'),
+    return h('div', { class: 'lk-banner lk-wait', role: 'status' }, h('span', { class: 'lk-text' }, 'Waiting for an admin to approve locking. Nobody can post until then.'),
       h('button', { class: 'linkish', onclick: () => explain(ch) }, COPY.whatsDifferent));
   }
   const waitingFor = (ch.members || []).filter((u) => !accepts.includes(u));
   if (!waitingFor.includes(X.S.me.id)) {
-    return h('div', { class: 'lk-banner pending', role: 'status' }, h('span', { class: 'lk-text' }, `Waiting for ${waitingFor.map((u) => X.user(u).name).join(', ')} to accept locking. Nobody can post until then.`));
+    return h('div', { class: 'lk-banner lk-wait', role: 'status' }, h('span', { class: 'lk-text' }, `Waiting for ${waitingFor.map((u) => X.user(u).name).join(', ')} to accept locking. Nobody can post until then.`));
   }
-  return h('div', { class: 'lk-banner pending ask', role: 'region', 'aria-label': 'Request to lock this conversation' },
+  return h('div', { class: 'lk-banner lk-wait ask', role: 'region', 'aria-label': 'Request to lock this conversation' },
     h('span', { class: 'lk-text' }, `${X.user(ch.lock_by).name} wants to lock this conversation.`),
     h('button', { class: 'btn sm', onclick: async () => { if (!confirm('Decline? The locked conversation is removed. Your normal conversation stays.')) return; await X.api(`/api/channels/${ch.id}/lock/decline`, { method: 'POST', body: {} }); } }, 'Decline'),
     h('button', { class: 'btn sm primary', onclick: async () => {
