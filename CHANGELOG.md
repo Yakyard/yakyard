@@ -10,6 +10,8 @@ Nothing yet.
 
 Yakyard 2 adds locked conversations: DMs and private channels with end-to-end encryption.
 
+**Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
+
 ### Locked conversations
 - Lock a DM or a private channel when you start it. Messages, edits, reactions, files and voice notes are encrypted on each person's device. The server stores only ciphertext: not the admin, not someone with the Cloudflare account, not us.
 - Built on vodozemac 0.11.2 (Olm and Megolm, Apache-2.0, the library behind Element's encryption), compiled to WebAssembly. 131 KB gzipped, loaded only when you use a locked conversation.

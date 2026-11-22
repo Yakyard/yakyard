@@ -30,7 +30,7 @@ Yakyard has what a team uses every day: channels and threads, DMs, mentions, rea
 
 - **Voice notes with transcripts.** Talk instead of typing, and everyone can still skim and search what you said.
 - **Pop in.** A voice call in any channel or DM, with screen share, without opening a meeting app.
-- **Locked conversations.** Lock a DM or private channel and only the people in it can read it: not the admin, not the server. End-to-end encrypted with vodozemac, the library behind Element. Two approvals to turn it on, and plain words about what works differently.
+- **Locked conversations.** Lock a DM or private channel and only the people in it can read it: not the admin, not the server. End-to-end encrypted with vodozemac, the library behind Element. Two approvals to turn it on, and plain words about what works differently. **Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
 
 There are three themes. One of them, Yaky, is not subtle.
 

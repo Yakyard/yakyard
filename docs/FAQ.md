@@ -36,13 +36,14 @@ Straight answers. Prices and limits were checked on 21 November 2026. The links 
 - [Can we bring our Slack history?](#can-we-bring-our-slack-history)
 - [How long does setup take, and do I need to code?](#how-long-does-setup-take-and-do-i-need-to-code)
 - [How do updates work?](#how-do-updates-work)
+- [Can updates and backups run by themselves?](#can-updates-and-backups-run-by-themselves)
 
 **License, support and the future**
 - [Is it open source?](#is-it-open-source)
 - [Can I use it at work?](#can-i-use-it-at-work)
 - [Can I sell it, or host it for other companies?](#can-i-sell-it-or-host-it-for-other-companies)
 - [Can I change the code?](#can-i-change-the-code)
-- [Who is behind Yakyard?](#who-is-behind-yakyard)
+- [Who runs Yakyard?](#who-runs-yakyard)
 - [Where do I get help?](#where-do-i-get-help)
 - [What if the project stops?](#what-if-the-project-stops)
 - [Is it secure?](#is-it-secure)
@@ -94,6 +95,8 @@ People in your workspace can read the conversations they're in. Private channels
 
 Yes, optionally, for DMs and private channels. Tick **Lock it** when you start one. Messages, edits, reactions, files and voice notes are then encrypted on each person's device. The server stores only scrambled data. Your admin can't read it, someone with your Cloudflare account can't, and we can't.
 
+**Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
+
 The owner turns locked conversations on first, and each lock takes two steps plus a second person: an admin approves a locked channel, and everyone in a locked DM accepts it.
 
 The limits, in plain words:
@@ -103,7 +106,6 @@ The limits, in plain words:
 - Each person gets a recovery key. Lose every device and that key, and the locked messages are gone for good.
 - The server still sees who talks to whom and when, and file sizes.
 - A conversation can't be unlocked later. Public channels and older conversations stay as they are.
-- The encryption library underneath (vodozemac, the one Element uses) was checked by outside experts. Yakyard's own code around it hasn't been yet.
 
 How it works, and what it protects against: [Locked conversations](E2EE.md).
 
@@ -113,7 +115,7 @@ No. There's no analytics and nothing reports back to us. Yakyard only talks to o
 
 ### How do backups work?
 
-`npm run backup` saves the whole database to a plain SQL file on your computer. `npm run restore` puts it back, search included. Photos and voice notes live in R2 and aren't in that file. Details and a practice drill are in [SETUP.md](SETUP.md#backups). You run Yakyard, so backups are your job: nobody else has a copy.
+`npm run backup` saves the whole database to a plain SQL file on your computer. `npm run restore` puts it back, search included. Photos and voice notes live in R2 and aren't in that file. Details and a practice drill are in [SETUP.md](SETUP.md#backups). You run Yakyard, so backups are your job: nobody else has a copy. With the Deploy button, your GitHub copy can [back up every night by itself](#can-updates-and-backups-run-by-themselves).
 
 ### How long is history kept?
 
@@ -177,7 +179,11 @@ About 30 minutes the first time, and no coding. You'll type a few commands that 
 
 ### How do updates work?
 
-`npm run backup`, then `npm run update`. It pulls the new version, keeps your settings and deploys. Open apps show "New version of Yakyard" and update in one tap. With the Deploy button, sync your GitHub copy and Cloudflare redeploys ([details](TECHNICAL.md#updating)).
+`npm run backup`, then `npm run update`. It pulls the new version, keeps your settings and deploys. Open apps show "New version of Yakyard" and update in one tap. With the Deploy button, your GitHub copy can update itself: see the next answer.
+
+### Can updates and backups run by themselves?
+
+Yes, if you made Yakyard with the **Deploy to Cloudflare** button. Give your GitHub copy a Cloudflare API token and your account ID, and set one switch. Then it backs up the database every night into your own R2 storage and keeps the last 7. On Sunday nights it installs a new release if there is one, after one more backup. If something fails, it stops and opens an issue in your copy saying what happened. It's off until you turn it on: [the three steps](SETUP.md#updates-and-backups-by-themselves).
 
 ## License, support and the future
 
@@ -197,9 +203,11 @@ No, not under the free license. Selling Yakyard, running it as a chat service fo
 
 Yes. Change anything for your own use. You can share your changed version too, under the same license, as long as it isn't used to compete with Yakyard.
 
-### Who is behind Yakyard?
+### Who runs Yakyard?
 
-It started as the internal chat of a real team that left Slack, and that team still uses it every day. QVINTA Ltd (Hong Kong) owns the copyright and licenses it.
+QVINTA Ltd, a Hong Kong company, makes and maintains it. Yakyard started as the in-house chat of a design and wholesale team that left Slack in 2026, and that team still uses it every day. The public history starts in November 2026: the code was cleaned up from that private app before it went public.
+
+Found a problem? Open a [GitHub issue](https://github.com/yakyard/yakyard/issues). Found a security hole? Report it privately, as [SECURITY.md](../SECURITY.md) explains, not in a public issue.
 
 ### Where do I get help?
 
@@ -222,7 +230,7 @@ Nobody outside the project has audited it. Here's what it does:
 
 - Locked conversations: optional end-to-end encryption for DMs and private channels ([how it works](E2EE.md)).
 
-What it doesn't have: two-factor sign-in for passwords (Google sign-in can cover that), or a formal audit. The encryption library inside locked conversations (vodozemac) was audited; Yakyard's own code wasn't, yet.
+What it doesn't have: two-factor sign-in for passwords (Google sign-in can cover that), or a formal audit. Locked conversations are a preview: the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
 
 ### How do I report a security problem?
 

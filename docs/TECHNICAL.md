@@ -181,7 +181,19 @@ npm run update     # gets the newest Yakyard and deploys it
 
 `npm run update` sets your own settings in `wrangler.jsonc` aside, pulls the new version, puts your settings back and runs `npm run deploy`. Deploying updates the database before the new code goes live (`scripts/migrate.mjs`): it adds any column an existing table is missing, then creates any new tables, indexes and triggers from `schema.sql`. Safe to run again and again. An install from before `wrangler.jsonc` keeps its settings: the first deploy moves them over from `wrangler.toml`.
 
-With the Deploy button, Cloudflare redeploys your GitHub copy on every push. To update it, sync your copy with the original on GitHub (Sync fork, or a pull request from the original).
+With the Deploy button, Cloudflare redeploys your GitHub copy on every push, and [`.github/workflows/yakyard-auto.yml`](../.github/workflows/yakyard-auto.yml) can update and back it up by itself (next section).
+
+### Updates and backups by themselves
+
+An optional GitHub Actions workflow in every copy. It does nothing until the repository has the secrets `CLOUDFLARE_API_TOKEN` (Edit Cloudflare Workers permissions plus D1 Edit) and `CLOUDFLARE_ACCOUNT_ID`, and the variable `YAKYARD_AUTO` set to `on`, `daily` or `backups`. It never runs in `yakyard/yakyard` itself. Owner steps: [SETUP.md](SETUP.md#updates-and-backups-by-themselves).
+
+- **Every night (02:23 UTC):** `scripts/backup.mjs`, then `wrangler r2 object put` into the Worker's own bucket as `backups/yakyard-<weekday>.sql`. Seven rolling files, no listing or pruning needed. The bucket name is read from `wrangler.jsonc`. R2 rather than workflow artifacts: artifacts on a public repository can be downloaded by any signed-in GitHub user, and a backup holds every unlocked message. The Worker never serves `backups/`: files are served only when they have a row in the `files` table.
+- **Sunday nights** (`on`), every night (`daily`), or a manual run with **update now** ticked: compares `package.json`'s version with the newest `vX.Y.Z` tag upstream. If newer, it copies the backup to `backups/yakyard-before-update.sql`, fetches both tags and applies `git diff <yours> <latest>` with `git apply --3way`. Only the changes between the two releases land, so the owner's edits to `wrangler.jsonc` (and the resource IDs the Deploy button writes) stay, and it works whether or not the copy shares Yakyard's git history. Then `npm run deploy` (database update first, as always), then a push of the commit `Update Yakyard to vX.Y.Z [skip ci]`.
+- **Order:** backup, apply, deploy, push. A conflict stops it before anything is deployed. A failed deploy is never pushed.
+- **Failures:** each step first writes one plain sentence about what its failure means. If the step fails, the last step opens an issue with that sentence and a link to the run, or comments on the open one, so a broken night doesn't pile up issues.
+- **Workflow files:** GitHub doesn't let `GITHUB_TOKEN` change files in `.github/workflows`, so the update skips them and opens a second issue listing any that changed, to copy by hand.
+
+If Cloudflare's Git connection is on (it is with the Deploy button), the push makes Cloudflare deploy the same commit a second time. That's harmless: migrations run again and find nothing to do, and open apps may show the new-version pop-up twice. GitHub pauses scheduled workflows in public repositories after 60 days without any activity. One click on **Enable workflow** in the Actions tab turns it back on.
 
 Open apps show "New version of Yakyard" and update in one tap. If the new version misbehaves, `npx wrangler rollback` puts the previous one back. The database changes only add, so it keeps working. Cloudflare can't roll back past the update that adds background jobs, because it adds a Durable Object class: back up first (details in [SETUP.md](SETUP.md#updates)).
 
