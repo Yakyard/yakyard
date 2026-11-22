@@ -5,6 +5,7 @@ import { sendPushes, featureApi, hydrateExtras, openDm, v6, arm, routes, runRout
 import { parseVoiceMeta, transcribe, patchMessage, voiceJob, fmtDur, VOICE_MAX } from './voice.js';
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { cacheGet, cachePut, cacheCleanup } from './cache.js';
+import { e2eeApi, startLockedChannel, openLockedDm, lockedAllowed, e2eeHousekeeping } from './e2ee.js';
 
 const SESSION_DAYS = 30;
 const SESSION_COOKIE = 'yy_session', STATE_COOKIE = 'yy_state';
@@ -459,7 +460,12 @@ async function postMessage(env, ctx, user, ch, body) {
   const members = await channelMembers(env, ch.id);
   if (!members.includes(user.id)) return err(403, "You're not in this channel.");
   if (ch.kind !== 'dm' && ch.archived) return err(403, 'This channel is archived. Nobody can post here.');
-  const text = String(body.text || '').slice(0, 40000);
+  // Locked conversations: the server takes only the encrypted message, never words. Waiting ones take nothing.
+  if (ch.locked === 2) return err(403, 'This conversation is waiting for approval to lock. Nobody can post until then.');
+  const encd = ch.locked === 1 ? String(body.enc || '') : null;
+  if (ch.locked === 1 && (!encd || encd.length > 60000 || (body.text || '').length)) return err(400, 'This conversation is locked. Update Yakyard and try again.');
+  if (ch.locked !== 1 && body.enc) return err(400, "This conversation isn't locked.");
+  const text = encd ? '' : String(body.text || '').slice(0, 40000);
   const asked = (Array.isArray(body.files) ? body.files.slice(0, 10) : []).filter((f) => f && typeof f.key === 'string');
   const threadId = body.thread_id || null;
   const [recs, parentRow, fol] = await Promise.all([
@@ -471,12 +477,13 @@ async function postMessage(env, ctx, user, ch, body) {
   for (const f of asked) {
     const rec = recs.find((r) => r.key === f.key);
     if (!rec || rec.uploader !== user.id || (rec.channel_id && rec.channel_id !== ch.id)) continue;
+    if (encd && rec.voice) continue; // a plain voice note never goes into a locked conversation
     const item = { key: f.key, name: String(f.name || 'file').slice(0, 200), size: +f.size || 0, type: String(f.type || 'application/octet-stream').slice(0, 100) };
     if (rec.voice) { try { item.voice = JSON.parse(rec.voice); } catch { item.voice = { dur: 0, wave: [] }; } item.t = rec.t_status === 'done' ? 'done' : rec.t_status === 'failed' ? 'failed' : 'pending'; item.transcript = rec.transcript || ''; }
     files.push(item);
     stmts.push(env.DB.prepare('UPDATE files SET channel_id=? WHERE key=?').bind(ch.id, f.key));
   }
-  if (!text.trim() && !files.length) return err(400, 'Write something first.');
+  if (!text.trim() && !files.length && !encd) return err(400, 'Write something first.');
   const also = threadId && body.also_channel ? 1 : 0;
   const parent = parentRow;
   if (threadId && !parent) return err(404, 'Thread not found');
@@ -487,11 +494,11 @@ async function postMessage(env, ctx, user, ch, body) {
   }
   const msg = {
     id: uid('M'), channel_id: ch.id, user_id: user.id, ts: now(), thread_id: threadId, text,
-    files: JSON.stringify(files), reply_count: 0, last_reply_ts: 0, reply_users: '[]', edited_ts: null, deleted: 0, source: 'app', also_channel: also,
+    files: JSON.stringify(files), reply_count: 0, last_reply_ts: 0, reply_users: '[]', edited_ts: null, deleted: 0, source: 'app', also_channel: also, enc: encd,
   };
   stmts.push(
-    env.DB.prepare('INSERT INTO messages (id,channel_id,user_id,ts,thread_id,text,files,also_channel) VALUES (?,?,?,?,?,?,?,?)')
-      .bind(msg.id, ch.id, user.id, msg.ts, threadId, text, msg.files, also),
+    env.DB.prepare('INSERT INTO messages (id,channel_id,user_id,ts,thread_id,text,files,also_channel,enc) VALUES (?,?,?,?,?,?,?,?,?)')
+      .bind(msg.id, ch.id, user.id, msg.ts, threadId, text, msg.files, also, encd),
   );
   if (!threadId || also) stmts.push(
     env.DB.prepare('UPDATE channels SET last_ts=? WHERE id=?').bind(msg.ts, ch.id),
@@ -504,7 +511,9 @@ async function postMessage(env, ctx, user, ch, body) {
       .bind(msg.ts, JSON.stringify(ru.slice(0, 5)), parent.id));
     parent.reply_count += 1; parent.last_reply_ts = msg.ts; parent.reply_users = JSON.stringify(ru.slice(0, 5));
   }
-  let mentioned = mentionedIds(text).filter((u) => members.includes(u));
+  const said = encd ? (Array.isArray(body.mentions) ? body.mentions.map(String).slice(0, 50) : []) : mentionedIds(text);
+  let mentioned = said.filter((u) => members.includes(u));
+  if (encd && body.mention_all) mentioned = members.filter((u) => u !== user.id);
   if (/<!(channel|here|everyone)>/.test(text)) mentioned = members.filter((u) => u !== user.id);
   if (ch.kind === 'dm') mentioned = members.filter((u) => u !== user.id);
   for (const u of mentioned) {
@@ -533,8 +542,8 @@ async function postMessage(env, ctx, user, ch, body) {
     event.followers = fol.results.map((r) => r.user_id).filter((u) => u !== user.id && memberSet.has(u));
   }
   // Phone notifications are worked out and sent by background jobs, so the send itself stays small.
-  await Promise.all([broadcast(env, event, members), arm(env, 'fanout', msg.id, now(), { ch: { id: ch.id, kind: ch.kind, name: ch.name }, sender: { id: user.id, name: user.name }, members,
-    direct: mentionedIds(text).filter((u) => members.includes(u)), wide: /<!(channel|here|everyone)>/.test(text), followers: event.followers || [], at: msg.ts })]);
+  await Promise.all([broadcast(env, event, members), arm(env, 'fanout', msg.id, now(), { ch: { id: ch.id, kind: ch.kind, name: ch.name, locked: ch.locked === 1 ? 1 : 0 }, sender: { id: user.id, name: user.name }, members,
+    direct: said.filter((u) => members.includes(u)), wide: encd ? !!body.mention_all : /<!(channel|here|everyone)>/.test(text), followers: event.followers || [], at: msg.ts })]);
   return json(full);
 
 }
@@ -547,6 +556,10 @@ async function api(req, env, user, path, ctx) {
   if (fx) return fx;
   const sx = await slackApi(req, env, user, path, method, body, ctx);
   if (sx) return sx;
+  if (path.startsWith('/api/e2ee/') || path.includes('/lock/')) {
+    const ex = await e2eeApi({ req, env, user, path, method, body, x: { broadcast, isMember, channelMembers, audience } });
+    if (ex) return ex;
+  }
   return (await runRoutes(API_ROUTES, { req, env, user, path, ctx, method, body })) || err(404, 'Not found');
 }
 
@@ -591,7 +604,7 @@ async function api_bootstrap_GET(c, m) {
   }
   const loc = (c) => (locationOn(env) ? `CASE WHEN u.share_location=1 THEN u.${c} ELSE '' END AS ${c}` : `'' AS ${c}`);
   const ucols = `u.id,u.email,u.name,u.title,u.avatar,u.color,u.role,u.active,${loc('city')},${loc('country')},${loc('tz')},u.status_emoji,u.status_text,u.status_until,u.dnd_until,u.dnd_start,u.dnd_end,u.away`;
-  const [usersR, savedR, pushR, chans, dmR, sections, ceR] = await env.DB.batch([
+  const [usersR, savedR, pushR, chans, dmR, sections, ceR, lockR] = await env.DB.batch([
     user.role === 'guest'
       ? env.DB.prepare(`SELECT DISTINCT ${ucols} FROM users u WHERE u.id=? OR u.role='owner' OR u.id IN (SELECT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=?)`).bind(user.id, user.id)
       : env.DB.prepare(`SELECT ${ucols} FROM users u`),
@@ -606,6 +619,7 @@ async function api_bootstrap_GET(c, m) {
       JOIN channels c ON c.id = x.channel_id WHERE c.kind = 'dm'`).bind(user.id),
     env.DB.prepare('SELECT * FROM sections WHERE user_id=? ORDER BY position').bind(user.id),
     env.DB.prepare("SELECT value FROM settings WHERE key='custom_emoji'"),
+    env.DB.prepare("SELECT value FROM settings WHERE key='allow_locked'"),
   ]);
   const users = usersR, savedIds = savedR.results.map((r) => r.message_id), pushOn = pushR.results[0]?.n || 0;
   const dmMembers = {};
@@ -614,7 +628,7 @@ async function api_bootstrap_GET(c, m) {
   return json({
     emoji: ce ? JSON.parse(ce.value) : {},
     me: pickMe(user),
-    workspace: { name: env.WORKSPACE_NAME || 'Yakyard', location: locationOn(env), weather: locationOn(env) && weatherOn(env) },
+    workspace: { name: env.WORKSPACE_NAME || 'Yakyard', location: locationOn(env), weather: locationOn(env) && weatherOn(env), locked: lockR.results[0]?.value === '1' },
     users: users.results,
     channels: chans.results.map((c) => ({ ...c, members: dmMembers[c.id] })),
     sections: sections.results,
@@ -641,13 +655,18 @@ async function api_channels_POST(c, m) {
   const name = String(body.name || '').toLowerCase().trim().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
   if (!name) return err(400, 'Add a name first.');
   if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first()) return err(409, 'That name is taken. Pick another one.');
+  if (body.lock) {
+    if (!(await lockedAllowed(env))) return err(403, 'Locked conversations are off in this workspace. The owner can turn them on in Admin.');
+    body.private = true; // a locked channel is always private
+  }
   const id = uid('C');
   await env.DB.prepare('INSERT INTO channels (id,kind,name,topic,private,created_by,created_at,last_ts) VALUES (?,?,?,?,?,?,?,?)')
     .bind(id, 'channel', name, String(body.topic || '').slice(0, 250), body.private ? 1 : 0, user.id, now(), now()).run();
   await env.DB.prepare('INSERT INTO members (channel_id,user_id,last_read,joined_at,section_id) VALUES (?,?,?,?,?)')
     .bind(id, user.id, now(), now(), body.section_id || null).run();
-  const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(id).first();
+  let ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(id).first();
   await broadcast(env, { type: 'channel_created', channel: ch }, body.private ? [user.id] : await nonGuestIds(env));
+  if (body.lock) ch = await startLockedChannel(env, { broadcast, channelMembers }, user, ch);
   return json({ ...ch, last_read: now(), section_id: body.section_id || null, unread: 0, mentions: 0 });
 }
 
@@ -665,7 +684,12 @@ async function api_dm_POST(c, m) {
     if (valid.results.length !== others.length) return err(400, 'Unknown person');
   }
   const ids = [user.id, ...others].sort();
-  const key = ids.join(',');
+  if (body.lock) {
+    if (!others.length) return err(400, 'Pick at least one person to lock a conversation with.');
+    if (!(await lockedAllowed(env))) return err(403, 'Locked conversations are off in this workspace. The owner can turn them on in Admin.');
+    const lc = await openLockedDm(env, { broadcast, channelMembers }, user, ids);
+    return json({ ...lc, members: ids, last_read: now(), unread: 0, mentions: 0 });
+  }
   const ch = await openDm(env, ids, user.id);
   return json({ ...ch, members: ids, last_read: now(), unread: 0, mentions: 0 });
 }
@@ -765,8 +789,11 @@ async function api_messages_id(c, m) {
     return json({ parent: (await hydrateMessages(env, [msg]))[0], replies: await hydrateMessages(env, r.results) });
   }
   if (sub === '/reactions' && method === 'POST') {
-    const emoji = String(body.emoji || '').slice(0, 64);
+    const lockedCh = (await env.DB.prepare('SELECT locked FROM channels WHERE id=?').bind(msg.channel_id).first())?.locked === 1;
+    // In a locked conversation the reaction itself is encrypted ("e2:" + sealed emoji); nothing else is accepted.
+    const emoji = String(body.emoji || '').slice(0, lockedCh ? 2000 : 64);
     if (!emoji) return err(400, 'Emoji required');
+    if (lockedCh !== emoji.startsWith('e2:')) return err(400, lockedCh ? 'This conversation is locked. Update Yakyard and try again.' : 'Emoji required');
     const has = await env.DB.prepare('SELECT 1 FROM reactions WHERE message_id=? AND user_id=? AND emoji=?').bind(mid, user.id, emoji).first();
     if (has) await env.DB.prepare('DELETE FROM reactions WHERE message_id=? AND user_id=? AND emoji=?').bind(mid, user.id, emoji).run();
     else await env.DB.prepare('INSERT INTO reactions (message_id,user_id,emoji) VALUES (?,?,?)').bind(mid, user.id, emoji).run();
@@ -780,6 +807,14 @@ async function api_messages_id(c, m) {
     const a = await arch();
     if (a.archived && a.kind !== 'dm') return err(403, 'This channel is archived. Nobody can post here.');
     if (msg.user_id !== user.id) return err(403, 'Only the person who wrote it can edit it.');
+    if (msg.enc) {
+      const e = String(body.enc || '');
+      if (!e || e.length > 60000) return err(400, 'This conversation is locked. Update Yakyard and try again.');
+      await env.DB.prepare('UPDATE messages SET enc=?, edited_ts=? WHERE id=?').bind(e, now(), mid).run();
+      const [full] = await hydrateMessages(env, [{ ...msg, enc: e, edited_ts: now() }]);
+      await broadcast(env, { type: 'message_changed', message: full }, await members());
+      return json(full);
+    }
     const text = String(body.text || '').slice(0, 40000);
     await env.DB.prepare('UPDATE messages SET text=?, edited_ts=? WHERE id=?').bind(text, now(), mid).run();
     const [full] = await hydrateMessages(env, [{ ...msg, text, edited_ts: now() }]);
@@ -788,12 +823,12 @@ async function api_messages_id(c, m) {
   }
   if (sub === '' && method === 'DELETE') {
     if (msg.user_id !== user.id && !['owner', 'admin'].includes(user.role)) return err(403, 'Not allowed');
-    await env.DB.prepare("UPDATE messages SET deleted=1, text='', files='[]' WHERE id=?").bind(mid).run();
+    await env.DB.prepare("UPDATE messages SET deleted=1, text='', files='[]', enc=NULL WHERE id=?").bind(mid).run();
     if (msg.thread_id && !msg.deleted) await env.DB.prepare('UPDATE messages SET reply_count=MAX(0,reply_count-1) WHERE id=?').bind(msg.thread_id).run();
     // Deleting a message deletes its files too, so old links stop working.
     const keys = JSON.parse(msg.files || '[]').map((f) => f.key).filter(Boolean);
     if (keys.length) { await env.FILES.delete(keys); await env.DB.prepare(`DELETE FROM files WHERE key IN (${keys.map(() => '?').join(',')})`).bind(...keys).run(); }
-    const [full] = await hydrateMessages(env, [{ ...msg, deleted: 1, text: '', files: '[]' }]);
+    const [full] = await hydrateMessages(env, [{ ...msg, deleted: 1, text: '', files: '[]', enc: null }]);
     await broadcast(env, { type: 'message_changed', message: full }, await members());
     return json(full);
   }
@@ -1317,7 +1352,7 @@ async function authRoute(req, env, url, path) {
 async function route(req, env, ctx, url, path) {
     // Sign-in pages have their own function, so app requests don't compile them.
     if (path.startsWith('/auth/') || path.startsWith('/join/')) return authRoute(req, env, url, path);
-    const isStatic = !path.startsWith('/files/') && /\.(css|js|woff2|png|svg|ico|webmanifest|json)$/.test(path);
+    const isStatic = !path.startsWith('/files/') && /\.(css|js|woff2|png|svg|ico|webmanifest|json|wasm)$/.test(path);
     if (isStatic) return env.ASSETS.fetch(req);
 
     if (path === '/setup') return setupPage(req, env);
@@ -1374,7 +1409,7 @@ async function route(req, env, ctx, url, path) {
     const shell = await env.ASSETS.fetch(new Request(new URL('/', url), req));
     const hs = new Headers(shell.headers);
     const wsOrigin = (url.protocol === 'https:' ? 'wss://' : 'ws://') + url.host;
-    hs.set('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ${wsOrigin}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
+    hs.set('content-security-policy', `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ${wsOrigin}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
     hs.set('x-content-type-options', 'nosniff'); hs.set('referrer-policy', 'same-origin');
     hs.set('strict-transport-security', SEC['strict-transport-security']);
     return new Response(shell.body, { status: shell.status, headers: hs });
@@ -1611,6 +1646,6 @@ function runJob(env, ctx, { kind, id, data }) {
   if (kind === 'import') return importJob(env, id);
   if (kind === 'push') return pushBatch(env, data);
   if (kind === 'fanout') return fanoutJob(env, id, data);
-  if (kind === 'house') return Promise.all([housekeeping(env), cacheCleanup(env)]).then(() => null);
+  if (kind === 'house') return Promise.all([housekeeping(env), cacheCleanup(env), e2eeHousekeeping(env)]).then(() => null);
   return null;
 }

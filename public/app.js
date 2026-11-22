@@ -47,6 +47,8 @@ const I = {
   copy: 'M7 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-1v-1.5h1a.5.5 0 0 0 .5-.5V4a.5.5 0 0 0-.5-.5H7a.5.5 0 0 0-.5.5v1H5V4a2 2 0 0 1 2-2zM5 5h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm0 1.5a.5.5 0 0 0-.5.5v9c0 .3.2.5.5.5h7a.5.5 0 0 0 .5-.5V7a.5.5 0 0 0-.5-.5H5z',
   caret: 'M5.7 7.3a1 1 0 0 1 1.4 0L10 10.2l2.9-2.9a1 1 0 1 1 1.4 1.4l-3.6 3.6a1 1 0 0 1-1.4 0L5.7 8.7a1 1 0 0 1 0-1.4z',
   lock: 'M10 2a4 4 0 0 1 4 4v2h.5A1.5 1.5 0 0 1 16 9.5v7a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 16.5v-7A1.5 1.5 0 0 1 5.5 8H6V6a4 4 0 0 1 4-4zm0 1.5A2.5 2.5 0 0 0 7.5 6v2h5V6A2.5 2.5 0 0 0 10 3.5z',
+  // Locked (end-to-end encrypted): a closed padlock with a keyhole, filled, so it never looks like a private channel.
+  lockSolid: 'M10 1.8a4.2 4.2 0 0 1 4.2 4.2V8h.4A1.6 1.6 0 0 1 16.2 9.6v7.2a1.6 1.6 0 0 1-1.6 1.6H5.4a1.6 1.6 0 0 1-1.6-1.6V9.6A1.6 1.6 0 0 1 5.4 8h.4V6A4.2 4.2 0 0 1 10 1.8zm0 1.7A2.5 2.5 0 0 0 7.5 6v2h5V6A2.5 2.5 0 0 0 10 3.5zm0 7.3a1.5 1.5 0 0 0-.8 2.8v1.7h1.6v-1.7a1.5 1.5 0 0 0-.8-2.8z',
   dots: 'M4 8.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z',
   thread: 'M4 4h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 3v-3H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm2 4v1.5h8V8H6zm0 3v1.5h5V11H6z',
   smile: 'M10 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm0 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM6.9 11.2a.8.8 0 0 1 1.1.2 2.4 2.4 0 0 0 4 0 .8.8 0 1 1 1.3.9 4 4 0 0 1-6.6 0 .8.8 0 0 1 .2-1.1zM7.5 7a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm5 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2z',
@@ -82,6 +84,31 @@ async function api(path, opts = {}) {
     : data.quota ? data.error : res.status >= 500 || !data.error || /^(Bad |Piece too big|No file)/.test(data.error) ? "That didn't go through. Try again." : data.error);
   return data;
 }
+// ------------------------------------------------------------------ locked conversations (public/locked.js, loaded on demand)
+let LK = null, lkLoading = null;
+const isLockedCh = (ch) => !!ch && (ch.locked === 1 || ch.locked === 2);
+function lockMod() {
+  if (LK) return Promise.resolve(LK);
+  return (lkLoading ||= import('/locked.js?v=' + APP_VERSION).then((m) => {
+    m.setup({ api, S, h, svg, I, modal, closeModal, toast, user, rerender, chanLabel, esc, fmt, jumpTo,
+      refresh: (id) => { if (S.current === id) { S.current = null; S.msgs.delete(id); route(); } renderSidebar(); },
+      reopenAdmin: () => openAdmin() });
+    LK = m; return m;
+  }));
+}
+// Locked message: fill in its words from the encrypted part (async the first time; re-renders when ready).
+function lockFill(m) {
+  if (!m.enc) return m;
+  if (LK) return LK.fill(m);
+  m._lock = 'pending'; m.text = '';
+  lockMod().then(() => rerender(m)).catch(() => {});
+  return m;
+}
+const LOCK_STATUS = {
+  pending: 'Unlocking…', setup: 'Locked message. Set up locked conversations on this device to read it.',
+  missing: "Can't open this message on this device yet. It opens once one of your devices that has it is online, or after you add your recovery key.",
+  early: 'Sent before you joined, so it stays hidden from you.', bad: "This message didn't pass the safety check, so it isn't shown.",
+};
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3000);
@@ -182,8 +209,10 @@ function chanRow(ch) {
     if (others.length === 1) { const st = statusOf(user(others[0])); if (st) row.append(h('span', { class: 'row-status', title: st.text || '' }, emojiNode(st.emoji || '💬'))); }
     if (others.length === 1 && user(others[0]).role === 'guest') row.append(h('span', { class: 'sub' }, 'guest'));
   } else {
-    row.append(h('span', { class: 'glyph' }, ch.private ? svg(I.lock, 15) : '#'), h('span', { class: 'label' }, ch.name));
+    row.append(h('span', { class: 'glyph' }, ch.locked ? svg(I.lockSolid, 15) : ch.private ? svg(I.lock, 15) : '#'), h('span', { class: 'label' }, ch.name));
+    if (ch.locked) row.append(h('span', { class: 'sr' }, ch.locked === 1 ? ', locked' : ', waiting to lock'));
   }
+  if (ch.kind === 'dm' && ch.locked) row.append(h('span', { class: 'lk-row', title: ch.locked === 1 ? 'Locked' : 'Waiting to lock', role: 'img', 'aria-label': ch.locked === 1 ? 'locked' : 'waiting to lock' }, svg(I.lockSolid, 12)));
   if (S.huddles?.[ch.id]?.length) row.append(h('span', { class: 'huddle-dot', title: 'Pop-in happening now' }, wave()));
   if (ch.id !== S.current && (S.drafts.get(ch.id) || '').trim() && !(ch.mentions > 0)) row.append(h('span', { class: 'draft-ico', title: 'Draft' }, svg(I.edit, 12)));
   if (ch.mentions > 0 && ch.id !== S.current) {
@@ -336,8 +365,10 @@ async function openChannel(id) {
   const main = $('#main');
   const head = channelHeader(ch);
   const msgs = h('div', { class: 'msgs', id: 'msgs' }, h('div', { class: 'msgs-inner', id: 'msgs-inner', role: 'log', 'aria-label': 'Messages' }));
-  const footer = S.channels.has(id) ? composer({ channelId: id }) : joinBar(ch);
+  const pendingLock = ch.locked === 2 && S.channels.has(id);
+  const footer = pendingLock ? h('div', { class: 'composer-wrap lk-foot' }) : S.channels.has(id) ? composer({ channelId: id }) : joinBar(ch);
   main.replaceChildren(head, msgs, footer);
+  if (isLockedCh(ch)) lockMod().then((x) => { if (S.current !== id) return; const b = x.banner(ch); if (!b) return; if (pendingLock) footer.replaceChildren(b); else head.after(b); }).catch(() => toast("Locked conversations can't start in this browser."));
   const jump = h('button', { class: 'jump', hidden: true, onclick: () => { msgs.scrollTo({ top: msgs.scrollHeight, behavior: 'smooth' }); } }, svg(I.caret, 14), h('span', {}, 'Jump to latest'));
   main.append(jump);
   if (window.ResizeObserver) new ResizeObserver(() => main.style.setProperty('--comp-h', footer.offsetHeight + 'px')).observe(footer);
@@ -383,8 +414,11 @@ function channelHeader(ch) {
       title.append(h('span', { class: 'local-t', title: o.city || '' }, [`${localTime(o.tz)} local`, o.city, t].filter(Boolean).join(' · ')));
     }
   } else {
-    title.append(h('span', { class: 'hash' }, ch.private ? svg(I.lock, 16) : '#'), h('span', { class: 'name' }, ch.name));
+    title.append(h('span', { class: 'hash' }, ch.locked ? svg(I.lockSolid, 16) : ch.private ? svg(I.lock, 16) : '#'), h('span', { class: 'name' }, ch.name));
   }
+  if (ch.locked === 1) title.append(h('span', { class: 'lk-tag' }, ch.kind === 'dm' ? svg(I.lockSolid, 12) : '', 'Locked'));
+  else if (ch.locked === 2) title.append(h('span', { class: 'lk-tag wait' }, 'Waiting to lock'));
+  title.setAttribute('aria-label', (ch.kind === 'dm' ? chanLabel(ch) : ch.name) + (ch.locked === 1 ? ', locked conversation' : ch.locked === 2 ? ', waiting to lock' : '') + '. Details');
   title.append(svg(I.caret, 14));
   const pile = h('button', { class: 'member-pile', id: 'member-pile', onclick: () => channelDetails(ch, 'members') }, h('span', { class: 'stack' }), h('span', { class: 'n' }, ''));
   return h('div', {},
@@ -418,6 +452,7 @@ function joinBar(ch) {
 // Last 40 messages of recent conversations, kept on the device so they open instantly.
 function msgCacheGet(id) { try { return JSON.parse(localStorage.getItem('yy-m-' + id) || 'null'); } catch { return null; } }
 function msgCachePut(id, list) {
+  if (isLockedCh(S.channels.get(id))) return; // locked messages never sit unencrypted on the device
   try {
     localStorage.setItem('yy-m-' + id, JSON.stringify(list.slice(-40)));
     const idx = JSON.parse(localStorage.getItem('yy-m-idx') || '[]').filter((x) => x !== id); idx.unshift(id);
@@ -465,6 +500,7 @@ function renderMessages(scrollBottom) {
   else box.scrollTop = prevTop + (box.scrollHeight - prevH) * 0;
 }
 function channelIntro(ch, empty) {
+  if (ch.locked === 1) return h('div', { class: 'chan-intro' }, h('h2', {}, ch.kind === 'dm' ? chanLabel(ch) : ch.name), h('p', {}, 'This conversation is locked. Messages, files and voice notes are scrambled on each device, and only the people here can read them.'));
   if (ch.kind === 'dm') {
     const others = dmOthers(ch);
     return h('div', { class: 'chan-intro' }, h('h2', {}, chanLabel(ch)),
@@ -512,6 +548,8 @@ async function loadOlder() {
 }
 
 function messageEl(m, { cont, inThread, isParent }) {
+  if (m.source === 'system') return h('div', { class: 'msg-system', 'data-id': m.id, role: 'note' }, svg(I.lockSolid, 13), h('span', {}, m.text), h('time', { title: new Date(m.ts).toLocaleString() }, timeStr(m.ts)));
+  if (m.enc) lockFill(m);
   const u = user(m.user_id);
   const fresh = m._freshAt && Date.now() - m._freshAt < 700;
   const el = h('div', { class: `msg${cont ? ' cont' : ''}${m.deleted ? ' deleted' : ''}${fresh ? ' fresh' : ''}${m.user_id === S.me?.id ? ' mine' : ''}${m._sending ? ' sending' : ''}`, 'data-id': m.id });
@@ -533,13 +571,15 @@ function messageEl(m, { cont, inThread, isParent }) {
   if (m.deleted) body.append(h('div', { class: 'text' }, 'This message was deleted.'));
   else if (m.source === 'huddle') body.append(huddleCardEl(m));
   else {
-    const text = h('div', { class: 'text', html: fmt(m.text) });
-    if (m.edited_ts) text.append(' ', h('span', { class: 'edited' }, '(edited)'));
+    const locked = m.enc && m._lock !== 'ok';
+    const text = locked ? h('div', { class: 'text lk-status' + (m._lock === 'pending' ? ' pending' : ''), role: m._lock === 'pending' ? 'status' : null }, svg(I.lockSolid, 12), ' ', LOCK_STATUS[m._lock] || LOCK_STATUS.pending, m._lock === 'setup' ? h('button', { class: 'linkish', onclick: () => lockMod().then((x) => x.ensureReady()).then(() => rerender()) }, ' Set up') : '')
+      : h('div', { class: 'text', html: fmt(m.text) });
+    if (m.edited_ts && !locked) text.append(' ', h('span', { class: 'edited' }, '(edited)'));
     body.append(text);
     if (m.files?.length) body.append(filesEl(m.files));
-    const link = firstLink(m.text);
+    const link = !m.enc && firstLink(m.text); // locked: no link previews (the server would see the address)
     if (link) body.append(unfurlEl(link));
-    if (m.reactions?.length) body.append(reactionsEl(m));
+    if ((m.enc ? m._rx : m.reactions)?.length) body.append(reactionsEl(m));
     if (!inThread && m.reply_count > 0) body.append(repliesEl(m));
     const bar = hoverBar(m, inThread);
     if (m.user_id === S.me?.id && document.body.classList.contains('bubbles') && (m.text || '').trim()) { text.append(bar); text.classList.add('has-bar'); }
@@ -655,6 +695,8 @@ function makePlayer(f) {
         const copy = h('button', { class: 'vn-link', onclick: () => navigator.clipboard?.writeText(nf.transcript).then(() => toast('Transcript copied'), () => toast("Couldn't copy. Select the text and copy it yourself.")) }, 'Copy');
         tBox.replaceChildren(h('div', { class: 'vn-label' }, 'Transcript'), txt, h('div', { class: 'vn-acts' }, more, copy));
         requestAnimationFrame(() => { more.hidden = txt.scrollHeight <= txt.clientHeight + 2; });
+      } else if (nf.t === 'locked') {
+        tBox.replaceChildren(h('div', { class: 'vn-muted' }, "No transcript in locked conversations. The audio plays as usual."));
       } else if (nf.t === 'done') {
         tBox.replaceChildren(h('div', { class: 'vn-muted' }, 'No speech heard'));
       } else if (nf.t === 'failed') {
@@ -727,17 +769,20 @@ async function startRecorder(onTick) {
 function filesEl(files) {
   const box = h('div', { class: 'files' });
   for (const f of files) {
+    // Locked: the stored file is scrambled. Show it once this device has unscrambled it.
+    if (f.enc && !f.url) { box.append(h('div', { class: 'file-card' + (f.opening ? '' : ' gone') }, h('span', { class: 'file-ico', style: { background: 'var(--line-2)' } }, svg(I.lockSolid, 14)), h('div', {}, h('div', { class: 'fname' }, f.name), h('div', { class: 'fmeta', role: f.opening ? 'status' : null }, f.opening ? 'Opening…' : "Couldn't open this file")))); continue; }
     const url = f.url || '/files/' + encodeURIComponent(f.key);
     if (f.voice || /^audio\//.test(f.type)) { box.append(voiceEl(f)); continue; }
     if (/^image\//.test(f.type)) {
       const thumb = !f.url && /\.(png|jpe?g|webp|heic|heif)$/i.test(f.key || '') ? url + '?w=880' : url;
+      if (f.enc) { box.append(h('a', { class: 'file-dl', href: url, download: f.name, title: 'Download ' + f.name }, h('img', { class: 'file-img', src: url, alt: f.name, onclick: (e) => { e.preventDefault(); lightbox(url); } }))); continue; }
       box.append(h('img', { class: 'file-img', src: thumb, alt: f.name, loading: 'lazy', decoding: 'async', onclick: () => lightbox(url),
         onerror: (e) => e.target.replaceWith(h('div', { class: 'file-card gone' }, h('span', { class: 'file-ico', style: { background: 'var(--line-2)' } }, 'IMG'), h('div', {}, h('div', { class: 'fname' }, f.name), h('div', { class: 'fmeta' }, 'No longer available')))) }));
     } else if (/^video\/(mp4|quicktime|webm)/.test(f.type)) {
       box.append(h('video', { class: 'file-video', src: url, controls: true, preload: 'metadata', playsinline: true }));
     } else {
       const ext = (f.name.split('.').pop() || 'file').slice(0, 4);
-      box.append(h('a', { class: 'file-card', href: url, target: '_blank', rel: 'noopener' },
+      box.append(h('a', { class: 'file-card', href: url, target: '_blank', rel: 'noopener', ...(f.enc ? { download: f.name } : {}) },
         h('span', { class: 'file-ico', style: { background: fileColor(ext) } }, ext),
         h('div', {}, h('div', { class: 'fname' }, f.name), h('div', { class: 'fmeta' }, (f.size ? sizeStr(f.size) + ' · ' : '') + ext.toUpperCase()))));
     }
@@ -751,7 +796,8 @@ function lightbox(src) {
 }
 function reactionsEl(m) {
   const box = h('div', { class: 'reactions' });
-  for (const r of m.reactions) {
+  const list = m.enc ? m._rx || [] : m.reactions;
+  for (const r of list) {
     const mine = r.users.includes(S.me.id);
     const popping = S.pop && S.pop.id === m.id && S.pop.emoji === r.emoji && Date.now() - S.pop.at < 900;
     const b = h('button', {
@@ -762,7 +808,7 @@ function reactionsEl(m) {
     longPress(b, () => { showReactTip(b, r); setTimeout(hideReactTip, 2600); });
     box.append(b);
   }
-  if (m.reactions.length) box.append(h('button', { class: 'react add', title: 'Add reaction', onclick: (e) => emojiPicker(e.currentTarget, (em) => react(m, em)) }, svg(I.smile, 16), h('b', {}, '+')));
+  if (list.length) box.append(h('button', { class: 'react add', title: 'Add reaction', onclick: (e) => emojiPicker(e.currentTarget, (em) => react(m, em)) }, svg(I.smile, 16), h('b', {}, '+')));
   return box;
 }
 function emojiNode(e) {
@@ -828,7 +874,7 @@ function msgSheet(m, inThread) {
 function closeSheet() { const was = $$('.sheet-wrap').length; $$('.sheet-wrap').forEach((x) => x.remove()); return was ? popOverlay() : Promise.resolve(); }
 async function react(m, emoji) {
   S.pop = { id: m.id, emoji, at: Date.now() };
-  try { applyMessage(await api(`/api/messages/${m.id}/reactions`, { method: 'POST', body: { emoji } })); } catch (e) { toast(e.message); }
+  try { applyMessage(m.enc ? await (await lockMod()).react(m, emoji) : await api(`/api/messages/${m.id}/reactions`, { method: 'POST', body: { emoji } })); } catch (e) { toast(e.message); }
 }
 function msgMenu(m, anchor) {
   const r = anchor.getBoundingClientRect();
@@ -856,7 +902,7 @@ function editMessage(m) {
   const save = async () => {
     let text = htmlToMd(ed).replace(/\s+$/, '');
     for (const [n, id] of names) text = text.split(n).join(`<@${id}>`);
-    try { const saved = await api(`/api/messages/${m.id}`, { method: 'PATCH', body: { text } }); box.remove(); S.pendingRedraw = false; applyMessage(saved); rerender(saved); } catch (e) { toast(e.message); }
+    try { const saved = m.enc ? await (await lockMod()).edit(m, text) : await api(`/api/messages/${m.id}`, { method: 'PATCH', body: { text } }); box.remove(); S.pendingRedraw = false; applyMessage(saved); rerender(saved); } catch (e) { toast(e.message); }
   };
   const fb = (t, c, label, st) => h('button', { title: t, onmousedown: (e) => e.preventDefault(), onclick: () => { ed.focus(); document.execCommand(c); }, style: st }, label);
   const box = h('div', { class: 'edit-wrap' }, h('div', { class: 'fmt-bar edit-bar' }, fb('Bold', 'bold', 'B', { fontWeight: 700 }), fb('Italic', 'italic', 'I', { fontStyle: 'italic', fontFamily: 'Georgia, serif' }), fb('Strikethrough', 'strikeThrough', 'S', { textDecoration: 'line-through' })), ed,
@@ -933,14 +979,15 @@ function closeThread(updateHash) {
 function composer({ channelId, threadId }) {
   const ch = S.channels.get(channelId);
   const key = channelId + (threadId ? '|' + threadId : '');
-  const placeholder = threadId ? 'Reply…' : ch.kind === 'dm' ? `Message ${chanLabel(ch)}` : `Message #${ch.name}`;
+  const locked = ch.locked === 1;
+  const placeholder = (threadId ? 'Reply…' : ch.kind === 'dm' ? `Message ${chanLabel(ch)}` : `Message #${ch.name}`) + (locked ? ' (locked)' : '');
   // Rich box: what you see is what gets sent. Bold looks bold, lists look like lists. No symbols to type.
   const ed = h('div', { class: 'ce', contenteditable: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': placeholder, 'data-placeholder': placeholder, spellcheck: 'true' });
   ed.innerHTML = mdToHtml(S.drafts.get(key) || '');
   const pending = [];
   const pendingBox = h('div', { class: 'pending-files' });
   const send = h('button', { class: 'send', title: 'Send (press and hold to send later)', onclick: () => { if (send._held) { send._held = false; return; } submit(); } }, svg(I.send, 16));
-  longPress(send, () => { send._held = true; setTimeout(() => (send._held = false), 600); scheduleMenu(send, (at) => submit(at)); });
+  if (!ch.locked) longPress(send, () => { send._held = true; setTimeout(() => (send._held = false), 600); scheduleMenu(send, (at) => submit(at)); });
   const typing = h('div', { class: 'typing', 'data-key': key });
   const fileInput = h('input', { type: 'file', multiple: true, hidden: true, onchange: () => { addFiles([...fileInput.files]); fileInput.value = ''; } });
   const mentionMap = new Map(); // "@Name" -> id
@@ -984,7 +1031,7 @@ function composer({ channelId, threadId }) {
     h('button', { title: 'Code block', onmousedown: keep, onclick: () => codeBlock(), style: { fontFamily: 'monospace', fontSize: '11px' } }, svg('M7 3.5v1.3c-1 0-1.3.4-1.3 1.3v2.4c0 .9-.4 1.4-1.1 1.6.7.2 1.1.7 1.1 1.6v2.4c0 .9.3 1.3 1.3 1.3v1.3c-1.8 0-2.6-.8-2.6-2.5v-2.3c0-.8-.4-1.2-1.4-1.2V9.6c1 0 1.4-.4 1.4-1.2V6.1c0-1.7.8-2.6 2.6-2.6zm6 0c1.8 0 2.6.9 2.6 2.6v2.3c0 .8.4 1.2 1.4 1.2v1.3c-1 0-1.4.4-1.4 1.2v2.3c0 1.7-.8 2.5-2.6 2.5v-1.3c1 0 1.3-.4 1.3-1.3v-2.4c0-.9.4-1.4 1.1-1.6-.7-.2-1.1-.7-1.1-1.6V6.1c0-.9-.3-1.3-1.3-1.3V3.5z', 15)),
   );
   const also = threadId ? h('label', { class: 'also' }, h('input', { type: 'checkbox' }), ch.kind === 'dm' ? 'Also send as direct message' : `Also send to #${ch.name}`) : null;
-  const sched = h('button', { class: 'sched', title: 'Schedule for later', onclick: (e) => scheduleMenu(e.currentTarget, (at) => submit(at)) }, svg(I.clock, 15));
+  const sched = locked ? null : h('button', { class: 'sched', title: 'Schedule for later', onclick: (e) => scheduleMenu(e.currentTarget, (at) => submit(at)) }, svg(I.clock, 15));
   const foot = h('div', { class: 'comp-foot' },
     h('button', { class: 'plus', title: 'Attach files', onclick: () => fileInput.click() }, svg(I.plus, 16)),
     h('button', { title: 'Emoji', onmousedown: keep, onclick: (e) => { const r = saveRange(); emojiPicker(e.currentTarget, (em) => { restoreRange(r); insert(em + ' '); }); } }, svg(I.smile, 18)),
@@ -1007,7 +1054,7 @@ function composer({ channelId, threadId }) {
     const ready = !isEmpty() || pending.some((p) => p.meta);
     send.classList.toggle('ready', !!ready);
     ed.classList.toggle('empty', isEmpty());
-    $('.comp-hint', root).textContent = isEmpty() ? '' : enterSends() ? 'Enter sends · Shift + Enter for a new line' : 'Enter adds a new line · Ctrl + Enter sends';
+    $('.comp-hint', root).textContent = isEmpty() ? '' : locked && /https?:\/\/|www\./i.test(ed.textContent) ? 'Link previews are off in locked conversations.' : enterSends() ? 'Enter sends · Shift + Enter for a new line' : 'Enter adds a new line · Ctrl + Enter sends';
     S.drafts.set(key, isEmpty() ? '' : htmlToMd(ed)); clearTimeout(sync.t); sync.t = setTimeout(saveDraft, 400);
   }
   async function addFiles(files) {
@@ -1020,7 +1067,8 @@ function composer({ channelId, threadId }) {
       pendingBox.append(chip);
       try {
         if (f.size > 1024 * 1024 * 1024) throw new Error(`${f.name} is over 1 GB`);
-        if (f.size > 90 * 1024 * 1024) p.meta = await uploadBig(f, chip, p);
+        if (locked) p.meta = await (await lockMod()).upload(f); // encrypted on this device first
+        else if (f.size > 90 * 1024 * 1024) p.meta = await uploadBig(f, chip, p);
         else { const fd = new FormData(); fd.append('file', f); p.meta = await api('/api/upload', { method: 'POST', body: fd }); }
         chip.classList.remove('uploading'); chip.querySelector('.up-pct')?.remove();
       }
@@ -1039,6 +1087,13 @@ function composer({ channelId, threadId }) {
     ed.innerHTML = ''; pending.length = 0; pendingBox.replaceChildren(); mentionMap.clear(); sync();
     const alsoOn = !!also?.querySelector('input').checked;
     try {
+      if (locked) {
+        if (sendAt) throw new Error("Scheduled messages don't work in locked conversations.");
+        const m = await (await lockMod()).send(channelId, { text, files, threadId, alsoChannel: alsoOn });
+        if (also) also.querySelector('input').checked = false;
+        m._freshAt = Date.now(); applyMessage(m, true);
+        return;
+      }
       if (sendAt) {
         await api('/api/scheduled', { method: 'POST', body: { channel_id: channelId, thread_id: threadId || null, text, files, also_channel: alsoOn, send_at: sendAt } });
         toast(`Scheduled for ${whenStr(sendAt)}. Find it in Later.`);
@@ -1101,10 +1156,18 @@ function composer({ channelId, threadId }) {
       const file = new File([r.blob], `Voice note ${stamp}.${ext}`, { type: r.type });
       const alsoOn = !!also?.querySelector('input').checked;
       try {
+        let m;
+        if (locked) {
+          // Locked: the audio is encrypted here; the server gets an anonymous blob and never transcribes it.
+          const lk = await lockMod();
+          const meta = await lk.upload(file, { voice: { dur: r.dur, wave: r.wave } });
+          m = await lk.send(channelId, { text: '', files: [meta], threadId, alsoChannel: alsoOn });
+        } else {
         const fd = new FormData(); fd.append('file', file); fd.append('voice', '1'); fd.append('dur', String(r.dur)); fd.append('wave', JSON.stringify(r.wave));
         const meta = await api('/api/upload', { method: 'POST', body: fd });
         api('/api/voice/transcribe', { method: 'POST', body: { key: meta.key } }).catch(() => {}); // the server keeps going; a safety job retries
-        const m = await api(`/api/channels/${channelId}/messages`, { method: 'POST', body: { text: '', files: [meta], thread_id: threadId || null, also_channel: alsoOn } });
+        m = await api(`/api/channels/${channelId}/messages`, { method: 'POST', body: { text: '', files: [meta], thread_id: threadId || null, also_channel: alsoOn } });
+        }
         if (also) also.querySelector('input').checked = false;
         m._freshAt = Date.now(); applyMessage(m, true);
         done();
@@ -1256,7 +1319,7 @@ function mdToHtml(md) {
   x = x.replace(/(^|[^\w~])~(?=\S)([^~\n]*?\S)~(?!~)/g, '$1<s>$2</s>');
   return x.replace(/\n/g, '<br>');
 }
-function saveDraft() { try { localStorage.setItem('yy-drafts', JSON.stringify([...S.drafts].filter(([, v]) => v && v.trim()))); } catch {} }
+function saveDraft() { try { localStorage.setItem('yy-drafts', JSON.stringify([...S.drafts].filter(([k, v]) => v && v.trim() && !isLockedCh(S.channels.get(k.split('|')[0]))))); } catch {} }
 try { for (const [k, v] of JSON.parse(localStorage.getItem('yy-drafts') || '[]')) S.drafts.set(k, v); } catch {}
 
 const lastTyping = new Map();
@@ -1408,12 +1471,19 @@ function handleEvent(ev) {
     return;
   }
   if (ev.type === 'message_changed') { applyMessage(ev.message); return; }
+  if (String(ev.type).startsWith('e2ee_')) { lockMod().then((x) => x.onEvent(ev)).catch(() => {}); return; }
+  if (ev.type === 'lock_request') { toast(`${user(ev.by).name} wants to lock #${ev.name}. Approve it in Admin.`); return; }
+  if (ev.type === 'lock_declined') { toast(ev.kind === 'dm' ? `${user(ev.by).name} said no to locking. Your normal conversation is still there.` : `An admin declined locking #${ev.name}, so it was removed.`); return; }
   if (ev.type === 'import_done') { toast('Your Slack import is done.'); pollImport(); bootstrap().then(() => { renderSidebar(); if (location.hash.startsWith('#/import')) openImport(); }); return; }
   if (ev.type === 'channel_removed') { S.channels.delete(ev.channel_id); S.msgs.delete(ev.channel_id); if (S.current === ev.channel_id) { S.current = null; closeThread(false); location.hash = '#/'; } renderSidebar(); return; }
   if (ev.type === 'read') { const c = S.channels.get(ev.channel_id); if (c) { c.last_read = Math.max(c.last_read || 0, ev.ts); if (ev.channel_id !== S.current || !document.hasFocus()) { c.unread = 0; c.mentions = 0; } renderSidebar(); } return; }
   if (['channel_created', 'channel_added', 'member_joined', 'channel_updated', 'user_updated'].includes(ev.type)) {
     if (ev.type === 'user_updated') S.users.set(ev.user.id, { ...(S.users.get(ev.user.id) || {}), ...ev.user });
-    if (ev.type === 'channel_updated' && S.channels.has(ev.channel.id)) Object.assign(S.channels.get(ev.channel.id), ev.channel);
+    if (ev.type === 'channel_updated' && S.channels.has(ev.channel.id)) {
+      const c = S.channels.get(ev.channel.id), was = c.locked;
+      Object.assign(c, ev.channel);
+      if (was !== c.locked && S.current === c.id) { S.current = null; route(); }
+    }
     if (ev.type === 'channel_added') bootstrap().then(renderSidebar);
     if (ev.type === 'member_joined' && ev.channel_id === S.current) loadMembers(S.current);
     renderSidebar();
@@ -1438,6 +1508,7 @@ function notify(m, ch) {
   if (inDnd(S.me) || S.me.notify_level === 'none') return;
   if (ch.muted && !(m.text || '').includes(`<@${S.me.id}>`)) return;
   const u = user(m.user_id);
+  if (ch.locked) { const n = new Notification('Yakyard', { body: 'New message in a locked conversation', tag: m.thread_id || ch.id, icon: '/brand/app-icon-192.png' }); n.onclick = () => { window.focus(); go(m.channel_id, m.thread_id || undefined); n.close(); }; return; }
   const n = new Notification(ch.kind === 'dm' ? u.name : `${u.name} in #${ch.name}`, {
     body: m.text.replace(/<@(U\w+)>/g, (_, id) => '@' + user(id).name).replace(/<[^>|]+\|([^>]+)>/g, '$1').slice(0, 180) || 'Sent a file',
     tag: m.thread_id || ch.id, icon: ext(u.avatar) || '/brand/app-icon-192.png',
@@ -1643,13 +1714,22 @@ function createChannel() {
   const name = h('input', { class: 'input', placeholder: 'e.g. plan-budget', maxlength: 80 });
   const topic = h('input', { class: 'input', placeholder: 'What is this channel about?' });
   const priv = h('input', { type: 'checkbox' });
+  const lock = h('input', { type: 'checkbox', onchange: () => { if (lock.checked) priv.checked = true; priv.disabled = lock.checked; } });
   modal('Create a channel', h('div', {},
     h('label', { class: 'field' }, h('span', {}, 'Name'), name, h('small', {}, 'Lowercase, no spaces. Use dashes: like-this.')),
     h('label', { class: 'field' }, h('span', {}, 'Description, optional'), topic),
-    h('label', { class: 'check' }, priv, h('span', {}, h('b', {}, 'Make private'), h('br'), h('small', {}, 'Only invited people can see and join it.')))),
+    h('label', { class: 'check' }, priv, h('span', {}, h('b', {}, 'Make private'), h('br'), h('small', {}, 'Only invited people can see and join it.'))),
+    S.workspace.locked ? h('label', { class: 'check' }, lock, h('span', {}, h('b', {}, 'Lock it'), h('br'), h('small', {}, 'Only the people in it can read it. Some features work differently. An admin approves it first.'))) : ''),
   [['Cancel'], ['Create', async () => {
-    const ch = await api('/api/channels', { method: 'POST', body: { name: name.value, topic: topic.value, private: priv.checked } });
+    if (lock.checked) {
+      if (!name.value) throw new Error('Add a name first.');
+      const lk = await lockMod();
+      if (!(await lk.confirmLock({ kind: 'channel', name: name.value }))) return;
+      if (!(await lk.ensureReady())) return;
+    }
+    const ch = await api('/api/channels', { method: 'POST', body: { name: name.value, topic: topic.value, private: priv.checked, lock: lock.checked } });
     S.channels.set(ch.id, ch); renderSidebar(); go(ch.id);
+    if (lock.checked) closeModal();
   }]]);
   name.addEventListener('input', () => { name.value = name.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, ''); });
 }
@@ -1677,8 +1757,20 @@ function composeDM() {
   };
   q.addEventListener('input', draw); draw();
   const inviteLink = ['owner', 'admin'].includes(S.me.role) ? h('p', { style: { marginTop: '10px' } }, h('a', { href: '#', onclick: (e) => { e.preventDefault(); invitePeople(); } }, '+ Invite someone new')) : '';
-  modal('New message', h('div', {}, chips, q, h('div', { style: { marginTop: '8px' } }, box), inviteLink), [['Cancel'], ['Go', async () => {
+  const lock = h('input', { type: 'checkbox' });
+  const lockRow = S.workspace.locked ? h('label', { class: 'check', style: { marginTop: '10px' } }, lock, h('span', {}, h('b', {}, 'Lock it'), h('br'), h('small', {}, 'Only the people in it can read it. They accept first. Some features work differently.'))) : '';
+  modal('New message', h('div', {}, chips, q, h('div', { style: { marginTop: '8px' } }, box), lockRow, inviteLink), [['Cancel'], ['Go', async () => {
     if (!chosen.length) throw new Error('Pick someone');
+    if (lock.checked) {
+      if (chosen.every((u) => u.id === S.me.id)) throw new Error('Pick at least one other person to lock a conversation with.');
+      const ids = chosen.map((u) => u.id);
+      const lk = await lockMod();
+      if (!(await lk.confirmLock({ kind: 'dm' }))) return;
+      if (!(await lk.ensureReady())) return;
+      const ch = await api('/api/dm', { method: 'POST', body: { user_ids: ids, lock: true } });
+      if (!S.channels.has(ch.id)) S.channels.set(ch.id, ch);
+      renderSidebar(); go(ch.id); closeModal(); return;
+    }
     const ch = await api('/api/dm', { method: 'POST', body: { user_ids: chosen.map((u) => u.id) } });
     if (!S.channels.has(ch.id)) S.channels.set(ch.id, ch);
     renderSidebar(); go(ch.id);
@@ -1724,7 +1816,7 @@ function feedItem(m, extra) {
   return h('button', { class: 'fitem', onclick: () => jumpTo(m) },
     h('div', { class: 'fctx' }, extra?.badge || '', h('span', {}, where(m.channel_id)), h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), h('span', {}, ago(m.ts))),
     h('div', { class: 'frow' }, avatar(u, 'av', '13px'), h('div', { class: 'fbody' },
-      h('b', {}, u.name), h('div', { class: 'text', html: fmt(m.text) || (m.files?.[0]?.voice ? '<i>Voice note' + (m.files[0].transcript ? ': ' + esc(m.files[0].transcript.length > 140 ? m.files[0].transcript.slice(0, 140).replace(/\s+\S*$/, '') + '…' : m.files[0].transcript) : '') + '</i>' : m.files?.length ? '<i>Shared a file</i>' : '') }), extra?.after || '')));
+      h('b', {}, u.name), h('div', { class: 'text', html: m.enc ? (lockFill(m)._lock === 'ok' ? fmt(m.text) || '<i>Locked message</i>' : '<i>Locked message</i>') : fmt(m.text) || (m.files?.[0]?.voice ? '<i>Voice note' + (m.files[0].transcript ? ': ' + esc(m.files[0].transcript.length > 140 ? m.files[0].transcript.slice(0, 140).replace(/\s+\S*$/, '') + '…' : m.files[0].transcript) : '') + '</i>' : m.files?.length ? '<i>Shared a file</i>' : '') }), extra?.after || '')));
 }
 function jumpTo(m) {
   if (m.thread_id) { S.focus = { id: m.id }; go(m.channel_id, m.thread_id); return; }
@@ -1764,15 +1856,15 @@ async function openThreadsView() {
       const u = user(p.user_id);
       return h('div', { class: 'tcard-thread' },
         h('div', { class: 'fctx' }, h('span', {}, where(p.channel_id)), h('span', { class: 'sep', 'aria-hidden': 'true' }, '·'), h('span', {}, `${p.reply_count} ${p.reply_count === 1 ? 'reply' : 'replies'}`)),
-        h('button', { class: 'frow plain', onclick: () => go(p.channel_id, p.id) }, avatar(u, 'av', '13px'), h('div', { class: 'fbody' }, h('b', {}, u.name, h('span', { class: 'ftime' }, dayStr(p.ts))), h('div', { class: 'text', html: fmt(p.text) }))),
-        ...(p.latest || []).map((r) => h('button', { class: 'frow plain reply', onclick: () => { S.focus = { id: r.id }; go(p.channel_id, p.id); } }, avatar(user(r.user_id), 'av', '11px'), h('div', { class: 'fbody' }, h('b', {}, user(r.user_id).name, h('span', { class: 'ftime' }, ago(r.ts))), h('div', { class: 'text', html: fmt(r.text) })))),
+        h('button', { class: 'frow plain', onclick: () => go(p.channel_id, p.id) }, avatar(u, 'av', '13px'), h('div', { class: 'fbody' }, h('b', {}, u.name, h('span', { class: 'ftime' }, dayStr(p.ts))), h('div', { class: 'text', html: p.enc ? '<i>Locked message</i>' : fmt(p.text) }))),
+        ...(p.latest || []).map((r) => h('button', { class: 'frow plain reply', onclick: () => { S.focus = { id: r.id }; go(p.channel_id, p.id); } }, avatar(user(r.user_id), 'av', '11px'), h('div', { class: 'fbody' }, h('b', {}, user(r.user_id).name, h('span', { class: 'ftime' }, ago(r.ts))), h('div', { class: 'text', html: r.enc ? '<i>Locked message</i>' : fmt(r.text) })))),
         h('button', { class: 'btn sm open-thread', onclick: () => go(p.channel_id, p.id) }, 'Open thread'));
     }) : [h('div', { class: 'empty-row' }, 'Threads you start or reply to show up here.')]));
   } catch (e) { toast(e.message); }
 }
 function searchMessages(initial = '') {
   const q = h('input', { class: 'input page-search', placeholder: `Search messages in ${S.workspace.name}`, value: initial });
-  const list = pageShell('search', 'Search', '', q);
+  const list = pageShell('search', 'Search', [...S.channels.values()].some((c) => c.locked === 1) ? "Locked conversations aren't in these results. Open one and use Search here to look through it on this device." : '', q);
   list.replaceChildren(h('div', { class: 'empty-row' }, 'Type at least two letters.'));
   let t;
   const run = async () => {
@@ -1919,7 +2011,9 @@ function renderAdmin() {
     meter('Voice transcripts today', st.voice_secs_today || 0, st.voice_free_secs || 1, `${Math.round((st.voice_secs_today || 0) / 60)} of about ${Math.round((st.voice_free_secs || 0) / 60)} free minutes`),
     st.ai_paused_until ? h('p', { class: 'use-note' }, `Free transcribing time is used up. Transcripts start again at ${new Date(st.ai_paused_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`) : '',
     h('p', { class: 'use-note' }, 'Requests and database use are in your Cloudflare dashboard, under Workers & Pages.'));
-  root.replaceChildren(head, kpis, usage, A.tab === 'people' ? peopleTable(counts) : channelsTable());
+  const lockCard = h('div', {});
+  lockMod().then((x) => lockCard.replaceWith(x.adminCard(A))).catch(() => {});
+  root.replaceChildren(head, kpis, usage, lockCard, A.tab === 'people' ? peopleTable(counts) : channelsTable());
 }
 const kpi = (n, l) => h('div', { class: 'kpi' }, h('b', {}, String(n)), h('span', {}, l));
 function peopleTable(counts) {
@@ -2155,9 +2249,11 @@ function openHelp() {
     ['Find something', 'Search takes filters: from:@ana in:#sales has:voice before:2026-12-01'],
     ['Send later', 'The clock next to Send schedules a message. Find it in Later.'],
     ['Quiet hours', 'In Status and notifications, pause alerts or set do not disturb hours.'],
+    ...(S.workspace.locked ? [['Locked conversations', 'Tick Lock it when you start a DM or private channel. Only the people in it can read it, not the server and not your admin. Search, transcripts and previews are limited there.']] : []),
   ];
   modal('Help', h('div', { class: 'help' },
     h('dl', {}, ...tips.flatMap(([t, d]) => [h('dt', {}, t), h('dd', {}, d)])),
+    S.workspace.locked ? h('p', {}, h('a', { href: '#', onclick: (e) => { e.preventDefault(); closeModal(); lockMod().then((x) => x.devicesPanel()); } }, 'Your devices and recovery key'), ' · ', h('a', { href: GUIDE_URL.replace('GUIDE.md', 'GUIDE.md#locked-conversations'), target: '_blank', rel: 'noopener' }, 'How locked conversations work')) : '',
     h('p', {}, h('a', { href: GUIDE_URL, target: '_blank', rel: 'noopener' }, 'Read the full guide'), ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); closeModal(); shortcuts(); } }, 'Keyboard shortcuts'))));
 }
 function shortcuts() {
@@ -2223,6 +2319,7 @@ function applyBoot(b) {
   for (const [id, c] of S.channels) if (id === S.current) { c.unread = 0; c.mentions = 0; }
   S.sections = b.sections;
   S.saved = new Set(b.saved || []); S.pushKey = b.push_key || ''; S.pushDevices = b.push_devices || 0;
+  if (b.channels.some(isLockedCh)) setTimeout(() => lockMod().catch(() => {}), 0);
   return prev;
 }
 // Signed out or session gone: forget cached messages and drafts on this device.
@@ -2231,6 +2328,8 @@ async function forgetLocal() {
 }
 async function signOut() {
   await forgetLocal();
+  // Locked conversations: this device forgets its keys. Opening them here again takes the recovery key.
+  try { if (S.me) await (await lockMod()).signOutWipe(S.me.id); } catch {}
   // Sign-out is a POST (the server refuses cross-site sign-outs).
   const f = document.createElement('form'); f.method = 'post'; f.action = '/auth/logout';
   document.body.append(f); f.submit();
@@ -2737,7 +2836,7 @@ async function togglePin(m) {
   try { applyMessage(await api(`/api/messages/${m.id}/pin`, { method: 'POST', body: {} })); toast(m.pinned_by ? 'Unpinned' : 'Pinned to the channel'); refreshPins(); } catch (e) { toast(e.message); }
 }
 function remindMenu(m, anchor) {
-  const set = async (t) => { await api('/api/reminders', { method: 'POST', body: { message_id: m.id, text: (m.text || '').replace(/<[^>]+>/g, '').slice(0, 140), due_at: t } }); toast(`I'll remind you ${whenStr(t)}`); };
+  const set = async (t) => { await api('/api/reminders', { method: 'POST', body: { message_id: m.id, text: m.enc ? '' : (m.text || '').replace(/<[^>]+>/g, '').slice(0, 140), due_at: t } }); toast(`I'll remind you ${whenStr(t)}`); };
   const [x, y] = anchorXY(anchor);
   menu([['In 20 minutes', () => set(Date.now() + 20 * 60e3)], ['In 1 hour', () => set(Date.now() + 3600e3)], ['In 3 hours', () => set(Date.now() + 3 * 3600e3)],
     ['Tomorrow at 9:00 AM', () => set(at9(1))], ['Next week (Mon 9:00 AM)', () => set(at9(0, 1))], ['---'], ['Custom…', () => pickDateTime('Remind me', set)]], x, y);
@@ -3275,6 +3374,7 @@ async function drawImport() {
       h('li', {}, 'Tap ', h('b', {}, 'Connect Slack'), '. Slack opens.'),
       h('li', {}, 'Check it says ', h('b', {}, S.workspace.name), ' at the top right, then tap ', h('b', {}, 'Allow'), '.'),
       h('li', {}, 'You come back here and the copy starts. It runs in the background.')),
+      S.workspace.locked ? h('p', { class: 'pref-sub' }, "Locked conversations are skipped. Their messages are scrambled on each person's device, so an import can't add to them. Old Slack messages go into normal conversations.") : '',
       h('p', { class: 'pref-sub' }, 'Read only: Yakyard can only read your conversations, never post or change anything in Slack. Only you can start this for your account, and access is cancelled as soon as the copy is done. Nothing is doubled if you run it again.'),
       j?.status === 'error' ? h('div', { class: 'imp-err' }, 'The last try stopped. Start again and it picks up what is missing.') : '',
       h('div', { class: 'pref-btns' }, h('a', { class: 'btn primary', href: '/slack/connect' }, 'Connect Slack'))));

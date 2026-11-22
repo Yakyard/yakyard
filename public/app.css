@@ -1638,3 +1638,51 @@ button { touch-action: manipulation; }
 /* Light theme: the yak shows up in the active rail item too, as it does in Yaky. */
 [data-theme="light"] .rail-btn.active .rail-ico { background: var(--yak-yellow); color: var(--night); }
 .modal-error { margin: 0 24px 4px; }
+
+/* ---------------- locked conversations */
+.linkish { background: none; border: 0; padding: 0; color: var(--link); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 24px; }
+.linkish:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+.lk-tag { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-ink); font: 700 var(--fs-xs)/20px var(--font); }
+.lk-tag svg { fill: currentColor; }
+.lk-tag.wait { background: var(--mention-bg); color: var(--mention-ink); }
+.lk-row { margin-left: 4px; color: var(--accent-ink); display: inline-flex; }
+.lk-row svg, .glyph svg, .hash svg { fill: currentColor; }
+.lk-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: 0 16px; padding: 8px 12px; border: 1px solid var(--line-2); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--ink-2); font-size: var(--fs-sm); }
+.lk-banner .lk-badge { display: inline-flex; color: var(--accent-ink); }
+.lk-banner .lk-badge svg { fill: currentColor; }
+.lk-banner .lk-text { font-weight: 600; color: var(--ink); }
+.lk-banner.pending { background: var(--mention-bg); }
+.lk-banner.ask .btn { margin-left: auto; }
+.lk-banner.ask .btn + .btn { margin-left: 0; }
+.lk-foot { padding: 8px 0 16px; }
+.lk-warnline { flex-basis: 100%; color: var(--warning); font-weight: 600; }
+.text.lk-status { color: var(--ink-3); font-style: italic; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.text.lk-status svg { fill: currentColor; flex: none; }
+.msg-system { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 10px 16px; color: var(--ink-3); font-size: var(--fs-sm); text-align: center; }
+.msg-system svg { fill: currentColor; flex: none; }
+.msg-system time { color: var(--ink-4); font-size: var(--fs-xs); }
+.lk p { margin: 0 0 12px; line-height: 1.5; }
+.lk h3 { font-size: var(--fs-md); margin: 0 0 8px; }
+.lk-cols { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; margin: 4px 0 12px; }
+@media (max-width: 640px) { .lk-cols { grid-template-columns: 1fr; } }
+.lk-cols section { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; background: var(--surface-2); }
+.lk-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: var(--fs-sm); line-height: 1.45; }
+.lk-list li { display: grid; grid-template-columns: 22px 1fr; align-items: start; }
+.lk-ico { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; margin-top: 1px; }
+.lk-list .ok .lk-ico { background: var(--success); color: var(--surface); }
+.lk-list .no .lk-ico { background: var(--line-2); color: var(--ink); }
+.lk-muted { color: var(--ink-3); font-size: var(--fs-sm); }
+.lk-understand { padding: 10px 12px; border: 1px solid var(--line-2); border-radius: var(--radius-sm); }
+.lk-key { margin: 8px 0 12px; padding: 18px 16px; border: 2px dashed var(--accent); border-radius: var(--radius-sm); background: var(--surface-2); text-align: center; }
+.lk-key code { font: 600 clamp(15px, 2.6vw, 20px)/1.7 var(--mono); letter-spacing: .04em; color: var(--ink); word-spacing: .3em; user-select: all; }
+.lk-keybtns { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+.lk-warn { background: var(--soft-red); color: var(--soft-red-ink); border-radius: var(--radius-sm); padding: 10px 12px; }
+.lk-last4 { max-width: 120px; font: 600 var(--fs-lg) var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+.lk-keyin { font-family: var(--mono); text-transform: uppercase; }
+.lk-code { font-family: var(--mono); }
+.lk-results { margin-top: 8px; max-height: 50vh; overflow: auto; display: grid; gap: 4px; }
+.lk-devs, .lk-reqs { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+.lk-dev, .lk-reqs li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.lk-reqs li .grow, .lk-dev .grow { flex: 1; }
+.lk-admin h4 { margin: 12px 0 6px; font-size: var(--fs-md); }
+.file-dl { display: inline-block; }

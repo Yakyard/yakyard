@@ -13,7 +13,10 @@ CREATE TABLE IF NOT EXISTS channels (
   dm_key TEXT UNIQUE,                       -- sorted member ids for DMs
   created_by TEXT,
   created_at INTEGER NOT NULL,
-  last_ts INTEGER NOT NULL DEFAULT 0
+  last_ts INTEGER NOT NULL DEFAULT 0,
+  locked INTEGER NOT NULL DEFAULT 0,        -- 0 normal, 1 locked (end-to-end encrypted), 2 waiting for approval
+  lock_by TEXT,                             -- who asked to lock it
+  lock_accepts TEXT NOT NULL DEFAULT '[]'   -- DMs: people who accepted locking
 );
 
 CREATE TABLE IF NOT EXISTS credentials (
@@ -67,7 +70,9 @@ CREATE TABLE IF NOT EXISTS messages (
   edited_ts INTEGER,
   deleted INTEGER NOT NULL DEFAULT 0,
   source TEXT NOT NULL DEFAULT 'app'         -- app | slack
-, also_channel INTEGER NOT NULL DEFAULT 0);
+, also_channel INTEGER NOT NULL DEFAULT 0,
+  enc TEXT                                   -- locked conversations: the encrypted message (text stays empty)
+);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, content='messages', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2');
 
@@ -133,6 +138,20 @@ CREATE TABLE IF NOT EXISTS users (
   active INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 , deactivated INTEGER NOT NULL DEFAULT 0, slack_id TEXT, city TEXT, region TEXT, country TEXT, tz TEXT, lat REAL, lon REAL, loc_at INTEGER, status_emoji TEXT DEFAULT '', status_text TEXT DEFAULT '', status_until INTEGER DEFAULT 0, dnd_until INTEGER DEFAULT 0, dnd_start TEXT DEFAULT '', dnd_end TEXT DEFAULT '', notify_level TEXT DEFAULT 'mentions', vips TEXT DEFAULT '[]', away INTEGER DEFAULT 0, share_location INTEGER NOT NULL DEFAULT 0);
+
+-- Locked conversations (docs/E2EE.md). Public keys, sealed key packages and the encrypted key backup.
+-- Nothing in these tables can open a message: the private keys never leave people's devices.
+CREATE TABLE IF NOT EXISTS e2ee_identity (user_id TEXT PRIMARY KEY, master_pub TEXT NOT NULL, created_at INTEGER NOT NULL);
+
+CREATE TABLE IF NOT EXISTS e2ee_devices (user_id TEXT NOT NULL, device_id TEXT NOT NULL, curve TEXT NOT NULL, ed TEXT NOT NULL, sig TEXT NOT NULL DEFAULT '', fallback TEXT, label TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, last_seen INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, device_id));
+
+CREATE TABLE IF NOT EXISTS e2ee_otk (user_id TEXT NOT NULL, device_id TEXT NOT NULL, key_id TEXT NOT NULL, key TEXT NOT NULL, PRIMARY KEY (user_id, device_id, key_id));
+
+CREATE TABLE IF NOT EXISTS e2ee_inbox (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL, sender_user TEXT NOT NULL, sender_device TEXT NOT NULL, sender_key TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL);
+
+CREATE INDEX IF NOT EXISTS e2ee_inbox_dev ON e2ee_inbox(user_id, device_id, created_at);
+
+CREATE TABLE IF NOT EXISTS e2ee_backup (user_id TEXT NOT NULL, session_id TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, session_id));
 
 CREATE VIRTUAL TABLE IF NOT EXISTS voice_fts USING fts5(text, message_id UNINDEXED, file_key UNINDEXED, tokenize='unicode61 remove_diacritics 2');
 

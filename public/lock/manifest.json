@@ -1,0 +1,11 @@
+{
+  "name": "yakyard-lock",
+  "version": "1.0.0",
+  "files": {
+    "lock.js": "132bb72f5767ceade8fd5a5fd13b2e4dfe2b9bbf05bc7757673b55242cb4389b",
+    "store-idb.js": "ec8323fe7478c07ae50eac21741dd5792d01275b2562be5b73b36ff2db65193d",
+    "yakyard-crypto.js": "f9847c7870c29ed7187348a1bada2cfd6c73b838e63108c4b333b81e7f8dec8e",
+    "yakyard-crypto_bg.wasm": "fa7877cdfd3d64950f75159f6f974ed5b617e4e8f8604e503fddf3335b0840bf",
+    "locked.js": "c3d26395a3c80a42486f909d5540f4250179b47e05f968503384551236816369"
+  }
+}

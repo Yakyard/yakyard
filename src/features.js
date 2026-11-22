@@ -113,6 +113,11 @@ export async function sendPushes(env, { msg, ch, sender, members, direct, wide, 
   if (!targets.length) return;
   const nameRows = (await env.DB.prepare('SELECT id,name FROM users').all()).results;
   const names = Object.fromEntries(nameRows.map((r) => [r.id, r.name]));
+  if (ch.locked) {
+    // Locked conversation: the server can't read it, and the notice says nothing about it either.
+    await pushToUsers(env, targets, { title: 'Yakyard', body: 'New message in a locked conversation', tag: ch.id, icon: '/brand/app-icon-192.png', badge: '/brand/favicon-64.png', data: { url: `/#/c/${ch.id}${msg.thread_id ? '/t/' + msg.thread_id : ''}`, id: msg.id } });
+    return;
+  }
   let title = sender.name;
   if (ch.kind !== 'dm') title += ` in #${ch.name}`;
   else if (members.length > 2) title += ' (group)';
@@ -451,8 +456,9 @@ async function fx_reminders_POST(c, m) {
   const due = +body.due_at;
   if (!due || due < now() - 60e3) return err(400, 'Pick a time in the future.');
   if (body.message_id) {
-    const msg = await env.DB.prepare('SELECT channel_id FROM messages WHERE id=?').bind(String(body.message_id)).first();
+    const msg = await env.DB.prepare('SELECT channel_id, enc FROM messages WHERE id=?').bind(String(body.message_id)).first();
     if (!msg || !(await isMember(env, msg.channel_id, user.id))) return err(403, "You're not in this channel.");
+    if (msg.enc) body.text = ''; // a reminder about a locked message never copies its words
   }
   const r = { id: uid('R'), user_id: user.id, message_id: body.message_id || null, text: String(body.text || '').slice(0, 500), due_at: due, done: 0 };
   await env.DB.prepare('INSERT INTO reminders (id,user_id,message_id,text,due_at) VALUES (?,?,?,?,?)').bind(r.id, r.user_id, r.message_id, r.text, r.due_at).run();
@@ -481,6 +487,7 @@ async function fx_scheduled_POST(c, m) {
   if (!at || at < now() + 30e3) return err(400, 'Pick a time in the future.');
   const ch = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(String(body.channel_id || '')).first();
   if (!ch || !(await isMember(env, ch.id, user.id))) return err(403, "You're not in this channel.");
+  if (ch.locked) return err(400, "Scheduled messages don't work in locked conversations.");
   const text = String(body.text || '').slice(0, 40000);
   const files = Array.isArray(body.files) ? body.files.slice(0, 10) : [];
   if (!text.trim() && !files.length) return err(400, 'Write something first.');
@@ -560,7 +567,8 @@ async function fx_files_GET(c, m) {
   const cid = url.searchParams.get('channel') || '';
   const q = (url.searchParams.get('q') || '').toLowerCase();
   const mine = url.searchParams.get('mine') === '1';
-  const where = ["x.files != '[]'", 'x.deleted=0', 'x.ts < ?'], args = [user.id, before];
+  // Files in locked conversations are sealed: their names live inside the encrypted message, so they aren't listed.
+  const where = ["x.files != '[]'", 'x.deleted=0', 'x.enc IS NULL', 'x.ts < ?'], args = [user.id, before];
   if (cid) { where.push('x.channel_id=?'); args.push(cid); }
   if (mine) { where.push('x.user_id=?'); args.push(user.id); }
   if (q) { where.push('lower(x.files) LIKE ?'); args.push('%' + q.replace(/[%_]/g, '') + '%'); }
@@ -615,6 +623,7 @@ async function fx_channels_id_manage_POST(c, m) {
     if (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=? AND id<>?").bind(name, ch.id).first()) return err(409, 'That name is taken. Pick another one.');
     await env.DB.prepare('UPDATE channels SET name=? WHERE id=?').bind(name, ch.id).run();
   }
+  if (body.private != null && ch.locked && !body.private) return err(400, 'A locked channel stays private.');
   if (body.private != null) await env.DB.prepare('UPDATE channels SET private=? WHERE id=?').bind(body.private ? 1 : 0, ch.id).run();
   if (body.archived != null) await env.DB.prepare('UPDATE channels SET archived=? WHERE id=?').bind(body.archived ? 1 : 0, ch.id).run();
   const out = await env.DB.prepare('SELECT * FROM channels WHERE id=?').bind(ch.id).first();

@@ -371,9 +371,10 @@ async function ensureChannel(ctx, c) {
   // own token only lists private channels they are really in). Never by name: that would let anyone
   // with a same-named Slack channel join an existing Yakyard channel.
   const skey = `${teamOf(env)}:${c.id}`;
-  const map = await env.DB.prepare("SELECT s.channel_id, c.private, c.kind FROM slack_channels s LEFT JOIN channels c ON c.id=s.channel_id WHERE s.slack_key=?").bind(skey).first();
+  const map = await env.DB.prepare("SELECT s.channel_id, c.private, c.kind, c.locked FROM slack_channels s LEFT JOIN channels c ON c.id=s.channel_id WHERE s.slack_key=?").bind(skey).first();
   // Only ever reuse a channel that is still private, so private messages never land in a public one.
-  let ch = map && map.kind === 'channel' && map.private === 1 ? { id: map.channel_id } : null;
+  // Never a locked one: its messages are encrypted on people's devices, and an import can't do that.
+  let ch = map && map.kind === 'channel' && map.private === 1 && !map.locked ? { id: map.channel_id } : null;
   if (!ch) {
     let name = (c.name || 'slack').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 70) || 'slack';
     while (await env.DB.prepare("SELECT 1 FROM channels WHERE kind='channel' AND name=?").bind(name).first()) name = (name + '-slack').slice(0, 80);
@@ -431,8 +432,9 @@ async function saveMessages(ctx, cid, list) {
       if (!have && (f.size || 0) < 90e6) { S.files.push({ url, key: k, type: f.mimetype || '' }); stmts.push(env.DB.prepare('INSERT OR IGNORE INTO files (key,uploader,channel_id,created_at,size) VALUES (?,?,?,?,?)').bind(k, author, cid, tsMs(m.ts), f.size || 0)); }
     }
     const thread = m.thread_ts && m.thread_ts !== m.ts ? await msgId(cid, m.thread_ts) : null;
-    stmts.push(env.DB.prepare(`INSERT OR IGNORE INTO messages (id,channel_id,user_id,ts,thread_id,text,files,edited_ts,source,also_channel) VALUES (?,?,?,?,?,?,?,?,'slack',?)`)
-      .bind(id, cid, author, tsMs(m.ts), thread, text, JSON.stringify(files), m.edited ? tsMs(m.edited.ts) : null, m.subtype === 'thread_broadcast' ? 1 : 0));
+    // The import never writes into a locked conversation (checked again here, whatever led to it).
+    stmts.push(env.DB.prepare(`INSERT OR IGNORE INTO messages (id,channel_id,user_id,ts,thread_id,text,files,edited_ts,source,also_channel) SELECT ?,?,?,?,?,?,?,?,'slack',? WHERE NOT EXISTS (SELECT 1 FROM channels WHERE id=? AND locked<>0)`)
+      .bind(id, cid, author, tsMs(m.ts), thread, text, JSON.stringify(files), m.edited ? tsMs(m.edited.ts) : null, m.subtype === 'thread_broadcast' ? 1 : 0, cid));
     for (const r of m.reactions || []) for (const u of r.users || []) stmts.push(env.DB.prepare('INSERT OR IGNORE INTO reactions (message_id,user_id,emoji) VALUES (?,?,?)').bind(id, await mapUser(ctx, u), emojiOf(r.name)));
     ctx.msgs++;
   }

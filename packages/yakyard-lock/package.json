@@ -1,0 +1,16 @@
+{
+  "name": "yakyard-lock",
+  "version": "1.0.0",
+  "description": "End-to-end encryption for Yakyard's locked conversations: Olm and Megolm (vodozemac, WebAssembly) in the browser, with recovery keys, key backup and device approval.",
+  "license": "Apache-2.0",
+  "author": "QVINTA Ltd",
+  "type": "module",
+  "main": "src/lock.js",
+  "exports": { ".": "./src/lock.js", "./store-idb": "./src/store-idb.js", "./crypto": "./dist/yakyard-crypto.js" },
+  "files": ["src", "dist", "LICENSE", "NOTICE", "README.md"],
+  "scripts": {
+    "build:wasm": "cd crypto && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --no-typescript --out-dir ../dist --out-name yakyard-crypto target/wasm32-unknown-unknown/release/yakyard_crypto.wasm",
+    "test": "node --test test/*.test.mjs"
+  },
+  "repository": { "type": "git", "url": "https://github.com/yakyard/yakyard", "directory": "packages/yakyard-lock" }
+}

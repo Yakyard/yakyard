@@ -10,3 +10,4 @@ wrangler.cpu-check.jsonc
 cpu-check-report.json
 wrangler.toml.old
 site/dist/
+packages/yakyard-lock/crypto/target/
