@@ -2,14 +2,20 @@
 
 What changed in each Yakyard release, newest first.
 
-## Unreleased
+## 2.1.0 (22 November 2026)
 
-Yakyard is now open source under Apache 2.0. Versions 1.0.0 and 2.0.0 stay under PolyForm Shield 1.0.0.
+Yakyard is now open source under Apache 2.0, with a live demo anyone can click into. Versions 1.0.0 and 2.0.0 stay under PolyForm Shield 1.0.0.
 
 ### License
 - The code is under the Apache License 2.0: use it, change it, host it for others or sell it. A NOTICE file carries the copyright and the third-party notices.
 - Contributions come in under Apache 2.0 too, with a `Signed-off-by` line (Developer Certificate of Origin). No separate agreement.
 - The docs, website, press kit and comparison tables now say open source.
+
+### Live demo
+- [yakyard-demo.qvinta.workers.dev](https://yakyard-demo.qvinta.workers.dev): one click on "Try the demo" signs you in as a visitor in a made-up team. No email, no password. Everyone sees what you post, and it resets every night at 03:00 UTC.
+- Uploads, new voice notes, admin settings, the Slack import, invites, phone notifications, locked conversations and passwords are off in the demo, each with a short message.
+- Run your own with `npm run demo:deploy`: a separate Worker with its own database and file storage, set by `DEMO_MODE` in `wrangler.demo.jsonc`. A normal install never has it. [Details](docs/TECHNICAL.md#public-demo).
+- An 80-second tour of the real app, recorded in the demo, at the top of the README and on the website.
 
 ### Running it
 - Updates and backups can run by themselves. With the Deploy button copy, a GitHub workflow backs up the database every night into your own R2 storage, keeps the last 7, and installs new releases on Sunday nights after one more backup. It's off until you turn it on, and it opens an issue in your copy if something fails. [How to turn it on](docs/SETUP.md#updates-and-backups-by-themselves).

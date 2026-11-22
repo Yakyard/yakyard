@@ -62,7 +62,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   ];
 
   const body = `
-<aside class="v2band" aria-label="Yakyard 2"><div class="wrap"><p><span class="v2band__tag">New</span> <strong>Yakyard 2 is now live.</strong> <span class="v2band__long">Lock a DM or private channel, and only the people in it can read it. Not your admin, not us.</span><span class="v2band__short">Lock a conversation so only the people in it can read it.</span> <a href="/docs/locked">How it works</a> <a href="/releases/2.0.0">What's new</a></p></div></aside>
+<aside class="v2band" aria-label="Yakyard 2.1"><div class="wrap"><p><span class="v2band__tag">2.1</span> <strong>Yakyard is now open source.</strong> <span class="v2band__long">Apache 2.0: use it, change it, even sell it. And there's a live demo you can click into.</span><span class="v2band__short">Apache 2.0, plus a live demo.</span> <a href="/releases/2.1.0/">What's new</a></p></div></aside>
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
     <h1 class="d-xl" id="hero-title"><span class="l">${"Yak all you want.".split(" ").map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(" ")}</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
@@ -95,6 +95,22 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
 </section>
 
 <div class="mq" aria-hidden="true"><div class="mq__track">${[0, 1].map(() => `<ul>${MQ.map((w) => `<li>${w}</li>`).join("")}</ul>`).join("")}</div></div>
+
+<section class="sec tour" id="tour" aria-labelledby="tour-title">
+  <div class="wrap">
+    <div class="sec__head">
+      <h2 class="d-l" id="tour-title">80 seconds in the real app.</h2>
+      <p>Recorded in the live demo, no mockups: a voice note and its transcript, a reply in a thread, a reaction, search and the Yaky theme. Then <a href="https://yakyard-demo.qvinta.workers.dev">try it yourself</a>.</p>
+    </div>
+    <figure class="tour__frame">
+      <video class="tour__video" controls muted playsinline preload="none" width="1920" height="1080" poster="/media/yakyard-demo-poster.webp" data-tour aria-describedby="tour-cap">
+        <source src="/media/yakyard-demo.mp4" type="video/mp4">
+        <a href="/media/yakyard-demo.mp4">Download the 80-second tour (MP4, 6 MB)</a>
+      </video>
+      <figcaption class="sr" id="tour-cap">A tour of the Yakyard live demo with captions: one click into the demo, the #launch channel, a voice note playing with its transcript, a reply in a thread, a reaction, a search for "glaze" that finds the voice note, the Yaky theme, the same channel on a phone, and the GitHub address.</figcaption>
+    </figure>
+  </div>
+</section>
 
 <section class="sec" id="features" aria-labelledby="features-title">
   <div class="wrap">
@@ -389,7 +405,7 @@ export function pressPage({ layout, shot, icon, REPO }) {
         <tr><th scope="row">Price</th><td>Free. Runs on Cloudflare's free plan for about 50 people; Cloudflare's Workers Paid plan ($5 a month minimum per account) above that</td></tr>
         <tr><th scope="row">Features</th><td>Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, locked conversations (end-to-end encrypted DMs and private channels), scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes</td></tr>
         <tr><th scope="row">Encryption</th><td>Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it is Apache-2.0 and not independently audited yet.</td></tr>
-        <tr><th scope="row">Version</th><td>2.0.0</td></tr>
+        <tr><th scope="row">Version</th><td>2.1.0</td></tr>
         <tr><th scope="row">Runs on</th><td>Cloudflare Workers, Durable Objects, D1, R2, Workers AI</td></tr>
         <tr><th scope="row">Apps</th><td>Installable web app (PWA) for iPhone, Android, Mac and Windows</td></tr>
         <tr><th scope="row">License</th><td>Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0.</td></tr>
@@ -457,8 +473,101 @@ function chat(icon) {
 // Release notes pages, in the home page's design. Same words as docs/releases/*.md.
 export function releasePages({ layout, shot, DEPLOY_URL, REPO }) {
   const deployBtn = `<a class="btn btn--primary" href="${DEPLOY_URL}">Deploy to Cloudflare</a>`;
+  const v21 = `
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.1.0</span> <strong>The latest release.</strong> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<section class="hero rel-hero" aria-labelledby="rel-title">
+  <div class="wrap">
+    <h1 class="d-xl" id="rel-title"><span class="l">Now open</span> <span class="l hot"><span class="stamp">source.</span></span></h1>
+    <div class="rel-hero__grid">
+      <div>
+        <p class="lede">Yakyard is open source now, under Apache 2.0. Use it, change it, host it for other people or sell it. And try it first, in a live demo that takes one click.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="https://yakyard-demo.qvinta.workers.dev">Try the live demo</a><a class="btn btn--ghost" href="#update">Update to 2.1.0</a></div>
+      </div>
+      <figure class="rel-shot tour__frame">
+        <video class="tour__video" controls muted playsinline preload="none" width="1920" height="1080" poster="/media/yakyard-demo-poster.webp" data-tour aria-describedby="rel-tour-cap">
+          <source src="/media/yakyard-demo.mp4" type="video/mp4">
+          <a href="/media/yakyard-demo.mp4">Download the 80-second tour (MP4, 6 MB)</a>
+        </video>
+        <figcaption class="sr" id="rel-tour-cap">An 80-second tour of the live demo, with captions: a voice note and its transcript, a reply in a thread, a reaction, search, the Yaky theme and the same channel on a phone.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="oss-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="oss-title">Use it, change it, sell it.</h2><p>Versions 1.0.0 and 2.0.0 came under PolyForm Shield, which let any business use Yakyard but stopped anyone from selling it. From 2.1.0 the code is under the Apache License 2.0.</p></div>
+    <ul class="rel-list">
+      <li>Run it for your own team, run it for clients, build a product on it.</li>
+      <li>Keep the copyright and license notices, and say what you changed. A NOTICE file carries the copyright and the notices for the code Yakyard uses.</li>
+      <li>Contributions come in under Apache 2.0 too. Add a <code>Signed-off-by</code> line to your commits, with no separate agreement to sign.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec band" aria-labelledby="demo-title">
+  <div class="wrap">
+    <div class="sec__head">
+      <h2 class="d-l" id="demo-title">Try it before you install it.</h2>
+      <p>The live demo is a made-up team that sells lamps, with four channels, threads, reactions and a voice note with its transcript. Everyone sees what you post, and it all resets at 03:00 UTC every night.</p>
+    </div>
+    <div class="bento">
+      <article class="tile t-locked">
+        <h3>One click, no signup</h3>
+        <p>Click "Try the demo" and you're in as a visitor, with no email and no password. File uploads, new voice notes, admin settings, the Slack import, invites, phone notifications and locked conversations are off, each with a short message saying so. Want a public demo of your own? <code>npm run demo:deploy</code> puts one on a separate Worker with its own database, so your real Yakyard is never touched.</p>
+        <div class="tile__shot">${shot("demo-launch", { alt: "The #launch channel in the demo, with a voice note and its transcript", sz: "(min-width: 960px) 640px, 100vw" })}</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="auto-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="auto-title">Updates and backups that run by themselves.</h2><p>If you set Yakyard up with the Deploy button, your copy lives in your own GitHub, and GitHub can now look after it. It stays off until you turn it on: one Cloudflare token, two GitHub secrets and one variable, about 10 minutes. <a href="/docs/setup#updates-and-backups-by-themselves">The steps</a>.</p></div>
+    <ul class="rel-list">
+      <li>Every night it backs up the database into your own Cloudflare file storage. It keeps the last 7 nights, plus one from just before the latest update.</li>
+      <li>On Sunday nights it checks for a new release. If there is one, it backs up again, brings the release into your copy, updates the database and deploys.</li>
+      <li>If anything fails, it stops there and opens an issue in your copy saying what happened and what to do. GitHub emails you about it.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec band" aria-labelledby="know-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="know-title">Worth knowing.</h2></div>
+    <ul class="rel-list">
+      <li>Locked conversations are labelled as a preview in the README and the docs. The encryption library underneath has been audited. Yakyard's own code around it hasn't been yet, and the label stays until it is.</li>
+      <li>The automatic updates only work for copies made with the Deploy button. If you installed from the terminal, keep using <code>npm run update</code>.</li>
+      <li>Backups count toward your free 10 GB of Cloudflare file storage.</li>
+      <li>The database doesn't change in this release.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="also-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="also-title">Also in this release.</h2></div>
+    <ul class="rel-list">
+      <li>Who runs Yakyard, said plainly in the README and the <a href="/faq">FAQ</a>: QVINTA Ltd, a Hong Kong company. It started as the in-house chat of a design and wholesale team that left Slack in 2026, and that team still uses it every day.</li>
+      <li>This website is easier to find in search: one address per page, a title of its own on every doc, structured data, a dated sitemap and an <code>llms.txt</code> file with the plain facts. It also got a brand and accessibility pass, and a page for every release.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec install band" id="update" aria-labelledby="update-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="update-title">Update.</h2><p>Back up first, then update. Nothing to turn on afterwards.</p></div>
+    <div>
+      <pre class="rel-code"><code>npm run backup
+npm run update</code></pre>
+      <p class="rel-new">New to Yakyard? Setup takes about 30 minutes, no coding.</p>
+      <div class="btn-row">${deployBtn}<a class="btn btn--ghost" href="/docs/setup">Read the setup guide</a></div>
+    </div>
+  </div>
+</section>`;
+
   const v2 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.0.0</span> <strong>The latest release.</strong> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.0.0</span> <strong>Locked conversations.</strong> <a href="/releases/2.1.0">See 2.1.0, the latest</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Lock what's</span> <span class="l hot"><span class="stamp">private.</span></span></h1>
@@ -540,7 +649,7 @@ npm run update</code></pre>
 </section>`;
 
   const v1 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See what's new in 2.0.0</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/2.1.0">See 2.1.0, the latest</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Yakyard 1.0.0.</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
@@ -594,6 +703,7 @@ npm run update</code></pre>
   </div>
 </section>`;
   return [
+    ["/releases/2.1.0", layout({ title: "Yakyard 2.1.0: now open source", description: "Yakyard 2.1.0 is open source under Apache 2.0, with a live demo and optional updates and backups that run by themselves.", urlPath: "/releases/2.1.0", og: "home", ogType: "article", body: v21 })],
     ["/releases/2.0.0", layout({ title: "Yakyard 2.0.0: locked conversations", description: "Yakyard 2.0.0 lets you lock a DM or private channel so only the people in it can read it.", urlPath: "/releases/2.0.0", og: "home", ogType: "article", body: v2 })],
     ["/releases/1.0.0", layout({ title: "Yakyard 1.0.0: the first release", description: "The first Yakyard release: free team chat on your own Cloudflare account.", urlPath: "/releases/1.0.0", og: "home", ogType: "article", body: v1 })],
   ];

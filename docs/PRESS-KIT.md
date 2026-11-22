@@ -39,7 +39,7 @@ Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 pe
 | Runs on | Cloudflare Workers, Durable Objects, D1, R2, Workers AI |
 | Apps | Installable web app (PWA) for iPhone, Android, Mac and Windows |
 | License | Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0. |
-| Version | 2.0.0 |
+| Version | 2.1.0 |
 | Code | github.com/yakyard/yakyard |
 
 Yakyard is open source under the Apache License 2.0, so "free and open source" is accurate.

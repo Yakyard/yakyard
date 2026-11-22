@@ -5,9 +5,11 @@
   </picture>
 </p>
 
+<p align="center"><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4"><img src="docs/media/yakyard-demo.gif" width="880" alt="Yakyard in the live demo: a voice note plays in the #launch channel and its written transcript opens underneath"></a><br><sub><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4">Watch the 80-second tour</a></sub></p>
+
 <p align="center"><b>Yakyard</b> is a free Slack alternative you run on your own Cloudflare account.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
 
-<p align="center"><b>New in Yakyard 2:</b> locked conversations, end-to-end encrypted, as a preview. <a href="CHANGELOG.md">What changed</a></p>
+<p align="center"><b>New in 2.1:</b> Yakyard is open source under Apache 2.0, with a live demo anyone can click into. <a href="docs/releases/2.1.0.md">What changed</a></p>
 
 <p align="center"><a href="https://yakyard-demo.qvinta.workers.dev"><b>Try the live demo</b></a>. One click, no signup. It resets every night.</p>
 

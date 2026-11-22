@@ -241,9 +241,9 @@ def _login_time(email):
 # One request is too noisy on shared CI runners: warm up, then compare medians of alternating samples.
 _login_time('owner@example.com'); _login_time('nobody@example.com')
 _a, _b = [], []
-for _ in range(7):
+for _ in range(3):  # stays under the 8-attempt throttle for one account
     _a.append(_login_time('owner@example.com')); _b.append(_login_time('nobody@example.com'))
-ta, tb = sorted(_a)[3], sorted(_b)[3]
+ta, tb = sorted(_a)[1], sorted(_b)[1]
 print(f'  timing: existing {ta*1000:.0f} ms, unknown {tb*1000:.0f} ms')
 check('M6 unknown email does the same server work (timing within 3x)', tb > ta / 3 and ta > tb / 3, (ta, tb))
 

@@ -160,7 +160,7 @@ function footer() {
       </div>
       ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"]])}
       ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
-      ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE`, "License"], ["/press", "Press kit"], ["/releases/2.0.0", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
+      ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE`, "License"], ["/press", "Press kit"], ["/releases/2.1.0", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
     </div>
     <div class="foot__base">
       <p><strong>Free forever. Made by QVINTA Ltd.</strong></p>
@@ -402,13 +402,13 @@ Key facts:
 - [Pros and cons](${SITE_URL}/pros-and-cons/)
 - [FAQ](${SITE_URL}/faq/)
 - [Sources](${SITE_URL}/sources/): every price and limit, with the page it came from
-- [Release notes](${SITE_URL}/releases/2.0.0/)
+- [Release notes](${SITE_URL}/releases/2.1.0/)
 
 ## Code
 - [GitHub repository](${REPO})
 `);
   await writeFile(path.join(DIST, "robots.txt"), `User-agent: *\nAllow: /\n\nSitemap: ${SITE_URL}/sitemap.xml\n`);
-  await writeFile(path.join(DIST, "_headers"), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/fonts/*\n  Cache-Control: public, max-age=31536000, immutable\n/img/*\n  Cache-Control: public, max-age=604800\n/vendor/*\n  Cache-Control: public, max-age=31536000, immutable\n/audio/*\n  Cache-Control: public, max-age=604800\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: interest-cohort=()\n`);
+  await writeFile(path.join(DIST, "_headers"), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/fonts/*\n  Cache-Control: public, max-age=31536000, immutable\n/img/*\n  Cache-Control: public, max-age=604800\n/vendor/*\n  Cache-Control: public, max-age=31536000, immutable\n/audio/*\n  Cache-Control: public, max-age=604800\n/media/*\n  Cache-Control: public, max-age=604800\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: interest-cohort=()\n`);
   console.log(`Built ${pages.length} pages into site/dist for ${SITE_URL}`);
 }
 

@@ -440,6 +440,22 @@
     links.forEach((_, id) => { const h = document.getElementById(id); if (h) io.observe(h); });
   }
 
+  // ---------- the 80-second tour: plays muted while in view, never with reduced motion or Save-Data, and stops once someone uses the controls ----------
+  const tour = document.querySelector("[data-tour]");
+  const saveData = navigator.connection && navigator.connection.saveData;
+  if (tour && !reduce && !saveData && "IntersectionObserver" in window) {
+    let auto = true;
+    const off = () => { auto = false; };
+    tour.addEventListener("pointerdown", off);
+    tour.addEventListener("keydown", off);
+    tour.addEventListener("volumechange", () => { if (!tour.muted) off(); });
+    new IntersectionObserver(([e]) => {
+      if (!auto) return;
+      if (e.isIntersecting) { tour.preload = "auto"; tour.muted = true; tour.play().catch(() => {}); }
+      else tour.pause();
+    }, { threshold: 0.6 }).observe(tour);
+  }
+
   // ---------- home page motion: GSAP and ScrollTrigger load after the page, never when motion is reduced ----------
   const motionSrc = me && me.dataset.motion;
   if (motionSrc && !reduce) {

@@ -22,10 +22,12 @@ p{{font:500 30px/1.4 W;color:#5b5670;margin:22px 0 0;max-width:900px}}
 .r{{position:absolute;right:120px;top:0;height:560px;display:flex;flex-direction:column;justify-content:center;gap:22px;align-items:flex-start;width:520px}}
 .pill{{white-space:nowrap;font:400 32px R;padding:16px 32px;border-radius:999px;border:3px solid #120f2e;box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 10px 22px rgba(18,15,46,.10)}}
 </style></head><body><div class="l"><div class="top">{mark}<div class="k">yak<b>y</b>ard <span class="v">{kicker}</span></div></div><h1>{title}</h1><p>{line}</p></div><div class="r">{ps}</div></body></html>'''
-jobs=[('release-v2','2.0.0','Lock what’s <span>private.</span>','Locked DMs and private channels. Only the people in them can read them. Not the admin, not us.',['Locked','Two approvals','Recovery key','Free']),
+jobs=[('release-v2.1','2.1.0','Now open <span>source.</span>','Apache 2.0, a live demo you can click into, and updates that run by themselves.',['Apache 2.0','Live demo','Auto updates','Nightly backups']),
+      ('release-v2','2.0.0','Lock what’s <span>private.</span>','Locked DMs and private channels. Only the people in them can read them. Not the admin, not us.',['Locked','Two approvals','Recovery key','Free']),
       ('release-v1','1.0.0','Yak all you want.<br><span>Pay nobody.</span>','The first release: team chat on your own Cloudflare account, free for teams up to about 50.',['Channels','Threads','Voice notes','Calls'])]
 with sync_playwright() as pw:
     b=pw.chromium.launch(); pg=b.new_page(viewport={'width':1760,'height':560})
     for n,k,t,l,ps in jobs:
+        if sys.argv[1:] and n not in sys.argv[1:]: continue
         pg.set_content(html(k,t,l,ps)); pg.wait_for_timeout(600); pg.screenshot(path=f'{R}/docs/brand/{n}.png')
     b.close()
