@@ -1,22 +1,25 @@
-# Makes the yak's voice clips for the website with Kokoro-82M (Apache-2.0), stock voice am_puck.
+# Makes the home page voice clips with Kokoro-82M (Apache-2.0) stock voices: the yak's clips in am_puck,
+# pitched up 5%, and Marco's voice note in the #launch chat in am_michael at his natural pitch.
 # Run with Python 3.12: pip install torch kokoro soundfile (needs espeak-ng and ffmpeg).
-#   python site/tools/yak_voice.py   -> site/static/audio/*.webm|mp3 and site/src/voice.json
+#   python site/tools/yak_voice.py          -> every clip: site/static/audio/*.webm|mp3 and site/src/voice.json
+#   python site/tools/yak_voice.py note     -> only the clips named, the rest of voice.json stays as it is
 import json, sys, os, subprocess, numpy as np, soundfile as sf
 from kokoro import KPipeline
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "static", "audio") + "/"
 TMP = "/tmp/"
-VOICE = sys.argv[1] if len(sys.argv) > 1 else "am_puck"
-PITCH = 1.05   # pitch up 5%
+YAK = ("am_puck", 1.05)      # the yak: pitch up 5%
+MARCO = ("am_michael", 1.0)  # Marco, a person: natural pitch
 TEMPO = 1.0    # net speed after pitch shift
 lines = {
-  "note": "Quick one from the yard. The new homepage is live. Same channels, same threads, and the bill is still zero. Have a listen, then yak back.",
-  "hi-1": "Yak all you want. Pay nobody.",
-  "hi-2": "Quiet in here. Say something.",
-  "hi-3": "Zero dollars a seat. I checked.",
-  "hi-4": "Your chat lives on your account. Not mine.",
-  "egg": "Okay, okay. I'm a yak, not a doorbell.",
+  "note": ("Hey, walking to the train, so voice is quicker. Two things. Make the zero dollar price way bigger, it's the whole pitch. And move the demo button up, right under the headline. Do those two and ship it.", MARCO),
+  "hi-1": ("Yak all you want. Pay nobody.", YAK),
+  "hi-2": ("Quiet in here. Say something.", YAK),
+  "hi-3": ("Zero dollars a seat. I checked.", YAK),
+  "hi-4": ("Your chat lives on your account. Not mine.", YAK),
+  "egg": ("Okay, okay. I'm a yak, not a doorbell.", YAK),
 }
+only = sys.argv[1:] or list(lines)
 LUFS = -16.0  # clearly audible on laptop and phone speakers, like a voice message
 
 def lufs(path):
@@ -33,8 +36,10 @@ def normalize(src, dst):
     return dst
 
 pipe = KPipeline(lang_code="a")
-out = {}
-for key, text in lines.items():
+JSON = os.path.join(HERE, "..", "src", "voice.json")
+out = json.load(open(JSON)) if os.path.exists(JSON) else {}
+for key in only:
+    text, (VOICE, PITCH) = lines[key]
     audio, words, t0 = [], [], 0.0
     for r in pipe(text, voice=VOICE, speed=1.0):
         a = r.audio.numpy() if hasattr(r.audio, "numpy") else np.asarray(r.audio)
@@ -57,6 +62,10 @@ for key, text in lines.items():
         n = 40; seg = np.array_split(np.abs(a), n)
         rms = np.array([np.sqrt((s.astype(float) ** 2).mean()) for s in seg]); rms = rms / rms.max()
         entry["bars"] = [round(float(max(0.18, v ** 0.7)), 2) for v in rms]
+    # the page puts one timing on each space-separated word of the text, so the counts must match
+    if len(entry["words"]) != len(text.split(" ")):
+        sys.exit(f"{key}: {len(entry['words'])} timings for {len(text.split(' '))} words, fix the text or the tokens")
     out[key] = entry
-json.dump(out, open(os.path.join(HERE, "..", "src", "voice.json"), "w"), indent=1)
+out = {k: out[k] for k in lines if k in out}
+json.dump(out, open(JSON, "w"), indent=1)
 print(json.dumps({k: (v["dur"], len(v["words"])) for k, v in out.items()}))

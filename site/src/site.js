@@ -1,5 +1,5 @@
 // Yakyard website: sticky nav edge, cost calculator, copy buttons, docs table of contents,
-// and on the home page the yak (voice, captions, easter egg), the voice note player and the motion loader.
+// and on the home page the yak (voice, captions, easter egg), Marco's voice note player and the motion loader.
 (() => {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const me = document.currentScript;
@@ -97,6 +97,7 @@
     cur && cur.stop();
     let done = false, src = null, el = null, t0 = 0, timer = 0;
     const asked = performance.now();
+    const what = name === "note" ? "Marco's voice note" : "the yak"; // for the hints below
     const h = {
       stop() {
         if (done) return;
@@ -121,7 +122,7 @@
     if (!soundOn) { hint("Sound is off. Turn it on with the speaker button."); return h; }
     unhint();
     const started = (len) => { endIn(len + 0.6); onStart && onStart(); };
-    const blocked = () => { if (!done) hint("Your browser held the sound back. Tap again to hear the yak."); };
+    const blocked = () => { if (!done) hint(`Your browser held the sound back. Tap again to hear ${what}.`); };
     const viaElement = () => {
       el = new Audio(`/audio/${name}.${EXT}`);
       el.onended = () => h.stop();
@@ -137,7 +138,7 @@
       const go = () => {
         if (done) return;
         if (c.state !== "running") return blocked();
-        if (performance.now() - asked > 2500) return hint("The yak's voice is still on its way. Tap again in a second.");
+        if (performance.now() - asked > 2500) return hint(name === "note" ? "The voice note is still on its way. Tap again in a second." : "The yak's voice is still on its way. Tap again in a second.");
         src = c.createBufferSource();
         src.buffer = b;
         src.connect(out);
@@ -148,7 +149,7 @@
       };
       if (c.state === "running") go();
       else Promise.race([c.resume(), new Promise((r) => setTimeout(r, 2000))]).then(go, go);
-    }, () => { if (!done) hint("The yak's voice didn't load. Tap again to try once more."); });
+    }, () => { if (!done) hint(name === "note" ? "The voice note didn't load. Tap again to try once more." : "The yak's voice didn't load. Tap again to try once more."); });
     return h;
   }
 
@@ -288,7 +289,6 @@
     const words = [...chat.querySelectorAll(".vn__tx .wd")];
     const tx = chat.querySelector(".vn__tx");
     const time = chat.querySelector(".vn__time");
-    const yakAv = chat.querySelector(".msg--yak .av");
     const dur = +chat.dataset.dur;
     const total = Math.round(dur - 0.4);
     let raf = 0, start = 0, clip = null;
@@ -304,7 +304,7 @@
     const reset = () => {
       cancelAnimationFrame(raf);
       btn.setAttribute("aria-pressed", "false");
-      btn.setAttribute("aria-label", `Play the yak's voice note, ${total} seconds`);
+      btn.setAttribute("aria-label", `Play Marco's voice note, ${total} seconds`);
       tx.classList.remove("is-playing");
       bars.forEach((b) => b.classList.remove("on"));
       words.forEach((w) => w.classList.remove("said", "now"));
@@ -325,9 +325,8 @@
       clip = play("note", dur, { onStart: () => { start = performance.now(); }, onEnd: () => { clip = null; reset(); } });
       btn.classList.remove("is-invite");
       btn.setAttribute("aria-pressed", "true");
-      btn.setAttribute("aria-label", "Pause the yak's voice note");
+      btn.setAttribute("aria-label", "Pause Marco's voice note");
       tx.classList.add("is-playing");
-      if (!reduce && yakAv) retrigger(yakAv, "is-wiggle", 700);
       raf = requestAnimationFrame(tick);
     });
   }
@@ -440,21 +439,36 @@
     links.forEach((_, id) => { const h = document.getElementById(id); if (h) io.observe(h); });
   }
 
-  // ---------- the 80-second tour: plays muted while in view, never with reduced motion or Save-Data, and stops once someone uses the controls ----------
-  const tour = document.querySelector("[data-tour]");
-  const saveData = navigator.connection && navigator.connection.saveData;
-  if (tour && !reduce && !saveData && "IntersectionObserver" in window) {
-    let auto = true;
+  // ---------- the tour video: plays muted while in view (never with reduced motion or Save-Data) and stops once someone
+  // uses the controls. It has a voiceover, so a "Play with sound" button sits on it while it's muted: one tap starts it
+  // again from the top with sound. The native controls work too.
+  document.querySelectorAll("[data-tour]").forEach((tour) => {
+    const saveData = navigator.connection && navigator.connection.saveData;
+    const btn = tour.parentElement.querySelector("[data-tour-sound]");
+    let auto = !reduce && !saveData && "IntersectionObserver" in window;
     const off = () => { auto = false; };
+    const sync = () => { if (btn) btn.hidden = !tour.muted; };
+    if (btn) {
+      sync();
+      btn.addEventListener("click", () => {
+        off();
+        tour.muted = false;
+        tour.volume = 1;
+        tour.currentTime = 0;
+        tour.play().catch(() => {});
+        tour.focus({ preventScroll: true });
+      });
+    }
+    tour.addEventListener("volumechange", () => { sync(); if (!tour.muted) off(); });
     tour.addEventListener("pointerdown", off);
     tour.addEventListener("keydown", off);
-    tour.addEventListener("volumechange", () => { if (!tour.muted) off(); });
+    if (!auto) return;
     new IntersectionObserver(([e]) => {
       if (!auto) return;
       if (e.isIntersecting) { tour.preload = "auto"; tour.muted = true; tour.play().catch(() => {}); }
       else tour.pause();
     }, { threshold: 0.6 }).observe(tour);
-  }
+  });
 
   // ---------- home page motion: GSAP and ScrollTrigger load after the page, never when motion is reduced ----------
   const motionSrc = me && me.dataset.motion;

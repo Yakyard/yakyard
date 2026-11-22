@@ -105,7 +105,6 @@
     const msgs = $$(".msg", chat);
     const typing = $(".chat__typing", chat);
     const who = $(".chat__who", chat);
-    const yakAv = $(".msg--yak .av", chat);
     const btn = $(".vn__play", chat);
     const search = $(".voice__search");
     const bg = document.createElement("div");
@@ -137,16 +136,13 @@
     // the dots only bounce while someone is typing; an idle infinite animation would restyle every frame
     const on1 = (d) => tl.to(typing, { opacity: 1, duration: 0.2, ease: OUT, onStart: () => typing.classList.add("is-on") }, d);
     const off = () => tl.to(typing, { opacity: 0, duration: 0.15, ease: OUT, onComplete: () => typing.classList.remove("is-on") });
-    const [m2, m3, m4] = msgs.slice(1);
-    // Marco: typing at 0.3 s, message at about 1.1 s
-    tl.call(say("Marco is typing"), null, 0.25); on1(0.3); tl.to({}, { duration: 0.65 }); off(); tl.call(show(m2), null, "<");
-    // the yak records a voice note: on screen at about 2.5 s, wave and transcript fill in
-    tl.call(say("The yak is recording a voice note"), null, "+=0.3"); on1(">"); tl.to({}, { duration: 0.85 }); off(); tl.call(show(m3), null, "<");
-    tl.from($$(".vn__wave i", m3), { scaleY: 0.08, duration: 0.5, stagger: 0.01, ease: OUT }, "<0.1")
-      .call(() => { yakAv.classList.remove("is-wiggle"); void yakAv.offsetWidth; yakAv.classList.add("is-wiggle"); setTimeout(() => yakAv.classList.remove("is-wiggle"), 700); }, null, "<0.15")
-      .from($$(".wd", m3), { opacity: 0, duration: 0.12, stagger: 0.032, ease: "none" }, "<0.05");
-    // Lena: typing while the transcript finishes, reply at about 4.6 s
-    tl.call(say("Lena is typing"), null, "<0.6"); on1(">"); tl.to({}, { duration: 0.7 }); off(); tl.call(show(m4), null, "<");
+    const [m2, m3] = msgs.slice(1);
+    // Marco answers by voice: recording at 0.3 s, the note on screen at about 1.4 s, wave and transcript fill in
+    tl.call(say("Marco is recording a voice note"), null, 0.25); on1(0.3); tl.to({}, { duration: 0.85 }); off(); tl.call(show(m2), null, "<");
+    tl.from($$(".vn__wave i", m2), { scaleY: 0.08, duration: 0.5, stagger: 0.01, ease: OUT }, "<0.1")
+      .from($$(".wd", m2), { opacity: 0, duration: 0.12, stagger: 0.032, ease: "none" }, "<0.05");
+    // Lena: typing while the transcript finishes, reply at about 3.6 s
+    tl.call(say("Lena is typing"), null, "<0.6"); on1(">"); tl.to({}, { duration: 0.7 }); off(); tl.call(show(m3), null, "<");
     // the talk is over: the search card tucks back under the panel's foot, then everything is plain layout again
     tl.call(() => { lift = 0; pose(0.6); }, null, "+=0.35")
       .call(() => { done = true; gsap.set([bg, typing, search], { clearProps: "transform" }); btn && btn.classList.add("is-invite"); }, null, "+=0.65");

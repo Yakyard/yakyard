@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<p align="center"><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4"><img src="docs/media/yakyard-demo.gif" width="880" alt="Yakyard in the live demo: a voice note plays in the #launch channel and its written transcript opens underneath"></a><br><sub><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4">Watch the 80-second tour</a></sub></p>
+<p align="center"><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4"><img src="docs/media/yakyard-demo.gif" width="880" alt="Yakyard in the live demo: a voice note plays in the #launch channel and its written transcript opens underneath"></a><br><sub><a href="https://yakyard.pages.dev/media/yakyard-demo.mp4">Watch the 84-second tour, with sound</a></sub></p>
 
 <p align="center"><b>Yakyard</b> is a free Slack alternative you run on your own Cloudflare account.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
 

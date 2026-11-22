@@ -717,8 +717,14 @@ p { margin: 0; text-wrap: pretty; }
 .rel-new:first-child { margin-top: 0; }
 .rel-hero__grid .btn-row { margin-top: 28px; }
 
-/* 80-second tour video on the home page */
+/* the tour video on the home page, with its "Play with sound" button */
 .tour { padding-bottom: 0; }
-.tour__frame { margin: 0; border-radius: 16px; border: 2px solid var(--night); box-shadow: var(--hi), var(--sh-2); overflow: hidden; background: var(--paper); }
+.tour__frame { position: relative; margin: 0; border-radius: 16px; border: 2px solid var(--night); box-shadow: var(--hi), var(--sh-2); overflow: hidden; background: var(--paper); }
 @media (prefers-color-scheme: dark) { .tour__frame { border-color: #2e2963; } }
 .tour__video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; background: var(--paper); }
+.tour__sound { position: absolute; top: 14px; left: 14px; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px 0 14px; border-radius: 999px; border: 2px solid var(--night); background: var(--indigo); color: var(--on-indigo); font-weight: 700; font-size: 15px; line-height: 1; font-family: inherit; cursor: pointer; box-shadow: var(--sh-2); transition: transform .15s var(--ease); }
+.tour__sound[hidden] { display: none; }
+.tour__sound .ic { width: 20px; height: 20px; }
+.tour__sound:hover { transform: translateY(-1px); }
+.tour__sound:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+@media (max-width: 560px) { .tour__sound { top: 8px; left: 8px; min-height: 40px; font-size: 14px; padding: 0 14px 0 10px; } }

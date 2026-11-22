@@ -2,11 +2,13 @@
 // prices and limits from docs/sources.md (checked 21 November 2026).
 
 import { readFileSync } from "node:fs";
-import { yakMark } from "./icons.mjs";
+import { yakMark, icon as svgIcon } from "./icons.mjs";
 
 const SLACK = { y: 7.25, m: 8.75 };
-// The yak's voice clips (site/static/audio) and their word timings, made by site/tools/yak_voice.py with Kokoro-82M.
+// The home page voice clips (site/static/audio: the yak's lines and Marco's voice note) and their word timings, made by site/tools/yak_voice.py with Kokoro-82M.
 const VOICE = JSON.parse(readFileSync(new URL("./voice.json", import.meta.url), "utf8"));
+// The tour video starts muted when it scrolls into view; this puts its voiceover one tap away. Shown by site.js.
+const TOUR_SOUND = `<button class="tour__sound" type="button" hidden data-tour-sound>${svgIcon("speaker-high", "ic")}<span>Play with sound</span></button>`;
 
 export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSION }) {
   const pro = [
@@ -99,15 +101,16 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
 <section class="sec tour" id="tour" aria-labelledby="tour-title">
   <div class="wrap">
     <div class="sec__head">
-      <h2 class="d-l" id="tour-title">80 seconds in the real app.</h2>
-      <p>Recorded in the live demo, no mockups: a voice note and its transcript, a reply in a thread, a reaction, search and the Yaky theme. Then <a href="https://yakyard-demo.qvinta.workers.dev">try it yourself</a>.</p>
+      <h2 class="d-l" id="tour-title">84 seconds in the real app.</h2>
+      <p>Recorded in the live demo, no mockups, with a voiceover: a voice note and its transcript, a reply in a thread, a reaction, search and the Yaky theme. Turn the sound on, then <a href="https://yakyard-demo.qvinta.workers.dev">try it yourself</a>.</p>
     </div>
     <figure class="tour__frame">
       <video class="tour__video" controls muted playsinline preload="none" width="1920" height="1080" poster="/media/yakyard-demo-poster.webp" data-tour aria-describedby="tour-cap">
         <source src="/media/yakyard-demo.mp4" type="video/mp4">
-        <a href="/media/yakyard-demo.mp4">Download the 80-second tour (MP4, 6 MB)</a>
+        <a href="/media/yakyard-demo.mp4">Download the 84-second tour with sound (MP4, 3.5 MB)</a>
       </video>
-      <figcaption class="sr" id="tour-cap">A tour of the Yakyard live demo with captions: one click into the demo, the #launch channel, a voice note playing with its transcript, a reply in a thread, a reaction, a search for "glaze" that finds the voice note, the Yaky theme, the same channel on a phone, and the GitHub address.</figcaption>
+      ${TOUR_SOUND}
+      <figcaption class="sr" id="tour-cap">A tour of the Yakyard live demo with captions and a spoken voiceover: one click into the demo, the #launch channel, a voice note playing with its transcript, a reply in a thread, a reaction, a search for "glaze" that finds the voice note, the Yaky theme, the same channel on a phone, and the GitHub address.</figcaption>
     </figure>
   </div>
 </section>
@@ -458,14 +461,13 @@ function chat(icon) {
   const bars = note.bars.map((h) => `<i style="transform:scaleY(${h})"></i>`).join("");
   const msg = (who, init, cls, time, text) => `<li class="msg"><span class="av ${cls}" aria-hidden="true">${init}</span><div class="msg__body"><p class="msg__who"><b>${who}</b> <time>${time}</time></p><p class="msg__text">${text}</p></div></li>`;
   return `<div class="chat" id="chat" data-dur="${note.dur}">
-        <div class="chat__bar"><b># launch</b><span>Lena, Marco and the yak</span></div>
+        <div class="chat__bar"><b># launch</b><span>Lena and Marco</span></div>
         <ol class="chat__log" aria-label="Sample conversation in the #launch channel">
           ${msg("Lena Brandt", "L", "av--l", "9:41", "Homepage draft is up. Thoughts before lunch?")}
-          ${msg("Marco Ruiz", "M", "av--m", "9:42", "Love it. Can the $0 be bigger?")}
-          <li class="msg msg--yak"><span class="av av--yak" aria-hidden="true">${yakMark({ cls: "yak__svg yak-av" })}</span><div class="msg__body"><p class="msg__who"><b>The yak</b> <time>9:43</time></p>
-            <div class="vn"><button class="vn__play" type="button" aria-label="Play the yak's voice note, ${secs} seconds" aria-pressed="false">${icon("play", "ic ic-play")}${icon("pause", "ic ic-pause")}</button><span class="vn__wave" aria-hidden="true">${bars}</span><span class="vn__time">0:0${secs}</span></div>
+          <li class="msg msg--vn"><span class="av av--m" aria-hidden="true">M</span><div class="msg__body"><p class="msg__who"><b>Marco Ruiz</b> <time>9:52</time></p>
+            <div class="vn"><button class="vn__play" type="button" aria-label="Play Marco's voice note, ${secs} seconds" aria-pressed="false">${icon("play", "ic ic-play")}${icon("pause", "ic ic-pause")}</button><span class="vn__wave" aria-hidden="true">${bars}</span><span class="vn__time">0:${String(secs).padStart(2, "0")}</span></div>
             <p class="vn__tx"><span class="vn__label">Transcript</span> ${words}</p></div></li>
-          ${msg("Lena Brandt", "L", "av--l", "9:44", "Listened on the train. Ship it.")}
+          ${msg("Lena Brandt", "L", "av--l", "10:05", "Did both. Bigger $0, demo button under the headline. Shipping it.")}
         </ol>
         <p class="chat__typing" aria-hidden="true"><span class="tdots"><i></i><i></i><i></i></span><span class="chat__who">Marco is typing</span></p>
       </div>`;
@@ -597,9 +599,10 @@ docker compose up -d</code></pre>
       <figure class="rel-shot tour__frame">
         <video class="tour__video" controls muted playsinline preload="none" width="1920" height="1080" poster="/media/yakyard-demo-poster.webp" data-tour aria-describedby="rel-tour-cap">
           <source src="/media/yakyard-demo.mp4" type="video/mp4">
-          <a href="/media/yakyard-demo.mp4">Download the 80-second tour (MP4, 6 MB)</a>
+          <a href="/media/yakyard-demo.mp4">Download the 84-second tour with sound (MP4, 3.5 MB)</a>
         </video>
-        <figcaption class="sr" id="rel-tour-cap">An 80-second tour of the live demo, with captions: a voice note and its transcript, a reply in a thread, a reaction, search, the Yaky theme and the same channel on a phone.</figcaption>
+        ${TOUR_SOUND}
+        <figcaption class="sr" id="rel-tour-cap">An 84-second tour of the live demo, with captions and a spoken voiceover: a voice note and its transcript, a reply in a thread, a reaction, search, the Yaky theme and the same channel on a phone.</figcaption>
       </figure>
     </div>
   </div>
