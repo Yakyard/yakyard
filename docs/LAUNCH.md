@@ -1,3 +1,7 @@
+<!-- nav -->
+<p><a href="../README.md"><img src="brand/yakyard-app-icon.svg" width="20" height="20" alt="Yakyard" align="top"></a>&nbsp; <a href="../README.md"><b>Yakyard</b></a> &nbsp;/&nbsp; <a href="WHY-YAKYARD.md">Why</a> · <a href="PROS-AND-CONS.md">Pros and cons</a> · <a href="COMPARE.md">Compare</a> · <a href="FAQ.md">FAQ</a> · <a href="SETUP.md">Setup</a> · <a href="GUIDE.md">Guide</a> · <a href="TECHNICAL.md">Technical</a> · <a href="PRESS-KIT.md">Press kit</a></p>
+<!-- /nav -->
+
 # Launch kit
 
 Ready-to-post drafts for telling people about Yakyard, plus a plan for launch day and the month after. Every claim in these drafts is in the [README](../README.md) or [sources](sources.md). Before posting, check three things are still true: the prices in [sources](sources.md), the repository address, and each community's current rules.

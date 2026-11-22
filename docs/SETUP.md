@@ -1,3 +1,7 @@
+<!-- nav -->
+<p><a href="../README.md"><img src="brand/yakyard-app-icon.svg" width="20" height="20" alt="Yakyard" align="top"></a>&nbsp; <a href="../README.md"><b>Yakyard</b></a> &nbsp;/&nbsp; <a href="WHY-YAKYARD.md">Why</a> · <a href="PROS-AND-CONS.md">Pros and cons</a> · <a href="COMPARE.md">Compare</a> · <a href="FAQ.md">FAQ</a> · <b>Setup</b> · <a href="GUIDE.md">Guide</a> · <a href="TECHNICAL.md">Technical</a> · <a href="PRESS-KIT.md">Press kit</a></p>
+<!-- /nav -->
+
 # Set up Yakyard, free
 
 This guide puts Yakyard on your own Cloudflare account. You don't need to know how to code. You type a few commands, one at a time, and copy what the screen tells you.

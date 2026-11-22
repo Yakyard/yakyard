@@ -1,11 +1,19 @@
-<p align="center"><img src="docs/wordmark.png" width="380" alt="Yakyard"></p>
-
-<h3 align="center">Yak all you want. Pay nobody.</h3>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme-banner-dark.png">
+    <img src="docs/brand/readme-banner-light.png" width="880" alt="Yakyard. Yak all you want. Pay nobody.">
+  </picture>
+</p>
 
 <p align="center">Team chat you run on your own Cloudflare account, free.<br>Channels, threads, DMs, calls and voice notes with transcripts. No per-seat bill.</p>
 
 <p align="center">
   <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/yakyard/yakyard/actions/workflows/ci.yml"><img src="https://github.com/yakyard/yakyard/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-2B1BD6" alt="License: PolyForm Shield 1.0.0"></a>
 </p>
 
 <p align="center">
@@ -16,7 +24,7 @@
   <a href="LICENSE.md">License</a>
 </p>
 
-<p align="center"><img src="docs/screens/hero-light.png" alt="A Yakyard channel in the light theme: a shared design with reactions and a three-reply thread, and a voice note with its transcript" width="860"></p>
+<p align="center"><img src="docs/screens/hero-light.png" width="880" alt="A Yakyard channel in the light theme: a shared design with reactions, a three-reply thread, and a voice note with its transcript"></p>
 
 ---
 
@@ -38,8 +46,6 @@ It started as an internal tool. It's built for and used every day by a real team
 
 <p align="center"><img src="docs/screens/voice-note-transcript.png" alt="A voice note with a play button, a waveform and its full transcript" width="420"></p>
 
-<p align="center"><img src="docs/screens/desktop-dark.png" alt="The dark theme: a link, a mention and a voice note in a channel" width="760"></p>
-
 **Find it later.** Search covers messages and voice transcripts, with `from:`, `in:`, `has:`, `before:` and `after:` filters. Activity, Threads, Mentions, Files and Later pages keep the rest in reach.
 
 <p align="center"><img src="docs/screens/search-voice.png" alt="Search for has:voice, showing two voice notes matched by their transcripts" width="760"></p>
@@ -53,6 +59,8 @@ It started as an internal tool. It's built for and used every day by a real team
 **Make it yours.** Three themes: Light, Dark and Yaky, the loud one. Each person picks their own.
 
 <p align="center"><img src="docs/screens/hero-yaky.png" alt="The Yaky theme: indigo frame, yellow highlights" width="760"></p>
+
+<p align="center"><img src="docs/screens/desktop-dark.png" alt="The dark theme: a link, a mention and a voice note in a channel" width="760"></p>
 
 **Bring people in, keep others out.** Invite links, passwords, or Sign in with Google limited to your company domain. Guests (clients, freelancers) only see the channels you give them.
 

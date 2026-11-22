@@ -1,3 +1,7 @@
+<!-- nav -->
+<p><a href="../README.md"><img src="brand/yakyard-app-icon.svg" width="20" height="20" alt="Yakyard" align="top"></a>&nbsp; <a href="../README.md"><b>Yakyard</b></a> &nbsp;/&nbsp; <a href="WHY-YAKYARD.md">Why</a> · <a href="PROS-AND-CONS.md">Pros and cons</a> · <a href="COMPARE.md">Compare</a> · <a href="FAQ.md">FAQ</a> · <a href="SETUP.md">Setup</a> · <a href="GUIDE.md">Guide</a> · <a href="TECHNICAL.md">Technical</a> · <a href="PRESS-KIT.md">Press kit</a></p>
+<!-- /nav -->
+
 # Sources
 
 Every price, limit and license in the Yakyard docs comes from one of the pages below. All were checked on **21 November 2026**. Prices are in US dollars, before tax, and can change at any time. If you spot one that's out of date, [open an issue](https://github.com/yakyard/yakyard/issues/new/choose) and we'll fix it.

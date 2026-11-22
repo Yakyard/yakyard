@@ -1,3 +1,7 @@
+<!-- nav -->
+<p><a href="../README.md"><img src="brand/yakyard-app-icon.svg" width="20" height="20" alt="Yakyard" align="top"></a>&nbsp; <a href="../README.md"><b>Yakyard</b></a> &nbsp;/&nbsp; <a href="WHY-YAKYARD.md">Why</a> · <a href="PROS-AND-CONS.md">Pros and cons</a> · <a href="COMPARE.md">Compare</a> · <a href="FAQ.md">FAQ</a> · <a href="SETUP.md">Setup</a> · <a href="GUIDE.md">Guide</a> · <a href="TECHNICAL.md">Technical</a> · <b>Press kit</b></p>
+<!-- /nav -->
+
 # Yakyard press kit
 
 Everything you need to write about Yakyard or show it. Use it freely for articles, reviews, videos and talks.
@@ -51,7 +55,7 @@ All files are SVG in [`docs/brand/`](brand/). Usage notes are in [`docs/brand/RE
 | [`yakyard-app-icon.svg`](brand/yakyard-app-icon.svg) | Avatars, favicons, social profile pictures | Any |
 | [`yakyard-mark.svg`](brand/yakyard-mark.svg) | The horned bubble alone, for stickers and small spots | Light or dark |
 
-A PNG wordmark is at [`docs/wordmark.png`](wordmark.png), and app icons at 180, 192 and 512 px are in [`public/brand/`](../public/brand/).
+A PNG wordmark is at [`docs/wordmark.png`](wordmark.png), and app icons at 180, 192 and 512 px are in [`public/brand/`](../public/brand/). The social preview card (1280 × 640) is [`docs/brand/social-preview.png`](brand/social-preview.png), and the README banner is in [`docs/brand/`](brand/) in light and dark.
 
 **Please:**
 - Keep one horn height of clear space around the logo.
