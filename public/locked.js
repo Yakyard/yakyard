@@ -60,7 +60,7 @@ export function setup(helpers) {
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
     if (hash !== man.files['yakyard-crypto_bg.wasm']) throw new Error('The locking code on this server does not match its own manifest.');
     await init({ module_or_path: bytes });
-    checkCode(man);
+    checkCode(man).catch(() => {});
     const store = await openStore(X.S.me.id);
     L = createLock({ api: X.api, store, wasm: W, me: X.S.me.id, label: deviceLabel() });
     L.store = store;
@@ -79,11 +79,14 @@ function deviceLabel() {
 }
 // "Security code": a short fingerprint of the locking code this server sends. If it changes without an
 // update you expected, someone changed it. Release notes list the code of each version (docs/E2EE-HASHES.md).
-export function securityCode(man) {
-  return Object.keys(man.files).sort().map((k) => man.files[k]).join('').slice(0, 16).toUpperCase().match(/.{4}/g).join('-');
+// Same as securityCode in scripts/lock-sync.mjs: SHA-256 over "name:hash" lines, first 64 bits.
+export async function securityCode(man) {
+  const text = Object.keys(man.files).sort().map((k) => `${k}:${man.files[k]}\n`).join('');
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+  return [...d.slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase().match(/.{4}/g).join('-');
 }
-function checkCode(man) {
-  const code = securityCode(man), was = localStorage.getItem('yy-lock-code');
+async function checkCode(man) {
+  const code = await securityCode(man), was = localStorage.getItem('yy-lock-code');
   localStorage.setItem('yy-lock-code', code);
   if (was && was !== code) {
     const { h } = X;

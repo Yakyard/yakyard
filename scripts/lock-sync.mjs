@@ -21,8 +21,10 @@ export function manifest() {
   files['locked.js'] = sha(readFileSync(join(root, 'public/locked.js')));
   return { name: 'yakyard-lock', version: JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, files };
 }
+// SHA-256 over "name:hash" lines of every file, first 64 bits, in four groups. Any file changing changes it.
 export function securityCode(man) {
-  return Object.keys(man.files).sort().map((k) => man.files[k]).join('').slice(0, 16).toUpperCase().match(/.{4}/g).join('-');
+  const text = Object.keys(man.files).sort().map((k) => `${k}:${man.files[k]}\n`).join('');
+  return createHash('sha256').update(text).digest('hex').slice(0, 16).toUpperCase().match(/.{4}/g).join('-');
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

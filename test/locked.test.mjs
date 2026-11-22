@@ -180,3 +180,11 @@ test('public/lock matches packages/yakyard-lock (release manifest is current)', 
   const man = manifest();
   assert.deepEqual(JSON.parse(readFileSync(new URL('../public/lock/manifest.json', import.meta.url), 'utf8')), man);
 });
+
+test('docs/E2EE-HASHES.md lists this release and its security code', async () => {
+  const { manifest, securityCode } = await import('../scripts/lock-sync.mjs');
+  const doc = readFileSync(new URL('../docs/E2EE-HASHES.md', import.meta.url), 'utf8');
+  const man = manifest();
+  assert.ok(doc.includes(securityCode(man)), 'run npm run lock:sync');
+  for (const h of Object.values(man.files)) assert.ok(doc.includes(h));
+});

@@ -19,7 +19,7 @@
     "cpu-bench": "node scripts/cpu-bench.mjs",
     "site:build": "node site/build.mjs",
     "site:deploy": "npm run site:build && wrangler deploy --config site/wrangler.jsonc",
-    "lock:sync": "node scripts/lock-sync.mjs",
+    "lock:sync": "node scripts/lock-sync.mjs && node scripts/lock-hashes.mjs",
     "lock:build": "npm --prefix packages/yakyard-lock run build:wasm && node scripts/lock-sync.mjs",
     "lock:verify": "node scripts/lock-verify.mjs"
   },
