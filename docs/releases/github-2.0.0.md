@@ -1,5 +1,3 @@
-<p align="center"><a href="https://yakyard.pages.dev/releases/2.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/brand/release-v2.png" width="100%" alt="Yakyard 2.0.0"></a></p>
-
 <a href="https://yakyard.pages.dev/releases/2.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/releases/img/v2-1.png" width="100%" alt="Lock what's private. Lock a DM or private channel, and only the people in it can read it."></a>
 <a href="https://yakyard.pages.dev/releases/2.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/releases/img/v2-2.png" width="100%" alt="Some talks belong to the people in them: two approvals, a recovery key, the owner decides, and the app says what works differently."></a>
 <a href="https://yakyard.pages.dev/releases/2.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/releases/img/v2-3.png" width="100%" alt="Before you lock: what the server still sees and what happens if you lose your recovery key."></a>

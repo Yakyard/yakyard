@@ -1,5 +1,3 @@
-<p align="center"><a href="https://yakyard.pages.dev/releases/1.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/brand/release-v1.png" width="100%" alt="Yakyard 1.0.0"></a></p>
-
 <a href="https://yakyard.pages.dev/releases/1.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/releases/img/v1-1.png" width="100%" alt="Yak all you want. Pay nobody. Team chat you run on your own Cloudflare account."></a>
 <a href="https://yakyard.pages.dev/releases/1.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/releases/img/v1-2.png" width="100%" alt="Talk the way you already do: voice notes, phones, search and the Slack import."></a>
 <a href="https://yakyard.pages.dev/releases/1.0.0"><img src="https://raw.githubusercontent.com/yakyard/yakyard/main/docs/releases/img/v1-3.png" width="100%" alt="Run it without a server, and what's worth knowing."></a>
