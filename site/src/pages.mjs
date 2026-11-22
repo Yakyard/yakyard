@@ -440,3 +440,148 @@ function chat(icon) {
         <p class="chat__typing" aria-hidden="true"><span class="tdots"><i></i><i></i><i></i></span><span class="chat__who">Marco is typing</span></p>
       </div>`;
 }
+
+// Release notes pages, in the home page's design. Same words as docs/releases/*.md.
+export function releasePages({ layout, shot, DEPLOY_URL, REPO }) {
+  const deployBtn = `<a class="btn btn--primary" href="${DEPLOY_URL}">Deploy to Cloudflare</a>`;
+  const v2 = `
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.0.0</span> <strong>The latest release.</strong> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<section class="hero rel-hero" aria-labelledby="rel-title">
+  <div class="wrap">
+    <h1 class="d-xl" id="rel-title"><span class="l">Lock what's</span> <span class="l hot"><span class="stamp">private.</span></span></h1>
+    <div class="rel-hero__grid">
+      <div>
+        <p class="lede">Lock a DM or private channel, and only the people in it can read it. Not your admin, not whoever runs your Cloudflare account, and not us.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="#update">Update to 2.0.0</a><a class="btn btn--ghost" href="/docs/locked">See how locking works</a></div>
+      </div>
+      <div class="rel-shot">${shot("locked-dm", { alt: "A locked DM: a Locked tag in the header, a banner that says only the people here can read it, a photo and a voice note", sz: "(min-width: 960px) 720px, 100vw", eager: true })}</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="why-title">
+  <div class="wrap">
+    <div class="sec__head">
+      <h2 class="d-l" id="why-title">Some talks belong to the people in them.</h2>
+      <p>Pay, hiring, a client's numbers. Until now, anyone with access to your Cloudflare account could read every message. Tick Lock it when you start a DM or a private channel, and messages, edits, reactions, files and voice notes are scrambled on your device before they leave it.</p>
+    </div>
+    <div class="bento">
+      <article class="tile t-thread">
+        <h3>Two approvals, never one click</h3>
+        <p>You read what works and what doesn't and tick I understand. You type the channel name, or lock for a DM. Then a second person agrees: an admin for a channel, everyone in it for a DM. Each step shows up in the conversation.</p>
+        <div class="tile__shot">${shot("guide-locked-step2", { alt: "Step two: type lock to confirm", sz: "(min-width: 960px) 640px, 100vw" })}</div>
+      </article>
+      <article class="tile t-phone">
+        <h3>A recovery key</h3>
+        <p>The first time you lock, you get a recovery key with Copy and Download buttons, then a check that you saved it. On a new phone, type the key, or approve it from a device you already use after you both compare a 20-digit code.</p>
+        <div class="tile__shot">${shot("phone-locked-dm", { alt: "A locked DM on a phone", sz: "210px" })}</div>
+      </article>
+      <article class="tile t-themes">
+        <h3>The owner decides</h3>
+        <p>Locking is off by default. The owner turns it on in Admin, with the same two steps. When you remove someone from a locked channel, the messages after that use new keys they can't open.</p>
+        <div class="tile__shot">${shot("guide-locked-admin-approve", { alt: "An admin approving a locked channel", sz: "(min-width: 960px) 460px, 100vw" })}</div>
+      </article>
+      <article class="tile t-slack">
+        <h3>The app says what works differently</h3>
+        <p>A banner links to What's different here. Search here looks through messages on your own device. Voice notes say why they have no transcript. Link previews are off, and the message box says so. Notifications only say New message in a locked conversation. The Slack import skips locked conversations and tells you why.</p>
+        <div class="tile__shot">${shot("guide-locked-whats-different", { alt: "The What's different here panel", sz: "(min-width: 960px) 640px, 100vw" })}</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="sec band" aria-labelledby="know-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="know-title">Before you lock.</h2></div>
+    <ul class="rel-list">
+      <li>If you lose every device and your recovery key, your locked messages are gone for good. Nobody can bring them back, your admin included.</li>
+      <li>The server still sees who is in a locked conversation, who writes and when, and how big the files are. It never sees what anyone writes.</li>
+      <li>A locked conversation stays locked. Calls work as usual, but the lock doesn't cover them.</li>
+      <li>Outside experts audited the encryption library underneath. Yakyard's own code around it hasn't had an outside audit yet, and we've <a href="/docs/locked/audit">applied for one</a>.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="hood-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="hood-title">Under the hood.</h2><p>For the people who check these things.</p></div>
+    <ul class="rel-list">
+      <li>Olm and Megolm from vodozemac 0.11.2, the library behind Element's encryption. It's Apache-2.0, was audited by Least Authority in 2022, and runs as WebAssembly: 131 KB gzipped, loaded only when you open a locked conversation. All of it runs in the browser, so Yakyard still fits Cloudflare's free plan.</li>
+      <li>The locking package is Apache-2.0, so anyone can read and reuse it: <code>packages/yakyard-lock</code>.</li>
+      <li>A web app gets its code from its server. Yakyard shows a security code that changes whenever the locking code does, and <code>npm run lock:verify</code> checks a running server against <a href="/docs/locked/hashes">this release's hashes</a>.</li>
+      <li>CodeQL, Semgrep, OpenSSF Scorecard and Dependabot now check every change. The full design and threat model are in <a href="/docs/locked">Locked conversations</a>.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec install band" id="update" aria-labelledby="update-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="update-title">Update.</h2><p>The update adds the new tables by itself. Then, as the owner, open Admin, go to Locked conversations and choose Turn on.</p></div>
+    <div>
+      <pre class="rel-code"><code>npm run backup
+npm run update</code></pre>
+      <p class="rel-new">New to Yakyard? Setup takes about 30 minutes, no coding.</p>
+      <div class="btn-row">${deployBtn}<a class="btn btn--ghost" href="/docs/setup">Read the setup guide</a></div>
+    </div>
+  </div>
+</section>`;
+
+  const v1 = `
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See what's new in 2.0.0</a></p></div></aside>
+<section class="hero rel-hero" aria-labelledby="rel-title">
+  <div class="wrap">
+    <h1 class="d-xl" id="rel-title"><span class="l">Yak all you want.</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
+    <div class="rel-hero__grid">
+      <div>
+        <p class="lede">Team chat you run on your own Cloudflare account. Free for teams of up to about 50 people. No per-seat bill, no server to look after.</p>
+        <div class="btn-row">${deployBtn}<a class="btn btn--ghost" href="/docs/setup">Read the setup guide</a></div>
+      </div>
+      <div class="rel-shot">${shot("hero-light", { alt: "Yakyard in a browser: a channel with messages, a thread, reactions and a voice note", sz: "(min-width: 960px) 720px, 100vw", eager: true })}</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="in-title">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="d-l" id="in-title">Talk the way you already do.</h2><p>Public and private channels, threads, DMs and group messages, mentions, reactions and pins. Buttons for bold, lists, quotes and code. Files, photos and videos up to 1 GB, with link previews.</p></div>
+    <div class="bento">
+      <article class="tile t-thread">
+        <h3>Talk out loud</h3>
+        <p>Voice notes up to 15 minutes with a live waveform. Each gets a written transcript (Whisper on Cloudflare Workers AI) you can search. Pop in starts a call in any channel or DM, with camera and screen share.</p>
+        <div class="tile__shot">${shot("voice-note-transcript", { alt: "A voice note with its transcript", sz: "(min-width: 960px) 640px, 100vw" })}</div>
+      </article>
+      <article class="tile t-phone">
+        <h3>Take it everywhere</h3>
+        <p>Installs like an app on iPhone, Android, Mac and Windows, with push notifications, quiet hours, muted channels and VIPs.</p>
+        <div class="tile__shot">${shot("phone-yaky-channel", { alt: "A channel on a phone in the Yaky theme", sz: "210px" })}</div>
+      </article>
+      <article class="tile t-themes">
+        <h3>Find it later</h3>
+        <p>Search with from:, in:, has:, before: and after:. Activity, Threads, Mentions, Files and Later each get a page. Schedule messages, set reminders, save things for Later.</p>
+        <div class="tile__shot">${shot("search-voice", { alt: "Search results with filters", sz: "(min-width: 960px) 460px, 100vw" })}</div>
+      </article>
+      <article class="tile t-slack">
+        <h3>Leave Slack with your history</h3>
+        <p>Each person copies their own Slack DMs, group messages and private channels, with files and reactions. Invite links, Sign in with Google for your domain, and guests who only see the channels you give them.</p>
+        <div class="tile__shot">${shot("slack-import", { alt: "The Import from Slack page after a finished import", sz: "(min-width: 960px) 640px, 100vw" })}</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="sec band" aria-labelledby="run-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="run-title">Run it without a server.</h2><p>Deploy with one command or the button. Updates, backups and restores are one command each. Every request fits in Cloudflare's free 10 ms of CPU, and each background job gets its own.</p></div>
+    <ul class="rel-list">
+      <li>Cloudflare only. There's no App Store app (it's an installable web app) and no support contract.</li>
+      <li>Messages are readable to whoever controls your Cloudflare account. Locked, end-to-end encrypted conversations came later, in <a href="/releases/2.0.0">2.0.0</a>.</li>
+      <li>Calls suit small groups. Slack's public channel history stays in Slack.</li>
+      <li>Free and source-available under PolyForm Shield 1.0.0: any business can use it, and nobody can resell it.</li>
+    </ul>
+  </div>
+</section>`;
+  return [
+    ["/releases/2.0.0", layout({ title: "Yakyard 2.0.0: locked conversations", description: "Yakyard 2.0.0 lets you lock a DM or private channel so only the people in it can read it.", urlPath: "/releases/2.0.0", og: "home", body: v2 })],
+    ["/releases/1.0.0", layout({ title: "Yakyard 1.0.0", description: "The first Yakyard release: free team chat on your own Cloudflare account.", urlPath: "/releases/1.0.0", og: "home", body: v1 })],
+  ];
+}

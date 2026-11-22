@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Marked } from "marked";
 import { icon, yakMark } from "./src/icons.mjs";
-import { homePage, pressPage, docsHubPage, notFoundPage } from "./src/pages.mjs";
+import { homePage, pressPage, docsHubPage, notFoundPage, releasePages } from "./src/pages.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
@@ -328,7 +328,7 @@ async function main() {
   }, null, 2));
 
   const ctx = { layout, shot, esc, icon, DEPLOY_URL, REPO };
-  const pages = [["/", homePage(ctx)], ["/docs", docsHubPage(ctx)], ["/press", pressPage(ctx)], ["/404", notFoundPage(ctx)]];
+  const pages = [["/", homePage(ctx)], ["/docs", docsHubPage(ctx)], ["/press", pressPage(ctx)], ["/404", notFoundPage(ctx)], ...releasePages(ctx)];
   for (const [file, meta] of Object.entries(DOCS)) pages.push([meta.out, await buildDoc(file, meta)]);
   for (const [p, html] of pages) {
     if (/[—–]/.test(html.replace(/<pre[\s\S]*?<\/pre>/g, ""))) console.warn(`  note: ${p} contains an em or en dash`);
