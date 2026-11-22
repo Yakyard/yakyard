@@ -1,6 +1,6 @@
 {
   "name": "yakyard",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Self-hosted team chat on Cloudflare: channels, threads, DMs, calls, voice notes with transcripts.",
   "type": "module",
@@ -15,10 +15,13 @@
     "signin-link": "node scripts/signin-link.mjs",
     "vapid": "node scripts/vapid.mjs",
     "cpu-check": "node scripts/cpu-check.mjs",
-    "test": "node --test test/*.test.mjs && python3 test/security.py",
+    "test": "node --test test/*.test.mjs packages/yakyard-lock/test/*.test.mjs && node scripts/lock-sync.mjs --check && python3 test/security.py",
     "cpu-bench": "node scripts/cpu-bench.mjs",
     "site:build": "node site/build.mjs",
-    "site:deploy": "npm run site:build && wrangler deploy --config site/wrangler.jsonc"
+    "site:deploy": "npm run site:build && wrangler deploy --config site/wrangler.jsonc",
+    "lock:sync": "node scripts/lock-sync.mjs",
+    "lock:build": "npm --prefix packages/yakyard-lock run build:wasm && node scripts/lock-sync.mjs",
+    "lock:verify": "node scripts/lock-verify.mjs"
   },
   "devDependencies": {
     "marked": "^18.2.1",

@@ -399,6 +399,86 @@ with sync_playwright() as p:
     check('L2 guest does not see people they share nothing with', gpres and lon_id not in gpres[-1]['online'] and me in gpres[-1]['online'], gpres[-1:] if gpres else None)
     br.close()
 
+# ---------------- locked conversations (end-to-end encrypted): the server only ever holds ciphertext
+lk = {}
+for em, nm in [('lka@example.com', 'Lina'), ('lkb@example.com', 'Milo'), ('lkc@example.com', 'Nora')]:
+    rr = invite(owner, em, name=nm); lk[nm] = (join(rr.json()['link'], nm, nm.lower() + 'password1'), rr.json()['id'])
+(la, la_id), (lb, lb_id), (lc, lc_id) = lk['Lina'], lk['Milo'], lk['Nora']
+r = api(la, 'POST', '/api/dm', {'user_ids': [lb_id], 'lock': True})
+check('LOCK off by default: nobody can lock a conversation', r.status_code == 403, r.text)
+check('LOCK only the owner turns it on', api(la, 'POST', '/api/e2ee/allow', {'on': True, 'confirm': 'lock'}).status_code == 403)
+check('LOCK owner must type the confirmation', api(owner, 'POST', '/api/e2ee/allow', {'on': True}).status_code == 400)
+check('LOCK owner turns it on', api(owner, 'POST', '/api/e2ee/allow', {'on': True, 'confirm': 'lock'}).status_code == 200)
+ldm = api(la, 'POST', '/api/dm', {'user_ids': [lb_id], 'lock': True}).json()
+check('LOCK DM waits for the other person', ldm.get('locked') == 2, ldm)
+check('LOCK nobody posts while waiting', api(la, 'POST', f"/api/channels/{ldm['id']}/messages", {'enc': '{"v":1}'}).status_code == 403)
+check('LOCK the other person accepts, then it locks', api(lb, 'POST', f"/api/channels/{ldm['id']}/lock/accept", {}).json().get('locked') == 1)
+lch = api(la, 'POST', '/api/channels', {'name': 'lk-room', 'lock': True}).json()
+check('LOCK channel waits for an admin and is private', lch.get('locked') == 2 and lch.get('private') == 1, lch)
+check('LOCK a member cannot approve a channel', api(la, 'POST', f"/api/channels/{lch['id']}/lock/approve", {}).status_code == 403)
+check('LOCK the owner approves the channel', api(owner, 'POST', f"/api/channels/{lch['id']}/lock/approve", {}).json().get('locked') == 1)
+api(la, 'POST', f"/api/channels/{lch['id']}/members", {'user_ids': [lb_id, lc_id]})
+check('LOCK plaintext is refused in a locked conversation', api(la, 'POST', f"/api/channels/{ldm['id']}/messages", {'text': 'plain'}).status_code == 400)
+check('LOCK scheduled messages are refused', api(la, 'POST', '/api/scheduled', {'channel_id': ldm['id'], 'text': 'x', 'send_at': int(time.time() * 1000) + 3600e3}).status_code == 400)
+check('LOCK a locked channel cannot be made public', api(owner, 'POST', f"/api/channels/{lch['id']}/manage", {'private': False}).status_code == 400)
+
+ENGINE = """async (me) => {
+  const L = await import('/lock/lock.js'), St = await import('/lock/store-idb.js'), W = await import('/lock/yakyard-crypto.js');
+  await W.default({ module_or_path: '/lock/yakyard-crypto_bg.wasm' });
+  const api = async (p, o = {}) => { const r = await fetch(p, { method: o.method || 'GET', headers: o.body ? { 'content-type': 'application/json' } : {}, body: o.body ? JSON.stringify(o.body) : undefined }); const d = await r.json(); if (!r.ok) throw new Error(d.error || r.status); return d; };
+  window.L = L.createLock({ api, store: await St.openStore(me), wasm: W, me }); await window.L.load(); window.LIB = L; return true; }"""
+SEND = """async ([cid, text]) => { const r = await window.L.encryptFor(cid, { t: text });
+  const res = await fetch(`/api/channels/${cid}/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enc: r.enc }) }); return (await res.json()).id; }"""
+READ = "async ([cid, from, enc, mid]) => window.L.decrypt(cid, from, enc, mid)"
+with sync_playwright() as p:
+    br = p.chromium.launch()
+    def dev(sess, me):
+        c = br.new_context(); c.add_cookies([{'name': 'yy_session', 'value': sess.cookies.get('yy_session'), 'domain': 'localhost', 'path': '/'}])
+        pg = c.new_page(); pg.goto(B + '/sw.js'); pg.evaluate(ENGINE, me); return pg
+    pa, pb_, pc_ = dev(la, la_id), dev(lb, lb_id), dev(lc, lc_id)
+    keys = {}
+    for pg, nm in [(pa, 'a'), (pb_, 'b'), (pc_, 'c')]:
+        keys[nm] = pg.evaluate("async () => { const i = await window.L.createIdentity(); await i.commit(); return i.recoveryKey; }")
+    secret = 'the merger closes on friday'
+    mid = pa.evaluate(SEND, [ldm['id'], secret])
+    row = d1(f"SELECT text, enc FROM messages WHERE id='{mid}'")[0]
+    check('LOCK stored row: text empty, ciphertext only', row['text'] == '' and row['enc'] and secret not in row['enc'], row)
+    leak = d1(f"SELECT (SELECT COUNT(*) FROM messages WHERE text LIKE '%merger%' OR enc LIKE '%merger%') m, (SELECT COUNT(*) FROM e2ee_inbox WHERE body LIKE '%merger%') i, (SELECT COUNT(*) FROM e2ee_backup WHERE data LIKE '%merger%') b, (SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH 'merger') f")[0]
+    check('LOCK no plaintext in messages, key relay, backup or search index', leak == {'m': 0, 'i': 0, 'b': 0, 'f': 0}, leak)
+    inbox_bodies = ' '.join(x['body'] for x in d1('SELECT body FROM e2ee_inbox'))
+    check('LOCK key packages on the server are sealed (no keys in the clear)', 'room_key' not in inbox_bodies and '"key"' not in inbox_bodies)
+    r = pb_.evaluate(READ, [ldm['id'], la_id, row['enc'], mid])
+    check('LOCK the other person decrypts it', r.get('ok') and r['data']['t'] == secret, r)
+    # channel: remove Nora, then Lina writes again; Nora's device can't open it
+    m1 = pa.evaluate(SEND, [lch['id'], 'before nora left'])
+    e1 = d1(f"SELECT enc FROM messages WHERE id='{m1}'")[0]['enc']
+    check('LOCK a member reads while in the channel', pc_.evaluate(READ, [lch['id'], la_id, e1, m1]).get('ok') is True)
+    api(owner, 'POST', f"/api/channels/{lch['id']}/remove", {'user_id': lc_id})
+    m2 = pa.evaluate(SEND, [lch['id'], 'after nora left'])
+    e2 = d1(f"SELECT enc FROM messages WHERE id='{m2}'")[0]['enc']
+    check('LOCK removal starts a new session', json.loads(e1)['s'] != json.loads(e2)['s'])
+    r2 = pc_.evaluate("async (a) => { await window.L.processInbox(); return window.L.decrypt(...a); }", [lch['id'], la_id, e2, m2])
+    check('LOCK a removed member cannot decrypt new messages', r2.get('ok') is False, r2)
+    check('LOCK a remaining member still can', pb_.evaluate(READ, [lch['id'], la_id, e2, m2]).get('ok') is True)
+    # a new device for Milo: nothing without the recovery key, everything with it
+    pb2 = dev(lb, lb_id)
+    pb2.evaluate("() => indexedDB.databases().then(() => 0)")
+    pb2.evaluate("async () => window.L.requestApproval()")
+    r3 = pb2.evaluate(READ, [ldm['id'], la_id, row['enc'], mid])
+    check('LOCK a new device without the recovery key cannot read old messages', r3.get('ok') is False, r3)
+    bad = pb2.evaluate("async (k) => { try { await window.L.restore(k); return 'opened'; } catch (e) { return e.message; } }", keys['a'])
+    check("LOCK someone else's recovery key is refused", bad == 'wrong_key', bad)
+    pb2.evaluate("async (k) => window.L.restore(k)", keys['b'])
+    r4 = pb2.evaluate(READ, [ldm['id'], la_id, row['enc'], mid])
+    check('LOCK with the recovery key, the new device reads old messages', r4.get('ok') and r4['data']['t'] == secret, r4)
+    # the server can't add a device of its own to someone's account
+    d1(f"INSERT INTO e2ee_devices (user_id, device_id, curve, ed, sig, created_at) VALUES ('{lb_id}', 'DSERVERFAKE1', '{'Q' * 43}', '{'Q' * 43}', '{'A' * 86}', 0)")
+    pa.evaluate("() => window.L.forgetCaches()")
+    pa.evaluate(SEND, [ldm['id'], 'with a fake device around'])
+    check('LOCK a device without a valid signature gets no keys', not d1("SELECT id FROM e2ee_inbox WHERE device_id='DSERVERFAKE1'"))
+    br.close()
+api(owner, 'POST', '/api/e2ee/allow', {'on': False})
+
 # ---------------- background jobs run by themselves (each its own Durable Object alarm)
 due = int(time.time() * 1000) + 32000
 api(owner, 'POST', '/api/scheduled', {'channel_id': general, 'text': 'sent by its job', 'send_at': due})
