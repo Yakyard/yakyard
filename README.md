@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<p align="center">Team chat you run on your own Cloudflare account, free.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
+<p align="center"><b>Yakyard</b> is a free Slack alternative you run on your own Cloudflare account.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
 
 <p align="center"><b>New in Yakyard 2:</b> locked conversations, end-to-end encrypted. <a href="CHANGELOG.md">What changed</a></p>
 
@@ -20,6 +20,7 @@
 </p>
 
 <p align="center">
+  <a href="https://yakyard.pages.dev/"><b>Website</b></a> ·
   <a href="docs/SETUP.md"><b>Set it up in about 30 minutes</b></a> ·
   <a href="docs/GUIDE.md">See how it works</a> ·
   <a href="docs/FAQ.md">FAQ</a> ·

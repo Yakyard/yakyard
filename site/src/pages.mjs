@@ -8,7 +8,7 @@ const SLACK = { y: 7.25, m: 8.75 };
 // The yak's voice clips (site/static/audio) and their word timings, made by site/tools/yak_voice.py with Kokoro-82M.
 const VOICE = JSON.parse(readFileSync(new URL("./voice.json", import.meta.url), "utf8"));
 
-export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
+export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSION }) {
   const pro = [
     ["$0 for most teams under about 50 people.", "No price per seat, ever. Above that, $5 a month for the whole account."],
     ["Your messages and files live in your own Cloudflare account.", "You back them up, and you can delete all of it."],
@@ -62,13 +62,13 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
   ];
 
   const body = `
-<aside class="v2band" aria-label="Yakyard 2"><div class="wrap"><p><span class="v2band__tag">New</span> <strong>Yakyard 2 is now live.</strong> <span class="v2band__long">Lock a DM or private channel, and only the people in it can read it. Not your admin, not us.</span><span class="v2band__short">Lock a conversation so only the people in it can read it.</span> <a href="/docs/locked">How it works</a> <a href="https://github.com/yakyard/yakyard/releases/tag/v2.0.0">What's new</a></p></div></aside>
+<aside class="v2band" aria-label="Yakyard 2"><div class="wrap"><p><span class="v2band__tag">New</span> <strong>Yakyard 2 is now live.</strong> <span class="v2band__long">Lock a DM or private channel, and only the people in it can read it. Not your admin, not us.</span><span class="v2band__short">Lock a conversation so only the people in it can read it.</span> <a href="/docs/locked">How it works</a> <a href="/releases/2.0.0">What's new</a></p></div></aside>
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
     <h1 class="d-xl" id="hero-title"><span class="l">${"Yak all you want.".split(" ").map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(" ")}</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
     <div class="hero__grid">
       <div class="hero__copy">
-        <p class="lede">Channels, threads, calls, voice notes with transcripts, and locked conversations nobody else can read. On your own Cloudflare account. Nobody pays per seat.</p>
+        <p class="lede">A free Slack alternative you run on your own Cloudflare account. Channels, threads, calls, voice notes with transcripts, and locked conversations nobody else can read. Nobody pays per seat.</p>
         <div class="btn-row">
           <a class="btn btn--primary" href="${DEPLOY_URL}">${icon("cloud-arrow-up")}Deploy to Cloudflare</a>
           <a class="btn btn--ghost" href="/docs/setup">Read the setup guide</a>
@@ -272,15 +272,27 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
 </section>`;
 
   return layout({
-    title: "Yakyard: free, self-hosted team chat on Cloudflare",
+    title: "Yakyard: free Slack alternative on your own Cloudflare account",
     description: "A Slack alternative you run on your own Cloudflare account, free. Channels, threads, DMs, calls and voice notes with transcripts. No per-seat bill.",
     jsonld: {
-      "@context": "https://schema.org", "@type": "SoftwareApplication", name: "Yakyard",
-      applicationCategory: "CommunicationApplication", operatingSystem: "Web, iOS, Android, macOS, Windows (installable web app)",
-      description: "Self-hosted team chat on Cloudflare Workers: channels, threads, DMs, calls and voice notes with transcripts.",
-      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-      license: "https://polyformproject.org/licenses/shield/1.0.0", codeRepository: REPO, url: "/",
-      publisher: { "@type": "Organization", name: "QVINTA Ltd" },
+      "@context": "https://schema.org",
+      "@graph": [
+        { "@type": "WebSite", "@id": `${SITE_URL}/#website`, url: `${SITE_URL}/`, name: "Yakyard", publisher: { "@id": `${SITE_URL}/#org` } },
+        { "@type": "Organization", "@id": `${SITE_URL}/#org`, name: "QVINTA Ltd", address: { "@type": "PostalAddress", addressCountry: "HK" } },
+        { "@type": "SoftwareApplication", "@id": `${SITE_URL}/#app`, name: "Yakyard", url: `${SITE_URL}/`,
+          description: "Free, source-available team chat you deploy to your own Cloudflare account. A Slack alternative with channels, threads, DMs, calls and voice notes with transcripts, plus optional end-to-end encrypted conversations.",
+          applicationCategory: "CommunicationApplication", applicationSubCategory: "Team chat",
+          operatingSystem: "Web, iOS, Android, macOS, Windows (installable web app)",
+          softwareVersion: VERSION, isAccessibleForFree: true,
+          offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+          license: "https://polyformproject.org/licenses/shield/1.0.0",
+          image: `${SITE_URL}/og/home.png`, screenshot: `${SITE_URL}/img/hero-light-1440.webp`,
+          featureList: ["Public and private channels", "Threads", "Direct and group messages", "Voice notes with automatic transcripts", "Calls with screen share", "Search across messages and transcripts", "Slack history import", "Optional end-to-end encrypted conversations", "Installable app for phone and desktop"],
+          publisher: { "@id": `${SITE_URL}/#org` }, sameAs: [REPO] },
+        { "@type": "SoftwareSourceCode", "@id": `${SITE_URL}/#code`, name: "Yakyard source code",
+          codeRepository: REPO, programmingLanguage: "JavaScript", runtimePlatform: "Cloudflare Workers",
+          license: "https://polyformproject.org/licenses/shield/1.0.0", targetProduct: { "@id": `${SITE_URL}/#app` } },
+      ],
     },
     urlPath: "/",
     og: "home",
@@ -311,7 +323,7 @@ export function docsHubPage({ layout, shot, REPO }) {
   </div>
 </div>`;
   return layout({
-    title: "Docs",
+    title: "Docs", seoTitle: "Yakyard docs: setup, guide and technical notes",
     description: "Set up Yakyard on your own Cloudflare account, learn how to use it, and read the technical notes.",
     urlPath: "/docs", og: "docs", body, current: "/docs",
   });
@@ -400,7 +412,7 @@ export function pressPage({ layout, shot, icon, REPO }) {
   </section>
 </div>`;
   return layout({
-    title: "Press kit",
+    title: "Press kit", seoTitle: "Yakyard press kit: logos, screenshots, facts",
     description: "Yakyard logos, colors, screenshots and copy, free to use in articles, reviews, videos and talks.",
     urlPath: "/press", og: "press", body, current: "/press",
   });
@@ -416,7 +428,7 @@ export function notFoundPage({ layout }) {
     <div class="btn-row"><a class="btn btn--primary" href="/">Go to the home page</a><a class="btn btn--ghost" href="/docs">Open the docs</a></div>
   </div>
 </section>`;
-  return layout({ title: "Page not found", description: "This page isn't here.", urlPath: "/404", og: "home", body });
+  return layout({ title: "Page not found", description: "This page isn't here.", urlPath: "/404", og: "home", body, noindex: true });
 }
 
 // A short #launch conversation that plays in when it scrolls into view. Fully readable without JavaScript.
@@ -530,7 +542,7 @@ npm run update</code></pre>
 <aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See what's new in 2.0.0</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
-    <h1 class="d-xl" id="rel-title"><span class="l">Yak all you want.</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
+    <h1 class="d-xl" id="rel-title"><span class="l">Yakyard 1.0.0.</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
     <div class="rel-hero__grid">
       <div>
         <p class="lede">Team chat you run on your own Cloudflare account. Free for teams of up to about 50 people. No per-seat bill, no server to look after.</p>
@@ -581,7 +593,7 @@ npm run update</code></pre>
   </div>
 </section>`;
   return [
-    ["/releases/2.0.0", layout({ title: "Yakyard 2.0.0: locked conversations", description: "Yakyard 2.0.0 lets you lock a DM or private channel so only the people in it can read it.", urlPath: "/releases/2.0.0", og: "home", body: v2 })],
-    ["/releases/1.0.0", layout({ title: "Yakyard 1.0.0", description: "The first Yakyard release: free team chat on your own Cloudflare account.", urlPath: "/releases/1.0.0", og: "home", body: v1 })],
+    ["/releases/2.0.0", layout({ title: "Yakyard 2.0.0: locked conversations", description: "Yakyard 2.0.0 lets you lock a DM or private channel so only the people in it can read it.", urlPath: "/releases/2.0.0", og: "home", ogType: "article", body: v2 })],
+    ["/releases/1.0.0", layout({ title: "Yakyard 1.0.0: the first release", description: "The first Yakyard release: free team chat on your own Cloudflare account.", urlPath: "/releases/1.0.0", og: "home", ogType: "article", body: v1 })],
   ];
 }
