@@ -144,11 +144,11 @@ function footer() {
         <p>Free team chat you run on your own Cloudflare account.</p>
       </div>
       ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"]])}
-      ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/sources", "Sources"]])}
+      ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
       ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE.md`, "License"], ["/press", "Press kit"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
     </div>
     <div class="foot__base">
-      <p><strong>Free forever. Made by QVINTA Ltd.</strong></p>
+      <p><strong>Free to run. Made by QVINTA Ltd.</strong></p>
       <p>Yakyard isn't affiliated with or endorsed by Slack, Salesforce, Cloudflare or any other company named here.</p>
     </div>
   </div>
@@ -178,6 +178,15 @@ const DOCS = {
   "TECHNICAL.md": { out: "/docs/technical", og: "technical", title: "Technical notes", nav: "/docs", toc: true, crumb: true,
     description: "Yakyard's free plan math, deploy, notifications, settings, updates, backups and how it's built.",
     lede: "For whoever runs Yakyard: limits, settings, updates and backups." },
+  "E2EE.md": { out: "/docs/locked", og: "technical", title: "Locked conversations", nav: "/docs", toc: true, crumb: true,
+    description: "How Yakyard's locked conversations work: end-to-end encryption, what the server can and can't see, and the limits.",
+    lede: "Who can read a locked conversation, and what works differently in there." },
+  "E2EE-HASHES.md": { out: "/docs/locked/hashes", og: "technical", title: "Locking code per release", nav: "/docs", crumb: true,
+    description: "The security code of Yakyard's locking code for each release, and how to check it.",
+    lede: "Check the locking code you run is the one we published." },
+  "AUDIT-APPLICATION.md": { out: "/docs/locked/audit", og: "technical", title: "Audit application", nav: "/docs", crumb: true,
+    description: "Yakyard's application for an independent security audit of its locking code.",
+    lede: "Our request for an independent audit of the locking code." },
   "sources.md": { out: "/sources", og: "compare", title: "Sources", nav: "/compare", wide: true,
     description: "Every price, limit and license in the Yakyard docs, with the page it came from. Checked on 21 November 2026.",
     lede: "Every price, limit and license on this site comes from one of these pages." },

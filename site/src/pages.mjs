@@ -17,6 +17,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
     ["Your Slack history comes with you:", "DMs, private channels and files."],
     ["Installs on phone and desktop,", "with push notifications."],
     ["Private channels stay private,", "even from admins."],
+    ["Lock what's private.", "Lock a DM or private channel and only the people in it can read it. Not even the admin."],
     ["One click to deploy.", "No server or Docker to look after."],
     ["Backups are one command,", "to a file you keep."],
     ["Three themes,", "including Yaky, the loud one we made for fun."],
@@ -26,9 +27,9 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
     ["Someone on your team runs it.", "Updates and backups are one command each."],
     ["Cloudflare only.", "It doesn't run on your own server or another cloud."],
     ["No app store app.", "It's an installable web app, with notifications."],
-    ["Not end-to-end encrypted.", "Whoever controls your Cloudflare account can read the data."],
+    ["Only locked conversations are end-to-end encrypted.", "The rest is readable to whoever runs your Cloudflare account. Locked ones have limits, like search only on your device."],
   ];
-  const MQ = ["Channels", "Threads", "DMs", "Voice notes", "Transcripts", "Calls", "Search", "Yak yak yak", "$0 a seat", "Your data, your account"];
+  const MQ = ["Channels", "Threads", "DMs", "Voice notes", "Transcripts", "Calls", "Locked", "Search", "Yak yak yak", "$0 a seat", "Your data, your account"];
   const li = ([b, t]) => `<li><b>${b}</b>${t ? ` ${t}` : ""}</li>`;
 
   const rows = [
@@ -51,7 +52,8 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
   const faq = [
     ["Is it really free?", "The software is free. It runs on Cloudflare's free plan for up to about 50 people. Above that, Cloudflare charges $5 a month for the whole account, not per person."],
     ["Can I use it at work?", "Yes. Any company can run it for its own team, for free. What you can't do is sell Yakyard or offer it as a chat service to others."],
-    ["Who can read our messages?", "People in your workspace, and whoever has access to your Cloudflare account. Messages aren't end-to-end encrypted. Nobody at Yakyard can see them."],
+    ["Who can read our messages?", "People in your workspace, and whoever has access to your Cloudflare account. Nobody at Yakyard can see them."],
+    ["Is it end-to-end encrypted?", `Yes, if you lock the conversation. Locked DMs and private channels are scrambled on each person's device, so only the people in them can read them, not the admin and not us. In there, search only covers your device and voice notes have no transcript. If you lose every device and your recovery key, those messages are gone. <a href="/docs/locked">How it works</a>.`],
     ["Is there a phone app?", "Yakyard installs from the browser on iPhone and Android, with its own icon and notifications. There's no App Store or Play Store app."],
     ["What happens to our Slack history?", "Each person copies their own Slack DMs, group messages and private channels, with files. Public channel history stays in Slack."],
     ["What if Yakyard stops being developed?", "Your copy keeps running on your account. You have the code, the database and a backup command. Nothing phones home."],
@@ -60,12 +62,13 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
   ];
 
   const body = `
+<aside class="v2band" aria-label="Yakyard 2"><div class="wrap"><p><span class="v2band__tag">New</span> <strong>Yakyard 2 is now live.</strong> <span class="v2band__long">Lock a DM or private channel, and only the people in it can read it. Not your admin, not us.</span><span class="v2band__short">Lock a conversation so only the people in it can read it.</span> <a href="/docs/locked">How it works</a> <a href="https://github.com/yakyard/yakyard/releases/tag/v2.0.0">What's new</a></p></div></aside>
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
     <h1 class="d-xl" id="hero-title"><span class="l">${"Yak all you want.".split(" ").map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(" ")}</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
     <div class="hero__grid">
       <div class="hero__copy">
-        <p class="lede">Channels, threads, calls and voice notes with transcripts, running on your own Cloudflare account. Nobody pays per seat.</p>
+        <p class="lede">Channels, threads, calls, voice notes with transcripts, and locked conversations nobody else can read. On your own Cloudflare account. Nobody pays per seat.</p>
         <div class="btn-row">
           <a class="btn btn--primary" href="${DEPLOY_URL}">${icon("cloud-arrow-up")}Deploy to Cloudflare</a>
           <a class="btn btn--ghost" href="/docs/setup">Read the setup guide</a>
@@ -119,10 +122,15 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
         <p>Each person copies their own Slack DMs, group messages and private channels, with files and reactions. Read-only access, removed when the copy is done.</p>
         <div class="tile__shot">${shot("slack-import", { alt: "The Import from Slack page after a finished import", sz: "(min-width: 960px) 640px, 100vw" })}</div>
       </article>
+      <article class="tile t-locked">
+        <h3>Lock what's private</h3>
+        <p>Tick Lock it on a DM or private channel. Messages, files and voice notes are scrambled on each device, so the server only keeps what it can't read. Locking takes two approvals, and the app says plainly what works differently in there.</p>
+        <div class="tile__shot">${shot("locked-dm", { alt: "A locked DM: a Locked tag in the header, a banner that says only the people here can read it, a photo and a voice note", sz: "(min-width: 960px) 640px, 100vw" })}</div>
+      </article>
     </div>
     <ul class="also" aria-label="Also included">
       <li class="lead">Also in the box:</li>
-      <li>Pop in calls with screen share</li><li>Search with filters</li><li>Send later</li><li>Reminders</li><li>Later</li>
+      <li>Locked conversations</li><li>Pop in calls with screen share</li><li>Search with filters</li><li>Send later</li><li>Reminders</li><li>Later</li>
       <li>Guests</li><li>Sign in with Google</li><li>Link previews</li><li>Ctrl/⌘ + K</li>
     </ul>
   </div>
@@ -186,7 +194,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
   <div class="wrap">
     <div class="sec__head">
       <h2 class="d-l" id="compare-title">Where Yakyard wins, and where it doesn't.</h2>
-      <p>Some of these beat Yakyard at things that might matter to you. Need OSI open source? Zulip, Campfire, Mattermost Team Edition or Element. Need end-to-end encryption? Element.</p>
+      <p>Some of these beat Yakyard at things that might matter to you. Need OSI open source? Zulip, Campfire, Mattermost Team Edition or Element. Need every conversation encrypted, with an audited client? Element.</p>
     </div>
     ${table}
     <p class="after">Prices checked on 21 November 2026. <a href="/compare">Read the app-by-app comparison</a>, with Discord and Rocket.Chat too.</p>
@@ -296,9 +304,10 @@ export function docsHubPage({ layout, shot, REPO }) {
       <a href="/docs/guide"><h2>Use it</h2><p>Channels, threads, voice notes, calls, search, Later, notifications and themes. Five minutes if you know Slack.</p><span class="meta">For everyone on the team</span></a>
       <a href="/docs/technical"><h2>Technical notes</h2><p>The free plan math, every setting, updates, backups and how it's built.</p><span class="meta">For whoever runs it</span></a>
     </div>
-    <a class="third" href="/faq"><h2>FAQ</h2><p>Costs, privacy, phone apps, Slack history, the license and support.</p></a>
-    <a class="third" href="/sources"><h2>Sources</h2><p>Every price and limit on this site, with the page it came from.</p></a>
-    <a class="third" href="${REPO}"><h2>GitHub</h2><p>The code, issues, the changelog and how to contribute.</p></a>
+    <a href="/docs/locked" class="half"><h2>Locked conversations</h2><p>How end-to-end encryption works here, what the server can and can't see, and the limits.</p><span class="meta">For anyone who asks "who can read this?"</span></a>
+    <a class="half" href="/faq"><h2>FAQ</h2><p>Costs, privacy, encryption, phone apps, Slack history, the license and support.</p></a>
+    <a class="half" href="/sources"><h2>Sources</h2><p>Every price and limit on this site, with the page it came from.</p></a>
+    <a class="half" href="${REPO}"><h2>GitHub</h2><p>The code, issues, the changelog and how to contribute.</p></a>
   </div>
 </div>`;
   return layout({
@@ -365,10 +374,12 @@ export function pressPage({ layout, shot, icon, REPO }) {
       <tbody>
         <tr><th scope="row">What</th><td>Self-hosted team chat on Cloudflare Workers</td></tr>
         <tr><th scope="row">Price</th><td>Free. Runs on Cloudflare's free plan for about 50 people; Cloudflare's Workers Paid plan ($5 a month minimum per account) above that</td></tr>
-        <tr><th scope="row">Features</th><td>Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes</td></tr>
+        <tr><th scope="row">Features</th><td>Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, locked conversations (end-to-end encrypted DMs and private channels), scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes</td></tr>
+        <tr><th scope="row">Encryption</th><td>Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it is Apache-2.0 and not independently audited yet.</td></tr>
+        <tr><th scope="row">Version</th><td>2.0.0</td></tr>
         <tr><th scope="row">Runs on</th><td>Cloudflare Workers, Durable Objects, D1, R2, Workers AI</td></tr>
         <tr><th scope="row">Apps</th><td>Installable web app (PWA) for iPhone, Android, Mac and Windows</td></tr>
-        <tr><th scope="row">License</th><td>PolyForm Shield License 1.0.0 (free and source-available, not OSI open source)</td></tr>
+        <tr><th scope="row">License</th><td>PolyForm Shield License 1.0.0 (free and source-available, not OSI open source). The encryption package is Apache-2.0.</td></tr>
         <tr><th scope="row">Owner</th><td>QVINTA Ltd (Hong Kong) holds the copyright</td></tr>
         <tr><th scope="row">Code</th><td><a href="${REPO}">github.com/yakyard/yakyard</a></td></tr>
       </tbody>
