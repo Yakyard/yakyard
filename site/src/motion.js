@@ -39,8 +39,13 @@
   // everything below the fold is set up in a second, idle step so the first one stays short
   const later = () => {
   // ---------- the word band slides with the scroll, both ways ----------
+  // it starts from where the page is when motion loads, so a band already on screen never snaps sideways
   const mq = $(".mq__track");
-  if (mq) gsap.fromTo(mq, { xPercent: 0 }, { xPercent: -22, ease: "none", scrollTrigger: { trigger: ".mq", start: "top bottom", end: () => "+=" + innerHeight * 2.2, scrub: 0.5, invalidateOnRefresh: true } });
+  if (mq) {
+    const s0 = scrollY;
+    const band = $(".mq");
+    gsap.fromTo(mq, { xPercent: 0 }, { xPercent: -22, ease: "none", immediateRender: false, scrollTrigger: { trigger: band, start: () => Math.max(band.getBoundingClientRect().top + scrollY - innerHeight, s0), end: () => "+=" + innerHeight * 2.2, scrub: 0.5, invalidateOnRefresh: true } });
+  }
 
   // ---------- section headings: each one lands a little differently ----------
   $$(".sec__head").forEach((h, i) => {
@@ -74,29 +79,47 @@
   reveal(".voice__search", { y: 50, rotation: 3, opacity: 0, duration: 1, ease: "back.out(1.4)" }, ".voice__search", "top 95%");
   const chat = $("#chat");
   if (chat && fresh(chat)) {
+    // the first message is there from the start; the rest arrive one by one and the panel grows to fit them,
+    // so it never shows a tall empty box. The column keeps its final height reserved, so nothing below jumps.
+    const log = $(".chat__log", chat);
     const msgs = $$(".msg", chat);
     const typing = $(".chat__typing", chat);
     const who = $(".chat__who", chat);
-    const names = ["Lena is typing", "Marco is typing", "The yak is recording a voice note", "Lena is typing"];
     const yakAv = $(".msg--yak .av", chat);
     const btn = $(".vn__play", chat);
-    gsap.set(msgs, { opacity: 0, y: 14, scale: 0.97 });
+    const col = chat.parentElement;
+    const reserve = () => { col.style.minHeight = ""; msgs.forEach((m) => (m.style.display = "")); const h = col.offsetHeight; msgs.slice(shown).forEach((m) => (m.style.display = "none")); col.style.minHeight = h + "px"; };
+    let shown = 1;
+    reserve();
+    addEventListener("resize", () => { if (shown < msgs.length) reserve(); });
+    const say = (name) => () => { who.textContent = name; };
+    const show = (m) => () => {
+      const h0 = log.offsetHeight;
+      m.style.display = "";
+      shown++;
+      const h1 = log.offsetHeight;
+      gsap.fromTo(log, { height: h0, overflow: "hidden" }, { height: h1, duration: 0.34, ease: "power3.out", clearProps: "height,overflow" });
+      gsap.fromTo(m, { opacity: 0, y: 10, scale: 0.98 }, { opacity: 1, y: 0, scale: 1, duration: 0.42, ease: "back.out(1.6)", clearProps: "transform" });
+    };
+    const on1 = (d) => tl.to(typing, { opacity: 1, duration: 0.16, ease: "power2.out" }, d);
+    const off = () => tl.to(typing, { opacity: 0, duration: 0.12, ease: "power2.out" });
+    const [m2, m3, m4] = msgs.slice(1);
     const tl = gsap.timeline({ paused: true });
-    msgs.forEach((m, i) => {
-      tl.call(() => { who.textContent = names[i]; })
-        .to(typing, { opacity: 1, duration: 0.18 })
-        .to({}, { duration: i === 2 ? 1.1 : 0.7 })
-        .to(typing, { opacity: 0, duration: 0.14 })
-        .to(m, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.7)" }, "<");
-      if (i === 2) {
-        tl.from($$(".vn__wave i", m), { scaleY: 0.08, duration: 0.45, stagger: 0.012, ease: "back.out(2)" }, "<0.1")
-          .call(() => { yakAv.classList.remove("is-wiggle"); void yakAv.offsetWidth; yakAv.classList.add("is-wiggle"); setTimeout(() => yakAv.classList.remove("is-wiggle"), 700); }, null, "<0.2")
-          .from($$(".wd", m), { opacity: 0, duration: 0.05, stagger: 0.05 }, "<0.1");
-      }
-      tl.to({}, { duration: 0.3 });
-    });
-    tl.call(() => btn && btn.classList.add("is-invite"));
-    ScrollTrigger.create({ trigger: chat, start: "top 72%", once: true, onEnter: () => tl.play() });
+    // Marco: typing at 0.3 s, message at about 1.1 s
+    tl.call(say("Marco is typing"), null, 0.25); on1(0.3); tl.to({}, { duration: 0.65 }); off(); tl.call(show(m2), null, "<");
+    // the yak records a voice note: on screen at about 2.5 s, wave and transcript fill in
+    tl.call(say("The yak is recording a voice note"), null, "+=0.3"); on1(">"); tl.to({}, { duration: 0.85 }); off(); tl.call(show(m3), null, "<");
+    tl.from($$(".vn__wave i", m3), { scaleY: 0.08, duration: 0.4, stagger: 0.01, ease: "back.out(2)" }, "<0.08")
+      .call(() => { yakAv.classList.remove("is-wiggle"); void yakAv.offsetWidth; yakAv.classList.add("is-wiggle"); setTimeout(() => yakAv.classList.remove("is-wiggle"), 700); }, null, "<0.15")
+      .from($$(".wd", m3), { opacity: 0, duration: 0.05, stagger: 0.032 }, "<0.05");
+    // Lena: typing while the transcript finishes, reply at about 4.6 s
+    tl.call(say("Lena is typing"), null, "<0.6"); on1(">"); tl.to({}, { duration: 0.7 }); off(); tl.call(show(m4), null, "<");
+    tl.to(chat, { paddingBottom: 0, duration: 0.4, ease: "power3.inOut", clearProps: "paddingBottom" }, "+=0.35")
+      .call(() => { btn && btn.classList.add("is-invite"); col.style.minHeight = ""; });
+    msgs.slice(1).forEach((m) => (m.style.display = "none"));
+    // the search card overlaps the panel's foot; lift the typing line clear of it while the talk plays
+    gsap.set(chat, { paddingBottom: 30 });
+    ScrollTrigger.create({ trigger: chat, start: "top 85%", once: true, onEnter: () => tl.play() });
   }
 
   // ---------- cost: the controls slide in, the bill deals its rows ----------
