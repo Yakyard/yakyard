@@ -14,7 +14,7 @@ Tagline: **Yak all you want. Pay nobody.**
 
 ## 50 words
 
-Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, voice notes with automatic transcripts, and locked conversations with end-to-end encryption. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. Free and source-available.
+Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, voice notes with automatic transcripts, and locked conversations with end-to-end encryption. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. Free and open source.
 
 ## 150 words
 
@@ -22,11 +22,11 @@ Yakyard is team chat for small teams that are tired of paying per seat to talk t
 
 It covers what teams use every day: public and private channels, threads, direct and group messages, mentions, reactions, search, scheduled send, reminders, guests and push notifications. It adds voice notes with automatic, searchable transcripts, and "Pop in" calls with screen share in any channel. It installs like an app on phones and computers, and each person can bring their Slack DMs and private channels along. Since version 2, any DM or private channel can be locked: end-to-end encrypted on each device with vodozemac, the library behind Element, so not even the admin can read it.
 
-Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 people pays $0. Messages stay in the team's own account. It's free for any business and source-available under the PolyForm Shield License 1.0.0.
+Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 people pays $0. Messages stay in the team's own account. It's free and open source under the Apache License 2.0.
 
 ## Boilerplate
 
-> Yakyard is free team chat that runs on your own Cloudflare account. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is free and source-available under the PolyForm Shield License 1.0.0. Learn more at github.com/yakyard/yakyard.
+> Yakyard is free team chat that runs on your own Cloudflare account. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is free and open source under the Apache License 2.0. Learn more at github.com/yakyard/yakyard.
 
 ## Facts
 
@@ -38,11 +38,11 @@ Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 pe
 | Encryption | Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it (Apache-2.0, `packages/yakyard-lock`) is not independently audited yet. |
 | Runs on | Cloudflare Workers, Durable Objects, D1, R2, Workers AI |
 | Apps | Installable web app (PWA) for iPhone, Android, Mac and Windows |
-| License | PolyForm Shield License 1.0.0 (free and source-available, not OSI open source). The encryption package is Apache-2.0. |
+| License | Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0. |
 | Version | 2.0.0 |
 | Code | github.com/yakyard/yakyard |
 
-Please don't describe Yakyard as "open source". It's source-available: free to use, read and change, but not to resell or to build a competing product with.
+Yakyard is open source under the Apache License 2.0, so "free and open source" is accurate.
 
 ## Logos
 
@@ -112,6 +112,6 @@ Real screenshots of the app, with made-up team names and messages. Use any of th
 
 ## Contact
 
-For press questions, interviews or a commercial license, [open an issue on GitHub](https://github.com/yakyard/yakyard/issues/new/choose) and mark it **Question**. For security problems, follow [SECURITY.md](../SECURITY.md) instead.
+For press questions or interviews, [open an issue on GitHub](https://github.com/yakyard/yakyard/issues/new/choose) and mark it **Question**. For security problems, follow [SECURITY.md](../SECURITY.md) instead.
 
-Yakyard's copyright is held by QVINTA Ltd (Hong Kong), which licenses it.
+Yakyard's copyright is held by QVINTA Ltd (Hong Kong), which releases it under the Apache License 2.0.

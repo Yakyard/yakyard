@@ -36,6 +36,8 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **Fast to make yours.** No framework, no build step: plain JavaScript and one Cloudflare Worker. You can read every line in an afternoon and change what you need.
 
+**Open source, under Apache 2.0.** Use it at any company, change it, host it for clients or sell it. No fee and no permission to ask. Keep the copyright and license notices, and mark what you changed. ([license](../LICENSE))
+
 **Locked conversations when you need them.** Tick **Lock it** on a DM or private channel and its messages, files and voice notes are encrypted on each person's device, with the same library Element uses (vodozemac). Not even the admin or someone with your Cloudflare account can read them. It takes two approvals, so nobody locks a channel by accident. ([how it works](E2EE.md))
 
 **Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
@@ -73,10 +75,6 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 **Few integrations.** No app directory, bots marketplace or Jira/GitHub/Google Drive connectors. It's chat, calls and voice notes.
 
 **Young.** Version 2. Fewer people have run it than the big names, so you'll find rough edges first.
-
-## License
-
-Yakyard is free and source-available under PolyForm Shield 1.0.0, not open source. You can use it for any business, read it, change it and run it. You can't sell it or use it to build a competing product. If your company only allows OSI-approved licenses, choose Zulip, Mattermost Team Edition, Rocket.Chat Community, Campfire or Element instead.
 
 ---
 

@@ -10,24 +10,23 @@ Thanks for wanting to help. Bug reports, docs fixes and small, focused pull requ
 
 ## The license, and what it means for your contribution
 
-Yakyard is free and source-available under the [PolyForm Shield License 1.0.0](LICENSE.md). It isn't open source in the OSI sense. QVINTA Ltd (Hong Kong) holds the copyright, and also offers commercial licenses to people who need terms the free license doesn't give.
+Yakyard is open source under the [Apache License 2.0](LICENSE). QVINTA Ltd (Hong Kong) holds the copyright on Yakyard's own code.
 
-Because of that, a contribution can't simply come in under the same license it goes out under (the usual "inbound = outbound" rule). PolyForm Shield forbids competing uses, and QVINTA Ltd needs to be able to ship your change in both the free and the commercial versions.
-
-So we use a short, plain grant instead of a long agreement to sign, the same approach [Weird](https://github.com/muni-town/weird/blob/main/CONTRIBUTING.md) takes for its PolyForm-licensed code:
-
-> By sending a contribution to Yakyard (a pull request, patch, or code in an issue), you confirm that you wrote it or otherwise have the right to submit it, and you license it to QVINTA Ltd and to everyone else under the [Blue Oak Model License 1.0.0](https://blueoakcouncil.org/license/1.0.0). You keep your copyright. Your contribution then ships as part of Yakyard under PolyForm Shield 1.0.0, and may also ship in Yakyard's commercial licenses.
+Your contribution comes in under the same license it goes out under ("inbound = outbound"). Section 5 of the Apache License says so: anything you send for inclusion is under Apache 2.0, with no extra terms, unless you clearly say otherwise. There's no separate agreement to sign.
 
 What this means in practice:
-- You still own what you wrote, and can use it anywhere else.
-- Blue Oak is a short permissive license, so your piece is reusable by anyone under its terms. Yakyard as a whole stays under PolyForm Shield.
-- Add a sign-off line to each commit (`git commit -s`), which records that you agree:
+- You keep the copyright on what you wrote, and can use it anywhere else.
+- Everyone, including QVINTA Ltd, can use, change and sell your change under Apache 2.0, just like the rest of Yakyard.
+- Apache 2.0 includes a patent license: if your change uses a patent you own, everyone who uses Yakyard gets a license to it.
+- Add a sign-off line to each commit (`git commit -s`). It certifies the [Developer Certificate of Origin](https://developercertificate.org): you wrote the change, or have the right to send it under Apache 2.0.
 
 ```
 Signed-off-by: Your Name <you@example.com>
 ```
 
 If you can't agree to this, for example because your employer owns your code, please don't send code. Issues and ideas are still welcome.
+
+If you copy in third-party code, keep its license header, add it to [THIRD-PARTY.md](THIRD-PARTY.md), and add its notice to [NOTICE](NOTICE) if its license asks for one.
 
 This is a plain-words summary written for contributors, not legal advice.
 

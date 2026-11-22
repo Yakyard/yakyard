@@ -12,7 +12,7 @@ We say where others are better. Several are.
 
 | | Cheapest paid price | Free option | Run it yourself | Needs a server | License | Voice notes with transcripts | End-to-end encryption |
 |---|---|---|---|---|---|---|---|
-| **Yakyard** | $0 for the software; Cloudflare $5 a month per account above about 50 people | Yes, about 50 people on Cloudflare's free plan | Yes, on your Cloudflare account | No | PolyForm Shield 1.0.0 (source-available) | Yes | Optional: locked DMs and private channels (Olm/Megolm via vodozemac). Not in normal channels. |
+| **Yakyard** | $0 for the software; Cloudflare $5 a month per account above about 50 people | Yes, about 50 people on Cloudflare's free plan | Yes, on your Cloudflare account | No | Apache 2.0 (open source) | Yes | Optional: locked DMs and private channels (Olm/Megolm via vodozemac). Not in normal channels. |
 | Slack | Pro $7.25 yearly / $8.75 monthly | 90 days of history, 10 apps, 1:1 huddles | No | n/a | Closed | Not compared | Not compared |
 | Microsoft Teams | Essentials $4 (yearly) | Free Teams: 60-minute group calls, 100 people, 5 GB each | No | n/a | Closed | Not compared | Not compared |
 | Google Chat | Workspace Business Starter $7 yearly / $8.40 flexible | No free business plan | No | n/a | Closed | Not compared | Not compared |
@@ -69,15 +69,15 @@ We say where others are better. Several are.
 
 ## Yakyard vs Mattermost
 
-**Mattermost is better at:** big and security-heavy deployments. Paid plans add things like air-gapped installs, and Team Edition is MIT-licensed open source. It runs on your own hardware.
+**Mattermost is better at:** big and security-heavy deployments. Paid plans add things like air-gapped installs. It runs on your own hardware.
 
 **Yakyard is better at:** small teams that don't want to run a server. Mattermost Team Edition runs as a Linux binary with PostgreSQL that you host and maintain. The free Entry edition is suited to teams under 50 and shows only 10,000 channel messages of history. Paid plans are priced by quote. Yakyard needs no server, shows all your history, and costs $0 for about 50 people.
 
-**Pick Mattermost if** you need your own hardware, open source, or an enterprise vendor. **Pick Yakyard if** you'd rather not be a sysadmin.
+**Pick Mattermost if** you need your own hardware or an enterprise vendor. **Pick Yakyard if** you'd rather not be a sysadmin.
 
 ## Yakyard vs Rocket.Chat
 
-**Rocket.Chat is better at:** government and defense deployments (on-premises, sovereign cloud, air-gapped) and an MIT-licensed Community edition. It runs on infrastructure you control.
+**Rocket.Chat is better at:** government and defense deployments (on-premises, sovereign cloud, air-gapped). It runs on infrastructure you control.
 
 **Yakyard is better at:** simplicity. Rocket.Chat's free Starter plan is for up to 50 people, self-hosted. Community allows 100 people connected at once. Commercial prices aren't published. Both free options need you to run a server. Yakyard doesn't.
 
@@ -85,27 +85,27 @@ We say where others are better. Several are.
 
 ## Yakyard vs Zulip
 
-**Zulip is better at:** topic-based conversations, real open source (Apache 2.0), native apps for macOS, Windows, Linux, iOS and Android, and a free self-hosted edition.
+**Zulip is better at:** topic-based conversations, native apps for macOS, Windows, Linux, iOS and Android, and a free self-hosted edition.
 
 **Yakyard is better at:** feeling like Slack, and costing nothing without a server. Zulip Cloud Standard is $6.67 per person a month yearly or $8 monthly. Cloud Free keeps 10,000 messages searchable and 5 GB of files. Self-hosted Zulip is free, but you run the server. Yakyard adds voice notes with transcripts.
 
-**Pick Zulip if** you want topic-based threading and open source. **Pick Yakyard if** your team wants a Slack-like layout and no server.
+**Pick Zulip if** you want topic-based threading or native apps. **Pick Yakyard if** your team wants a Slack-like layout and no server.
 
 ## Yakyard vs Campfire (ONCE)
 
 Campfire, from 37signals, is the closest in spirit: free, simple, self-hosted.
 
-**Campfire is better at:** being truly open source (MIT, so you can do almost anything with it, including sell it) and keeping things very simple.
+**Campfire is better at:** keeping things very simple, on any server you choose. Like Yakyard, it's open source (MIT).
 
 **Yakyard is better at:** not needing a server (Campfire runs on one you provide), and features. Campfire's page lists rooms, mentions, DMs, search, a PWA with push and bots. It doesn't list calls, threads in the Slack sense, voice notes, transcripts, scheduled send or a Slack import. Yakyard has all of those.
 
-**Pick Campfire if** you have a server, want MIT, and like a simpler room-based chat. **Pick Yakyard if** you want a fuller Slack replacement with nothing to host.
+**Pick Campfire if** you have a server and like a simpler room-based chat. **Pick Yakyard if** you want a fuller Slack replacement with nothing to host.
 
 ## Yakyard vs Element (Matrix)
 
-**Element is better at:** encryption everywhere (Yakyard only encrypts the DMs and private channels you lock, and its own code around the encryption library isn't audited yet), encrypted calls, Matrix federation between organizations, sovereign and air-gapped deployments, and open source (AGPL-3.0). Both use the same encryption library, vodozemac. If every conversation must be encrypted, or you need an audited client, choose Element.
+**Element is better at:** encryption everywhere (Yakyard only encrypts the DMs and private channels you lock, and its own code around the encryption library isn't audited yet), encrypted calls, Matrix federation between organizations, and sovereign and air-gapped deployments. Both use the same encryption library, vodozemac. If every conversation must be encrypted, or you need an audited client, choose Element.
 
-**Yakyard is better at:** easy setup and zero cost for a business. Element's free Community offering is for "non-professional deployments and evaluations", and the Synapse server is AGPL or commercial. Enterprise is priced per seat by quote, and you run the servers. Yakyard is free for any business and needs no server.
+**Yakyard is better at:** easy setup and zero cost for a business. Element's free Community offering is for "non-professional deployments and evaluations", and the Synapse server is AGPL or commercial. Enterprise is priced per seat by quote, and you run the servers. Yakyard is free for any business, needs no server, and its Apache 2.0 license doesn't make you publish your changes.
 
 **Pick Element if** you need encryption on everything, encrypted calls or federation. **Pick Yakyard if** you want a simple, free team chat where the sensitive DMs and private channels can be locked.
 
@@ -113,7 +113,7 @@ Campfire, from 37signals, is the closest in spirit: free, simple, self-hosted.
 
 - Want **no bill and no server**, and you're under about 50 people? **Yakyard.**
 - Need **end-to-end encryption for a few sensitive conversations**? Yakyard's locked conversations. **For everything, with an audited client?** Element.
-- Need **OSI open source** and have a server? Zulip, Campfire, Mattermost Team Edition, Rocket.Chat Community or Element.
+- Want **open source on your own server**, not Cloudflare? Zulip, Campfire, Mattermost Team Edition, Rocket.Chat Community or Element.
 - Need **integrations, native apps, a vendor and compliance**? Slack, Teams or Google Chat, and the per-seat bill that comes with them.
 - Running a **community**? Discord.
 

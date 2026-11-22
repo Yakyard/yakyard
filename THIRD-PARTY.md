@@ -1,6 +1,6 @@
 # Third-party code and fonts
 
-Yakyard ships with these, each under its own license:
+Yakyard itself is under the Apache License 2.0 (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). It ships with these, each under its own license:
 
 | What | Where | License |
 |---|---|---|
@@ -28,9 +28,9 @@ These are byte-for-byte copies of the upstream builds. Check them with `sha256su
 
 npm dependencies are pinned in `package-lock.json`. Install with `npm ci`.
 
-## Yakyard's own Apache-2.0 package
+## Yakyard's encryption package
 
-`packages/yakyard-lock/` (end-to-end encryption for locked conversations) is Yakyard code, Copyright 2026 QVINTA Ltd, under the Apache License 2.0 instead of PolyForm Shield, so it can be audited and reused. Its built files are copied to `public/lock/`, with their SHA-256 in `public/lock/manifest.json` and per release in `docs/E2EE-HASHES.md`. Rebuild the WebAssembly with `npm run lock:build` (Rust and `wasm-bindgen-cli 0.2.100`).
+`packages/yakyard-lock/` (end-to-end encryption for locked conversations) is Yakyard code, Copyright 2026 QVINTA Ltd, under the Apache License 2.0 like the rest of Yakyard. It is published as its own package, with its own LICENSE and NOTICE, so it can be audited and reused on its own. Its built files are copied to `public/lock/`, with their SHA-256 in `public/lock/manifest.json` and per release in `docs/E2EE-HASHES.md`. Rebuild the WebAssembly with `npm run lock:build` (Rust and `wasm-bindgen-cli 0.2.100`).
 
 Voice transcripts use OpenAI Whisper (MIT) running on Cloudflare Workers AI.
 Emoji art is drawn by each device's own system font.

@@ -86,9 +86,10 @@ Yakyard's own measurements (CPU per request, people per free plan) are in the [R
 
 | Fact | Source |
 |---|---|
-| Yakyard's license text. | [LICENSE.md](../LICENSE.md), [PolyForm Shield 1.0.0](https://polyformproject.org/licenses/shield/1.0.0) |
-| Example of a PolyForm project that takes contributions under a second, permissive license so the licensor can still offer other terms ("Contributor License Compromise": PolyForm NonCommercial plus Blue Oak Model License 1.0.0). | [muni-town/weird CONTRIBUTING.md](https://github.com/muni-town/weird/blob/main/CONTRIBUTING.md) |
-| Blue Oak Model License 1.0.0 text. | [blueoakcouncil.org/license/1.0.0](https://blueoakcouncil.org/license/1.0.0) |
+| Yakyard's license text, the Apache License 2.0, unmodified. | [LICENSE](../LICENSE), [apache.org/licenses/LICENSE-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| Apache 2.0 is an OSI-approved open source license. | [opensource.org/license/apache-2.0](https://opensource.org/license/apache-2.0) |
+| Contributions come in under the same license (Apache 2.0, section 5), with a Developer Certificate of Origin sign-off. | [LICENSE](../LICENSE), [developercertificate.org](https://developercertificate.org) |
+| Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0. | [PolyForm Shield 1.0.0](https://polyformproject.org/licenses/shield/1.0.0), [CHANGELOG](../CHANGELOG.md) |
 | Contributor Covenant 2.1. | [contributor-covenant.org](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) |
 
 ## Community rules for launch posts

@@ -4,7 +4,21 @@ What changed in each Yakyard release, newest first.
 
 ## Unreleased
 
-Nothing yet.
+Yakyard is now open source under Apache 2.0. Versions 1.0.0 and 2.0.0 stay under PolyForm Shield 1.0.0.
+
+### License
+- The code is under the Apache License 2.0: use it, change it, host it for others or sell it. A NOTICE file carries the copyright and the third-party notices.
+- Contributions come in under Apache 2.0 too, with a `Signed-off-by` line (Developer Certificate of Origin). No separate agreement.
+- The docs, website, press kit and comparison tables now say open source.
+
+### Running it
+- Updates and backups can run by themselves. With the Deploy button copy, a GitHub workflow backs up the database every night into your own R2 storage, keeps the last 7, and installs new releases on Sunday nights after one more backup. It's off until you turn it on, and it opens an issue in your copy if something fails. [How to turn it on](docs/SETUP.md#updates-and-backups-by-themselves).
+
+### Docs and website
+- "Who runs Yakyard" in the README and FAQ: QVINTA Ltd, and where Yakyard came from.
+- Locked conversations are labelled as a preview everywhere, until Yakyard's own encryption code has an outside audit.
+- Easier to find in search: one address per page with no redirects, a title of its own on every doc, structured data, a sitemap dated from git, and an `llms.txt` file with the plain facts.
+- Branded release pages for 1.0.0 and 2.0.0, and a brand and accessibility pass on the website.
 
 ## 2.0.0
 

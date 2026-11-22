@@ -21,7 +21,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     ["One click to deploy.", "No server or Docker to look after."],
     ["Backups are one command,", "to a file you keep."],
     ["Three themes,", "including Yaky, the loud one we made for fun."],
-    ["You can read and change every line of code.", ""],
+    ["Open source, under Apache 2.0.", "Use it, change it, even sell it."],
   ];
   const con = [
     ["Someone on your team runs it.", "Updates and backups are one command each."],
@@ -33,7 +33,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   const li = ([b, t]) => `<li><b>${b}</b>${t ? ` ${t}` : ""}</li>`;
 
   const rows = [
-    ["Yakyard", "$0. Above about 50 people, $5 a month for the whole team", "Cloudflare's daily limits", "Yes, on your Cloudflare account, no server", "PolyForm Shield (source-available)", true],
+    ["Yakyard", "$0. Above about 50 people, $5 a month for the whole team", "Cloudflare's daily limits", "Yes, on your Cloudflare account, no server", "Apache 2.0", true],
     ["Slack", "Pro $7.25 yearly, $8.75 monthly", "90 days of history; older than a year is deleted", "No", "Closed"],
     ["Microsoft Teams", "Essentials $4 (yearly)", "Free Teams: 60-minute group calls", "No", "Closed"],
     ["Google Chat", "In Workspace, from $7 yearly, $8.40 flexible", "No free business plan", "No", "Closed"],
@@ -51,14 +51,14 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
 
   const faq = [
     ["Is it really free?", "The software is free. It runs on Cloudflare's free plan for up to about 50 people. Above that, Cloudflare charges $5 a month for the whole account, not per person."],
-    ["Can I use it at work?", "Yes. Any company can run it for its own team, for free. What you can't do is sell Yakyard or offer it as a chat service to others."],
+    ["Can I use it at work?", "Yes. Any company can run it for its own team, for free. You can also change it, host it for clients or sell it, under the Apache 2.0 terms."],
     ["Who can read our messages?", "People in your workspace, and whoever has access to your Cloudflare account. Nobody at Yakyard can see them."],
     ["Is it end-to-end encrypted?", `Yes, if you lock the conversation. Locked DMs and private channels are scrambled on each person's device, so only the people in them can read them, not the admin and not us. In there, search only covers your device and voice notes have no transcript. If you lose every device and your recovery key, those messages are gone. <a href="/docs/locked">How it works</a>.`],
     ["Is there a phone app?", "Yakyard installs from the browser on iPhone and Android, with its own icon and notifications. There's no App Store or Play Store app."],
     ["What happens to our Slack history?", "Each person copies their own Slack DMs, group messages and private channels, with files. Public channel history stays in Slack."],
     ["What if Yakyard stops being developed?", "Your copy keeps running on your account. You have the code, the database and a backup command. Nothing phones home."],
     ["Who do I call when it breaks?", `Nobody sells support. There's the <a href="/docs/setup#when-something-fails">setup guide</a>, <a href="${REPO}/issues">GitHub issues</a> and the people who use it.`],
-    ["Is it open source?", "No. It's free and source-available under PolyForm Shield 1.0.0. You can read, change and run the code, but not sell it or build a competing product with it."],
+    ["Is it open source?", "Yes. Yakyard is under the Apache License 2.0, an OSI-approved open source license. Use it, change it, host it or sell it. Keep the copyright and license notices, and say what you changed."],
   ];
 
   const body = `
@@ -194,7 +194,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   <div class="wrap">
     <div class="sec__head">
       <h2 class="d-l" id="compare-title">Where Yakyard wins, and where it doesn't.</h2>
-      <p>Some of these beat Yakyard at things that might matter to you. Need OSI open source? Zulip, Campfire, Mattermost Team Edition or Element. Need every conversation encrypted, with an audited client? Element.</p>
+      <p>Some of these beat Yakyard at things that might matter to you. Need it on your own server instead of Cloudflare? Zulip, Mattermost or Campfire. Need every conversation encrypted, with an audited client? Element.</p>
     </div>
     ${table}
     <p class="after">Prices checked on 21 November 2026. <a href="/compare">Read the app-by-app comparison</a>, with Discord and Rocket.Chat too.</p>
@@ -205,7 +205,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   <div class="wrap">
     <div class="sec__head">
       <h2 class="d-l" id="pros-title">The good, and what's worth knowing.</h2>
-      <p>This is the short version of both sides. The <a href="/pros-and-cons">longer version</a> has the fine print on calls, transcript languages, the Slack import and the license.</p>
+      <p>This is the short version of both sides. The <a href="/pros-and-cons">longer version</a> has the fine print on calls, transcript languages, the Slack import and support.</p>
     </div>
     <div class="pc">
       <div class="pc__col pros"><h3 class="sticker">Good</h3><ul>${pro.map(li).join("")}</ul></div>
@@ -280,18 +280,18 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
         { "@type": "WebSite", "@id": `${SITE_URL}/#website`, url: `${SITE_URL}/`, name: "Yakyard", publisher: { "@id": `${SITE_URL}/#org` } },
         { "@type": "Organization", "@id": `${SITE_URL}/#org`, name: "QVINTA Ltd", address: { "@type": "PostalAddress", addressCountry: "HK" } },
         { "@type": "SoftwareApplication", "@id": `${SITE_URL}/#app`, name: "Yakyard", url: `${SITE_URL}/`,
-          description: "Free, source-available team chat you deploy to your own Cloudflare account. A Slack alternative with channels, threads, DMs, calls and voice notes with transcripts, plus optional end-to-end encrypted conversations.",
+          description: "Free, open source team chat you deploy to your own Cloudflare account. A Slack alternative with channels, threads, DMs, calls and voice notes with transcripts, plus optional end-to-end encrypted conversations.",
           applicationCategory: "CommunicationApplication", applicationSubCategory: "Team chat",
           operatingSystem: "Web, iOS, Android, macOS, Windows (installable web app)",
           softwareVersion: VERSION, isAccessibleForFree: true,
           offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-          license: "https://polyformproject.org/licenses/shield/1.0.0",
+          license: "https://www.apache.org/licenses/LICENSE-2.0",
           image: `${SITE_URL}/og/home.png`, screenshot: `${SITE_URL}/img/hero-light-1440.webp`,
           featureList: ["Public and private channels", "Threads", "Direct and group messages", "Voice notes with automatic transcripts", "Calls with screen share", "Search across messages and transcripts", "Slack history import", "Optional end-to-end encrypted conversations", "Installable app for phone and desktop"],
           publisher: { "@id": `${SITE_URL}/#org` }, sameAs: [REPO] },
         { "@type": "SoftwareSourceCode", "@id": `${SITE_URL}/#code`, name: "Yakyard source code",
           codeRepository: REPO, programmingLanguage: "JavaScript", runtimePlatform: "Cloudflare Workers",
-          license: "https://polyformproject.org/licenses/shield/1.0.0", targetProduct: { "@id": `${SITE_URL}/#app` } },
+          license: "https://www.apache.org/licenses/LICENSE-2.0", targetProduct: { "@id": `${SITE_URL}/#app` } },
       ],
     },
     urlPath: "/",
@@ -345,8 +345,8 @@ export function pressPage({ layout, shot, icon, REPO }) {
   ];
   const blurbs = [
     ["One line", "Yakyard is free team chat you run on your own Cloudflare account."],
-    ["50 words", "Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, and voice notes with automatic transcripts. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. It's free and source-available under PolyForm Shield."],
-    ["Boilerplate", "Yakyard is free team chat that runs on your own Cloudflare account. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is free and source-available under the PolyForm Shield License 1.0.0. Learn more at github.com/yakyard/yakyard."],
+    ["50 words", "Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, and voice notes with automatic transcripts. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. It's free and open source under Apache 2.0."],
+    ["Boilerplate", "Yakyard is free team chat that runs on your own Cloudflare account. It started as the internal chat of a team that left Slack, and that team still uses it every day. Yakyard is free and open source under the Apache License 2.0. Learn more at github.com/yakyard/yakyard."],
   ];
   const body = `
 <header class="phead"><div class="wrap"><h1>Press kit</h1><p class="lede">Logos, screenshots and words for writing about Yakyard or showing it. Use them freely in articles, reviews, videos and talks.</p></div></header>
@@ -377,7 +377,7 @@ export function pressPage({ layout, shot, icon, REPO }) {
     <div class="blurbs">
       ${blurbs.map(([h, t], i) => `<div class="blurb"><header><h3 id="b${i}">${h}</h3><button class="copy" type="button" data-copy="${t.replace(/"/g, "&quot;")}" aria-describedby="b${i}">${icon("copy")}<span>Copy</span></button></header><p>${t}</p></div>`).join("\n      ")}
     </div>
-    <p class="after">Please don't describe Yakyard as "open source". It's source-available: free to use, read and change, but not to resell or to build a competing product with. The 150-word version is in the <a href="${REPO}/blob/main/docs/PRESS-KIT.md">press kit on GitHub</a>.</p>
+    <p class="after">Yakyard is open source under the Apache License 2.0, so "free and open source" is accurate. The 150-word version is in the <a href="${REPO}/blob/main/docs/PRESS-KIT.md">press kit on GitHub</a>.</p>
   </section>
 
   <section class="press-sec" aria-labelledby="p-facts">
@@ -391,7 +391,7 @@ export function pressPage({ layout, shot, icon, REPO }) {
         <tr><th scope="row">Version</th><td>2.0.0</td></tr>
         <tr><th scope="row">Runs on</th><td>Cloudflare Workers, Durable Objects, D1, R2, Workers AI</td></tr>
         <tr><th scope="row">Apps</th><td>Installable web app (PWA) for iPhone, Android, Mac and Windows</td></tr>
-        <tr><th scope="row">License</th><td>PolyForm Shield License 1.0.0 (free and source-available, not OSI open source). The encryption package is Apache-2.0.</td></tr>
+        <tr><th scope="row">License</th><td>Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0.</td></tr>
         <tr><th scope="row">Owner</th><td>QVINTA Ltd (Hong Kong) holds the copyright</td></tr>
         <tr><th scope="row">Code</th><td><a href="${REPO}">github.com/yakyard/yakyard</a></td></tr>
       </tbody>
@@ -408,7 +408,7 @@ export function pressPage({ layout, shot, icon, REPO }) {
 
   <section class="press-sec" aria-labelledby="p-contact" style="padding-bottom:clamp(72px,9vw,120px)">
     <h2 class="d-m" id="p-contact">Contact</h2>
-    <p class="lede" style="max-width:60ch">For press questions, interviews or a commercial license, <a href="${REPO}/issues/new/choose">open an issue on GitHub</a> and mark it Question. For security problems, follow <a href="${REPO}/blob/main/SECURITY.md">SECURITY.md</a> instead.</p>
+    <p class="lede" style="max-width:60ch">For press questions or interviews, <a href="${REPO}/issues/new/choose">open an issue on GitHub</a> and mark it Question. For security problems, follow <a href="${REPO}/blob/main/SECURITY.md">SECURITY.md</a> instead.</p>
   </section>
 </div>`;
   return layout({

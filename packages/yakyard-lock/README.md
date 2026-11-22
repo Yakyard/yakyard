@@ -2,7 +2,7 @@
 
 End-to-end encryption for [Yakyard](../../README.md)'s locked conversations. It runs in the browser: Olm and Megolm from [vodozemac](https://github.com/matrix-org/vodozemac) (compiled to WebAssembly), plus recovery keys, an encrypted key backup, device approval and per-person device signing.
 
-Copyright 2026 QVINTA Ltd. Licensed under the [Apache License 2.0](LICENSE), unlike the rest of Yakyard (PolyForm Shield), so anyone can audit it, fix it and reuse it.
+Copyright 2026 QVINTA Ltd. Licensed under the [Apache License 2.0](LICENSE), like the rest of Yakyard, so anyone can audit it, fix it and reuse it.
 
 > **Not independently audited yet.** vodozemac itself was audited by Least Authority (2022). This package, the code that decides who gets which key, has not been. Reviews and reports are welcome: see Yakyard's [SECURITY.md](../../SECURITY.md).
 

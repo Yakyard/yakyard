@@ -160,7 +160,7 @@ function footer() {
       </div>
       ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"]])}
       ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
-      ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE.md`, "License"], ["/press", "Press kit"], ["/releases/2.0.0", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
+      ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE`, "License"], ["/press", "Press kit"], ["/releases/2.0.0", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
     </div>
     <div class="foot__base">
       <p><strong>Free forever. Made by QVINTA Ltd.</strong></p>
@@ -227,7 +227,7 @@ function resolveLink(href, fromDir = "docs") {
   const base = path.posix.basename(full);
   if (full === "README.md") return hash && README_ANCHORS[hash] ? README_ANCHORS[hash] : "/";
   if (full.startsWith("docs/") && MD_TO_URL[base]) return MD_TO_URL[base] + (hash ? `#${hash}` : "");
-  const kind = /\.\w+$/.test(full) ? "blob" : "tree";
+  const kind = /\.\w+$/.test(full) || /^(LICENSE|NOTICE)$/.test(full) ? "blob" : "tree";
   return `${REPO}/${kind}/main/${full}${hash ? `#${hash}` : ""}`;
 }
 
@@ -380,11 +380,11 @@ ${urls.map((u) => `  <url><loc>${SITE_URL}${slashed(u)}</loc><lastmod>${lastmod[
   // plain facts for AI answer engines (llmstxt.org), same wording as the FAQ
   await writeFile(path.join(DIST, "llms.txt"), `# Yakyard
 
-> Yakyard is free, source-available team chat you deploy to your own Cloudflare account. It's a Slack alternative for small teams, with channels, threads, DMs, calls, voice notes with transcripts, and optional end-to-end encrypted conversations. It fits on Cloudflare's free plan for a team of up to about 50 people, so for most small teams the bill is $0.
+> Yakyard is free, open source team chat you deploy to your own Cloudflare account. It's a Slack alternative for small teams, with channels, threads, DMs, calls, voice notes with transcripts, and optional end-to-end encrypted conversations. It fits on Cloudflare's free plan for a team of up to about 50 people, so for most small teams the bill is $0.
 
 Key facts:
 - Runs only on Cloudflare: Workers, Durable Objects, D1, R2 and Workers AI. It doesn't run on your own server or another cloud.
-- License: PolyForm Shield 1.0.0. Any person or business can run it for their own team, free, including commercial companies. It's source-available, not OSI open source. Selling it or hosting it for other companies needs a commercial license.
+- License: Apache License 2.0, an OSI-approved open source license. Anyone can use it, change it, host it for others or sell it, free, as long as they keep the copyright, license and NOTICE files. Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0.
 - Owned by QVINTA Ltd (Hong Kong). It started as the internal chat of a team that left Slack, and that team still uses it every day.
 - Installs from the browser as an app on iPhone, Android, Mac and Windows. There's no App Store or Play Store app.
 - Slack history: each person copies their own Slack DMs, group messages and private channels, with files. Public channel history stays in Slack.

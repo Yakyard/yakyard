@@ -189,19 +189,21 @@ Yes, if you made Yakyard with the **Deploy to Cloudflare** button. Give your Git
 
 ### Is it open source?
 
-No. Yakyard is free and source-available under the [PolyForm Shield License 1.0.0](../LICENSE.md). You get the full code and can use, change and run it. PolyForm Shield isn't an OSI-approved open source license, because it forbids competing uses, so we don't call Yakyard open source.
+Yes. Yakyard is under the [Apache License 2.0](../LICENSE), an OSI-approved open source license. You get the full code and can use it, change it, share it and sell it, with no fee and no permission to ask.
+
+The 1.0.0 and 2.0.0 releases came out under PolyForm Shield 1.0.0. The code on `main` and every release after 2.0.0 are under Apache 2.0.
 
 ### Can I use it at work?
 
-Yes. Any person or business, of any size, can run Yakyard for their own team, for free. That includes commercial companies.
+Yes. Any person or business, of any size, can run Yakyard for their own team, for free.
 
 ### Can I sell it, or host it for other companies?
 
-No, not under the free license. Selling Yakyard, running it as a chat service for other people or companies, or building a product that competes with it all need a commercial license from QVINTA Ltd, which owns Yakyard. Ask by [opening an issue](https://github.com/yakyard/yakyard/issues/new/choose).
+Yes. Apache 2.0 lets you host Yakyard for clients, sell it, or build your own product on it. Keep the [LICENSE](../LICENSE) and [NOTICE](../NOTICE) files with your copy, mark the files you changed, and don't present your product as the official Yakyard.
 
 ### Can I change the code?
 
-Yes. Change anything for your own use. You can share your changed version too, under the same license, as long as it isn't used to compete with Yakyard.
+Yes. Change anything. You can share your changed version under Apache 2.0 or under your own terms, as long as you keep the original copyright and license notices.
 
 ### Who runs Yakyard?
 
@@ -215,7 +217,7 @@ Start with [When something fails](SETUP.md#when-something-fails). Then [GitHub i
 
 ### What if the project stops?
 
-Your Yakyard keeps running. It lives on your Cloudflare account, you have the code, and nothing depends on a server of ours. You'd stop getting updates, and you could keep fixing your own copy under the license.
+Your Yakyard keeps running. It lives on your Cloudflare account, you have the code, and nothing depends on a server of ours. You'd stop getting updates from us, but the code is Apache 2.0, so you or anyone else can keep it going.
 
 ### Is it secure?
 

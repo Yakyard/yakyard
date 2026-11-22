@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="https://github.com/yakyard/yakyard/actions/workflows/ci.yml"><img src="https://github.com/yakyard/yakyard/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-PolyForm%20Shield%201.0.0-2B1BD6" alt="License: PolyForm Shield 1.0.0"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-2B1BD6" alt="License: Apache 2.0"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/yakyard/yakyard"><img src="https://api.scorecard.dev/projects/github.com/yakyard/yakyard/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
@@ -25,7 +25,7 @@
   <a href="docs/GUIDE.md">See how it works</a> ·
   <a href="docs/FAQ.md">FAQ</a> ·
   <a href="docs/COMPARE.md">Compare</a> ·
-  <a href="LICENSE.md">License</a>
+  <a href="LICENSE">License</a>
 </p>
 
 <p align="center"><img src="docs/screens/hero-light.png" width="880" alt="A Yakyard channel in the light theme: a shared design with reactions, a three-reply thread, and a voice note with its transcript"></p>
@@ -112,7 +112,7 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 - One click to deploy. No server or Docker to look after.
 - Backups to a file you keep, with one command or every night by themselves.
 - Three themes, including Yaky, the loud one we made for fun.
-- You can read and change every line of code.
+- Open source under Apache 2.0. Use it, change it, even sell it.
 - Optional end-to-end encryption for DMs and private channels you choose to lock (a preview).
 
 **Worth knowing**
@@ -121,13 +121,13 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 - No app store app. It's an installable web app, with notifications.
 - Only locked conversations are end-to-end encrypted. The rest is readable to whoever controls your Cloudflare account. Locked ones have limits: search only on your device, no transcripts, and a lost recovery key means lost messages.
 
-The fine print (calls, transcript languages, the Slack import, support) is in [Pros and cons](docs/PROS-AND-CONS.md). The license is under [License](#license).
+The fine print (calls, transcript languages, the Slack import, support) is in [Pros and cons](docs/PROS-AND-CONS.md).
 
 ## How it compares
 
 | | Price per person a month | Free plan catch | Run it yourself | License |
 |---|---|---|---|---|
-| **Yakyard** | $0. Above about 50 people, $5 a month for the whole team (Cloudflare) | Cloudflare's daily limits | Yes, on your Cloudflare account, no server | PolyForm Shield (source-available) |
+| **Yakyard** | $0. Above about 50 people, $5 a month for the whole team (Cloudflare) | Cloudflare's daily limits | Yes, on your Cloudflare account, no server | Apache 2.0 |
 | Slack | Pro $7.25 yearly / $8.75 monthly | 90 days of history; older than a year is deleted | No | Closed |
 | Microsoft Teams | Essentials $4 (yearly) | Free Teams: 60-minute group calls | No | Closed |
 | Google Chat | In Workspace, from $7 yearly / $8.40 flexible | No free business plan | No | Closed |
@@ -138,7 +138,7 @@ The fine print (calls, transcript languages, the Slack import, support) is in [P
 | Campfire | Free | No calls listed | Yes, your server | MIT |
 | Element (Matrix) | Enterprise per seat, by quote | Community is for non-professional use | Yes, your server | AGPL-3.0 / commercial |
 
-Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of these beat Yakyard at things that might matter to you. Need OSI open source? Zulip, Campfire, Mattermost Team Edition or Element. Need end-to-end encryption on every conversation, with an audited client? Element. The app-by-app version is in [COMPARE.md](docs/COMPARE.md).
+Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of these beat Yakyard at things that might matter to you. Need it on your own server instead of Cloudflare? Zulip, Mattermost or Campfire. Need end-to-end encryption on every conversation, with an audited client? Element. The app-by-app version is in [COMPARE.md](docs/COMPARE.md).
 
 ## Install
 
@@ -164,7 +164,7 @@ Phone notifications, Slack import, Google sign-in, team clocks and every other s
 
 **Is it really free?** The software is free. It runs on Cloudflare's free plan for up to about 50 people. Above that, Cloudflare charges $5 a month for the whole account, not per person.
 
-**Can I use it at work?** Yes. Any company can run it for its own team, for free. What you can't do is sell Yakyard or offer it as a chat service to others.
+**Can I use it at work?** Yes. Any company can run it for its own team, for free. You can also change it, host it for clients or sell it, under the Apache 2.0 terms.
 
 **Who can read our messages?** People in your workspace, and whoever has access to your Cloudflare account. Nobody at Yakyard can see them.
 
@@ -178,7 +178,7 @@ Phone notifications, Slack import, Google sign-in, team clocks and every other s
 
 **Who do I call when it breaks?** Nobody sells support. There's the [setup guide](docs/SETUP.md#when-something-fails), [GitHub issues](https://github.com/yakyard/yakyard/issues) and the people who use it.
 
-**Is it open source?** No. It's free and source-available under PolyForm Shield 1.0.0. You can read, change and run the code, but not sell it or build a competing product with it.
+**Is it open source?** Yes. Yakyard is under the Apache License 2.0, an OSI-approved open source license. Use it, change it, host it or sell it. Keep the copyright and license notices, and say what you changed.
 
 More answers in the [full FAQ](docs/FAQ.md).
 
@@ -190,15 +190,13 @@ Report problems in [GitHub issues](https://github.com/yakyard/yakyard/issues). R
 
 ## License
 
-Yakyard is free and source-available under the [PolyForm Shield License 1.0.0](LICENSE.md). In plain words:
+Yakyard is open source under the [Apache License 2.0](LICENSE). Copyright 2026 QVINTA Ltd. In plain words:
 
-- **You can** use it free, for yourself or for a business of any size. You can read the code, change it, and run your copy on your own Cloudflare account.
-- **You can't** sell Yakyard, offer it to others as a hosted chat service, or use it to build a product that competes with it.
-- **Need more?** Commercial licenses come from QVINTA Ltd, which owns Yakyard. Ask by [opening an issue](https://github.com/yakyard/yakyard/issues/new/choose).
+- **You can** use it, for yourself or for a business of any size. Read the code, change it, run it, host it for other people, build on it and sell it. No fee, no permission to ask.
+- **Keep the credit.** When you share Yakyard or something built from it, include the [LICENSE](LICENSE) and [NOTICE](NOTICE) files and mark the files you changed.
+- **No warranty.** It comes as is, and the license doesn't give you rights to the Yakyard name or logo.
 
-PolyForm Shield isn't an OSI-approved open source license, so we don't call Yakyard open source.
-
-The encryption code for locked conversations, in [`packages/yakyard-lock`](packages/yakyard-lock), is under the Apache License 2.0 instead, so anyone can audit it and reuse it.
+The 1.0.0 and 2.0.0 releases came out under PolyForm Shield 1.0.0. The code on `main` and every release after 2.0.0 are under Apache 2.0.
 
 Bundled fonts and libraries keep their own licenses: see [THIRD-PARTY.md](THIRD-PARTY.md).
 

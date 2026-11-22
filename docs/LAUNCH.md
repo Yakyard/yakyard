@@ -7,7 +7,7 @@
 Ready-to-post drafts for telling people about Yakyard, plus a plan for launch day and the month after. Every claim in these drafts is in the [README](../README.md) or [sources](sources.md). Before posting, check three things are still true: the prices in [sources](sources.md), the repository address, and each community's current rules.
 
 Rules for every post:
-- Say "free and source-available", never "open source". Name the license (PolyForm Shield 1.0.0) early.
+- Say "free and open source" and name the license (Apache 2.0). Anyone can use it, change it and sell it.
 - No made-up numbers, user counts, testimonials or "as seen on".
 - Say the limits out loud: Cloudflare only, no native mobile apps, end-to-end encryption only in locked conversations (and not audited yet), no paid support.
 - Reply to every comment for the first day, especially the critical ones. Thank people for bugs.
@@ -50,10 +50,8 @@ Yakyard is a team chat you deploy to your own Cloudflare account: channels,
 threads, DMs, mentions, search, calls, and voice notes with automatic
 transcripts (Whisper on Workers AI).
 
-License first, so nobody feels tricked: it's free and source-available
-under PolyForm Shield 1.0.0. Any person or business can use it, read it and
-change it. You can't sell it or build a competing product with it. It is
-not OSI open source.
+It's free and open source under Apache 2.0. Any person or business can
+use it, change it, host it or sell it.
 
 It started as the internal chat for a small team that left Slack. The
 constraint that shaped everything: fit Cloudflare's free plan, which allows
@@ -97,10 +95,10 @@ Free team chat on your own Cloudflare account
 **Description** (500 characters max)
 
 ```
-Slack-style team chat you deploy to your own Cloudflare account. Channels, threads, DMs, calls and voice notes with transcripts. Fits Cloudflare's free plan for about 50 people, so it costs $0. Free and source-available.
+Slack-style team chat you deploy to your own Cloudflare account. Channels, threads, DMs, calls and voice notes with transcripts. Fits Cloudflare's free plan for about 50 people, so it costs $0. Free and open source (Apache 2.0).
 ```
 
-**Topics:** pick from Product Hunt's list at launch time, such as Messaging, Productivity and Remote Work. Don't pick Open Source: Yakyard's license isn't one.
+**Topics:** pick from Product Hunt's list at launch time, such as Open Source, Messaging, Productivity and Remote Work.
 
 **First comment (maker)**
 
@@ -117,8 +115,8 @@ calls with screen share, push notifications, guests, Google sign-in, a
 Slack import, and voice notes that get written transcripts.
 
 What isn't: native app store apps (it installs from the browser), end-to-
-end encryption, or paid support. It's free and source-available (PolyForm
-Shield): any business can use it, nobody can resell it.
+end encryption, or paid support. It's free and open source (Apache 2.0):
+use it, change it, build on it.
 
 Setup takes about 30 minutes without coding. I'd love to hear what's
 missing for your team.
@@ -161,8 +159,7 @@ Also be upfront that it's not a "run on your own box" app. People in r/selfhoste
   server.
 - Cost: built to fit Cloudflare's free plan, about 50 people at $0. R2
   needs a card on file.
-- License: PolyForm Shield 1.0.0. Free and source-available, not OSI open
-  source. Use it for anything except selling it or competing with it.
+- License: Apache 2.0. Free and open source. Use it, fork it, sell it.
 - Limits: no native apps (PWA), E2EE only in locked conversations, mesh calls for small groups.
 - Docs: step-by-step setup, a how-to guide, backups and restore.
 - Repo: https://github.com/yakyard/yakyard
@@ -191,7 +188,7 @@ end-to-end encryption only in conversations you lock, and no paid support. Each 
 own Slack DMs and private channels across, but public channel history
 stays in Slack.
 
-It's free for any business and source-available (it can't be resold).
+It's free and open source (Apache 2.0).
 Repo and setup guide: https://github.com/yakyard/yakyard
 
 Happy to answer questions about the move.
@@ -239,7 +236,7 @@ The usual. Your team will know where everything is.
 ```
 
 ```
-8/ Free and source-available under PolyForm Shield. Use it at any company. Just don't resell it.
+8/ Free and open source under Apache 2.0. Use it at any company, change it, build on it.
 
 Setup guide, about 30 min, no coding: github.com/yakyard/yakyard/blob/main/docs/SETUP.md
 ```
@@ -261,7 +258,7 @@ What to know before you try it:
 • Messages live in your Cloudflare account. Lock a DM or private channel to encrypt it end to end.
 • Each person can bring their Slack DMs and private channels across.
 
-It's free for any business and source-available. The setup guide takes about 30 minutes: github.com/yakyard/yakyard
+It's free and open source. The setup guide takes about 30 minutes: github.com/yakyard/yakyard
 
 #smallbusiness #selfhosted #teamchat
 ```
@@ -277,14 +274,14 @@ Screen recording of the real app, a seeded workspace with made-up names. No stoc
 | 0:09 to 0:15 | Tap the mic, record a short note, send; the transcript appears | "Send a voice note and it writes itself down. Search finds it later." |
 | 0:15 to 0:19 | Click Pop in; a call bar with two people and a shared screen | "Pop into a call right in the channel." |
 | 0:19 to 0:24 | Cloudflare dashboard showing the yakyard Worker; then the cost table from the README | "It runs on your own Cloudflare account, and fits the free plan. About fifty people, zero dollars." |
-| 0:24 to 0:30 | Phone in the Yaky theme, then the repo URL and "Free and source-available" | "No server. No per-seat bill. Get it on GitHub." |
+| 0:24 to 0:30 | Phone in the Yaky theme, then the repo URL and "Free and open source" | "No server. No per-seat bill. Get it on GitHub." |
 
 ## GitHub repository
 
 **Description** (under 350 characters)
 
 ```
-Slack-style team chat that runs on your own Cloudflare account, free for teams of up to about 50. Channels, threads, DMs, calls, voice notes with transcripts, push notifications, guests and Slack import. One-command deploy. Free and source-available (PolyForm Shield).
+Slack-style team chat that runs on your own Cloudflare account, free for teams of up to about 50. Channels, threads, DMs, calls, voice notes with transcripts, push notifications, guests and Slack import. One-command deploy. Free and open source (Apache 2.0).
 ```
 
 **Website:** leave empty, or the docs link `https://github.com/yakyard/yakyard/blob/main/docs/SETUP.md`.
@@ -292,7 +289,7 @@ Slack-style team chat that runs on your own Cloudflare account, free for teams o
 **Topics** (GitHub allows up to 20: lowercase letters, numbers and hyphens)
 
 ```
-team-chat, chat, slack-alternative, self-hosted, cloudflare-workers, cloudflare, durable-objects, cloudflare-d1, cloudflare-r2, workers-ai, pwa, voice-notes, transcription, whisper, webrtc, web-push, messaging, collaboration, source-available
+team-chat, chat, slack-alternative, self-hosted, cloudflare-workers, cloudflare, durable-objects, cloudflare-d1, cloudflare-r2, workers-ai, pwa, voice-notes, transcription, whisper, webrtc, web-push, messaging, collaboration, open-source
 ```
 
 **Social preview** (1280 × 640): the lockup on `#FFF8E6` with the tagline, or the channel screenshot cropped to 2:1.
@@ -345,7 +342,6 @@ Numbers to watch every week, and the level that means something needs changing:
 | Questions asked twice | Issues and comments | Any question asked twice goes into the [FAQ](FAQ.md) |
 | Stars and forks | GitHub Insights | Use as a trend only, not a goal |
 | Traffic to SETUP.md vs README | GitHub Insights, Traffic | Under 1 in 10 README visitors reach SETUP: the README isn't convincing, rework the top |
-| Commercial license requests | Issues marked Question | Track them; no target |
 
 Reviews:
 - **Day 7:** What broke? What did people ask most? Which channel brought people who actually set it up?

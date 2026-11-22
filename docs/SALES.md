@@ -33,7 +33,7 @@ For the person who wants their team on Yakyard and has to convince someone: a bo
 >
 > There's no server to look after. Updates and backups are one command each. Each of us can copy our own Slack DMs and private channels across.
 >
-> The trade-offs: no native app store apps (it installs from the browser, with notifications), end-to-end encryption only in the conversations we choose to lock, no support contract, and public channel history stays in Slack. It's free and source-available: any business can use it, but nobody can resell it.
+> The trade-offs: no native app store apps (it installs from the browser, with notifications), end-to-end encryption only in the conversations we choose to lock, no support contract, and public channel history stays in Slack. It's free and open source under Apache 2.0, so we can change it however we like.
 >
 > It was built for a real team that left Slack, and they use it every day. I'd like to try it with [a few people / one project] for two weeks before we decide.
 
@@ -100,7 +100,7 @@ If the answer is "every conversation must be encrypted" or "we need an audited c
 
 ### "Is it even legal to use at a company?"
 
-> Yes. The license is PolyForm Shield 1.0.0. Any business can use it for free, change it and run it. The only thing it forbids is selling it or building a competing product. It's source-available, not open source, so if we have an open-source-only policy, it doesn't qualify.
+> Yes. It's open source under the Apache License 2.0, one of the most common licenses in business software. Any company can use it, change it and run it for free. The main condition is keeping the copyright and license notices if we share it outside the company.
 
 ### "It's from a company I've never heard of."
 
@@ -108,7 +108,7 @@ If the answer is "every conversation must be encrypted" or "we need an audited c
 
 ### Don't
 
-- Don't claim it's open source, enterprise-grade, or more secure than Slack.
+- Don't claim it's enterprise-grade or more secure than Slack.
 - Don't promise uptime or support.
 - Don't make up how many teams use it.
 - Don't skip the trade-offs. Your boss will find them, and then your pitch is the problem.

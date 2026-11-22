@@ -48,7 +48,7 @@ Off by default. The owner turns it on in **Admin**, **Locked conversations**, **
 
 ## Which library, and why
 
-We needed something battle-tested, browser-ready, small enough for phones, and under a permissive license (Yakyard is PolyForm Shield, so no AGPL or GPL code, which rules out libsignal).
+We needed something battle-tested, browser-ready, small enough for phones, and under a permissive license that fits inside Apache-2.0 Yakyard (no AGPL or GPL code, which rules out libsignal).
 
 | Option | License (checked in each repo, 22 Nov 2026) | Track record | In the browser | Verdict |
 |---|---|---|---|---|

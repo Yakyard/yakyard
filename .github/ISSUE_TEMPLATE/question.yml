@@ -1,5 +1,5 @@
 name: Question
-description: Ask how something works, or about a commercial license.
+description: Ask how something works.
 title: "Question: "
 labels: ["question"]
 body:

@@ -50,18 +50,17 @@ We'd rather lose you now than disappoint you later.
 
 - **Teams that need every conversation end-to-end encrypted, or an audited client.** Yakyard encrypts only the DMs and private channels you lock, and its own code around the encryption library isn't audited yet. Look at Element (Matrix).
 - **Regulated industries** that need SOC 2, HIPAA or similar paperwork for chat. Yakyard has none.
-- **Companies that only allow OSI open source licenses.** Yakyard is source-available. Zulip, Mattermost Team Edition, Rocket.Chat Community, Campfire and Element are open source.
 - **Teams that need their own hardware** or can't use Cloudflare. Yakyard only runs on Cloudflare.
 - **Large organizations** that want a vendor, an SLA, a support line and a sales contact.
 - **Teams that live in integrations** (Jira bots, CI alerts, app directories). Yakyard is chat, calls and voice notes.
 - **Big video meetings.** Calls are browser to browser and suit small groups.
 - **Communities and public servers.** Yakyard is built for a team that knows each other, not for thousands of strangers.
 
-## Free, and source-available
+## Free, and open source
 
-Yakyard is free under the [PolyForm Shield License 1.0.0](../LICENSE.md). Use it for any business, change it, run it. The one thing you can't do is sell it or build a competing product with it. That's what keeps it free for everyone else: nobody gets to wrap it up and charge your team per seat.
+Yakyard is open source under the [Apache License 2.0](../LICENSE). Use it at any company, change it, run it, host it for clients, even sell it. No fee, no permission to ask. Keep the copyright and license notices, and say what you changed.
 
-It's not open source in the OSI sense, and we don't pretend it is.
+We picked Apache 2.0 so that as many teams as possible can use Yakyard and build on it.
 
 ---
 
