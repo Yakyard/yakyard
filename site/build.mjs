@@ -148,7 +148,7 @@ function footer() {
       ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE.md`, "License"], ["/press", "Press kit"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
     </div>
     <div class="foot__base">
-      <p><strong>Free to run. Made by QVINTA Ltd.</strong></p>
+      <p><strong>Free forever. Made by QVINTA Ltd.</strong></p>
       <p>Yakyard isn't affiliated with or endorsed by Slack, Salesforce, Cloudflare or any other company named here.</p>
     </div>
   </div>
