@@ -33,7 +33,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   const li = ([b, t]) => `<li><b>${b}</b>${t ? ` ${t}` : ""}</li>`;
 
   const rows = [
-    ["Yakyard", "$0. Above about 50 people, $5 a month for the whole team", "Cloudflare's daily limits", "Yes, on your Cloudflare account, no server", "Apache 2.0", true],
+    ["Yakyard", "$0. Above about 50 people, $5 a month for the whole team", "Cloudflare's daily limits", "Yes, on your Cloudflare account with no server, or on your own server with Docker", "Apache 2.0", true],
     ["Slack", "Pro $7.25 yearly, $8.75 monthly", "90 days of history; older than a year is deleted", "No", "Closed"],
     ["Microsoft Teams", "Essentials $4 (yearly)", "Free Teams: 60-minute group calls", "No", "Closed"],
     ["Google Chat", "In Workspace, from $7 yearly, $8.40 flexible", "No free business plan", "No", "Closed"],
@@ -62,7 +62,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   ];
 
   const body = `
-<aside class="v2band" aria-label="Yakyard 2.1"><div class="wrap"><p><span class="v2band__tag">2.1</span> <strong>Yakyard is now open source.</strong> <span class="v2band__long">Apache 2.0: use it, change it, even sell it. And there's a live demo you can click into.</span><span class="v2band__short">Apache 2.0, plus a live demo.</span> <a href="/releases/2.1.0/">What's new</a></p></div></aside>
+<aside class="v2band" aria-label="Yakyard 2.2"><div class="wrap"><p><span class="v2band__tag">2.2</span> <strong>Run it on your own server.</strong> <span class="v2band__long">Docker and Caddy on any Linux server, with all your data in one volume.</span><span class="v2band__short">Docker, on any Linux server.</span> <a href="/releases/2.2.0/">What's new</a></p></div></aside>
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
     <h1 class="d-xl" id="hero-title"><span class="l">${"Yak all you want.".split(" ").map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(" ")}</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
@@ -406,7 +406,7 @@ export function pressPage({ layout, shot, icon, REPO }) {
         <tr><th scope="row">Price</th><td>Free. Runs on Cloudflare's free plan for about 50 people; Cloudflare's Workers Paid plan ($5 a month minimum per account) above that</td></tr>
         <tr><th scope="row">Features</th><td>Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, locked conversations (end-to-end encrypted DMs and private channels), scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes</td></tr>
         <tr><th scope="row">Encryption</th><td>Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it is Apache-2.0 and not independently audited yet.</td></tr>
-        <tr><th scope="row">Version</th><td>2.1.0</td></tr>
+        <tr><th scope="row">Version</th><td>2.2.0</td></tr>
         <tr><th scope="row">Runs on</th><td>Cloudflare Workers, Durable Objects, D1, R2, Workers AI</td></tr>
         <tr><th scope="row">Apps</th><td>Installable web app (PWA) for iPhone, Android, Mac and Windows</td></tr>
         <tr><th scope="row">License</th><td>Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0.</td></tr>
@@ -474,8 +474,118 @@ function chat(icon) {
 // Release notes pages, in the home page's design. Same words as docs/releases/*.md.
 export function releasePages({ layout, shot, DEPLOY_URL, REPO }) {
   const deployBtn = `<a class="btn btn--primary" href="${DEPLOY_URL}">Deploy to Cloudflare</a>`;
+  const v22 = `
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.2.0</span> <strong>The latest release.</strong> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<section class="hero rel-hero" aria-labelledby="rel-title">
+  <div class="wrap">
+    <h1 class="d-xl" id="rel-title"><span class="l">Your server,</span> <span class="l hot"><span class="stamp">your chat.</span></span></h1>
+    <div class="rel-hero__grid">
+      <div>
+        <p class="lede">Yakyard runs on your own Linux server now. Docker runs it, Caddy handles HTTPS, and every message, file and setting sits in one volume on your disk.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="/docs/docker">Run it on your own server</a><a class="btn btn--ghost" href="#update">Update to 2.2.0</a></div>
+      </div>
+      <div class="rel-shot">${shot("server-voice-off", { alt: "A channel on a server with no Cloudflare token: the voice note plays, and under it Yakyard says transcripts are off on this server", sz: "(min-width: 960px) 720px, 100vw", eager: true })}</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="run-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="run-title">Up in about 15 minutes.</h2><p>You need a Linux server with Docker Compose v2, a domain pointing at it, and ports 80 and 443 open. 1 GB of memory is enough for a small team.</p></div>
+    <div>
+      <pre class="rel-code"><code>git clone https://github.com/yakyard/yakyard.git
+cd yakyard
+cp .env.example .env
+# set DOMAIN and SETUP_TOKEN
+docker compose up -d</code></pre>
+      <p class="rel-new">When <code>docker compose ps</code> says healthy, open <code>https://your-domain/setup</code> and create the owner account. Caddy gets the certificate by itself.</p>
+      <div class="btn-row"><a class="btn btn--ghost" href="/docs/docker">Read the step-by-step guide</a></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec band" aria-labelledby="same-title">
+  <div class="wrap">
+    <div class="sec__head">
+      <h2 class="d-l" id="same-title">Same app, your hardware.</h2>
+      <p>The Worker runs in workerd, the open-source runtime Cloudflare Workers is built on, through Wrangler's local mode. The database, files and background jobs live in one Docker volume, and the database is brought up to date every time Yakyard starts.</p>
+    </div>
+    <div class="bento">
+      <article class="tile t-thread">
+        <h3>Everything you use today</h3>
+        <p>Channels, threads, DMs, calls, search, phone notifications, Google sign-in, the Slack import and locked conversations. Same code as on Cloudflare. Photo previews are made on your server.</p>
+        <div class="tile__shot">${shot("hero-light", { alt: "Yakyard in a browser: a channel with messages, a thread, reactions and a voice note", sz: "(min-width: 960px) 640px, 100vw" })}</div>
+      </article>
+      <article class="tile t-phone">
+        <h3>Voice notes keep working</h3>
+        <p>They record, send and play. Transcripts come from Workers AI, so they need a free Cloudflare token. Without one, each note says so.</p>
+        <div class="tile__shot">${shot("phone-server-voice-off", { alt: "A voice note on a phone, with the line Transcripts are off on this server", sz: "210px" })}</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="keep-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="keep-title">Backups and updates.</h2><p>One command backs up everything: messages, files, voice notes and settings. Copy the file off the server.</p></div>
+    <ul class="rel-list">
+      <li>Run <code>sh docker/backup.sh</code>. It stops Yakyard for a few seconds so the database is copied whole, and saves a dated file in the <code>backups</code> folder. To put one back, run <code>sh docker/restore.sh</code>. It asks first.</li>
+      <li>Release tags publish the image to <code>ghcr.io/yakyard/yakyard</code>. <code>latest</code> follows releases, or pin one in <code>.env</code>, like <code>YAKYARD_VERSION=2.2.0</code>, and update when you choose.</li>
+      <li>On every change, CI builds the image and runs the full security suite against the container, then restarts it and checks nothing was lost.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec band" aria-labelledby="pick-title">
+  <div class="wrap">
+    <div class="sec__head"><h2 class="d-l" id="pick-title">Cloudflare or your own server.</h2><p>Don't want to look after a server? Stay on Cloudflare. Want your chat on hardware you control, with no daily limits? Use Docker.</p></div>
+    <div class="ctable-wrap"><table class="ctable">
+      <caption class="sr">Running Yakyard on Cloudflare compared with your own server</caption>
+      <thead><tr><th scope="col"><span class="sr">Where</span></th><th scope="col">Setup</th><th scope="col">Cost</th><th scope="col">Limits</th><th scope="col">Transcripts</th><th scope="col">Upkeep</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Cloudflare</th><td data-label="Setup">Deploy button or four commands, about 30 minutes</td><td data-label="Cost">$0 for most teams up to about 50 people</td><td data-label="Limits">Cloudflare's daily free plan limits</td><td data-label="Transcripts">Built in</td><td data-label="Upkeep">Cloudflare runs the machines</td></tr>
+        <tr><th scope="row">Your own server</th><td data-label="Setup"><span><code>docker compose up -d</code>, about 15 minutes</span></td><td data-label="Cost">What your server costs</td><td data-label="Limits">Your server's memory, CPU and disk. One server, no failover</td><td data-label="Transcripts">Need a free Cloudflare token</td><td data-label="Upkeep">You: system updates, firewall, disk</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="know-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="know-title">Worth knowing.</h2></div>
+    <ul class="rel-list">
+      <li>Your own server is a newer way to run Yakyard, with fewer teams on it. It runs on Wrangler's local mode, which Cloudflare built for development.</li>
+      <li>One server, no automatic scaling and no failover. If the server is down, so is your chat. Size it for your team and keep backups somewhere else.</li>
+      <li>You look after the server: operating system updates, the firewall, disk space and Docker.</li>
+      <li>Transcripts need a Cloudflare token, and the audio goes to Cloudflare to be transcribed. Voice notes sent while transcripts were off stay without one.</li>
+      <li>People in your workspace can read what isn't locked, and so can anyone who gets into the server or its backups.</li>
+      <li>Locked conversations are still a preview. The encryption library is audited. Yakyard's own code around it isn't yet.</li>
+      <li><code>npm run backup</code> and the automatic updates are for Cloudflare installs. On your own server, use the two scripts. There's no guide yet for moving an existing Cloudflare install over.</li>
+      <li>The database doesn't change in this release.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec install band" id="update" aria-labelledby="update-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="update-title">Update.</h2><p>Back up first, then update. Nothing to turn on afterwards.</p></div>
+    <div>
+      <p class="rel-new">On Cloudflare:</p>
+      <pre class="rel-code"><code>npm run backup
+npm run update</code></pre>
+      <p class="rel-new">On your own server:</p>
+      <pre class="rel-code"><code>sh docker/backup.sh
+git pull
+docker compose pull
+docker compose up -d</code></pre>
+      <p class="rel-new">New to Yakyard? Setup on Cloudflare takes about 30 minutes, no coding.</p>
+      <div class="btn-row">${deployBtn}<a class="btn btn--ghost" href="/docs/docker">Run it on your own server</a></div>
+    </div>
+  </div>
+</section>`;
+
   const v21 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.1.0</span> <strong>The latest release.</strong> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.1.0</span> <strong>Now open source.</strong> <a href="/releases/2.2.0">See 2.2.0, the latest</a> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Now open</span> <span class="l hot"><span class="stamp">source.</span></span></h1>
@@ -568,7 +678,7 @@ npm run update</code></pre>
 </section>`;
 
   const v2 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.0.0</span> <strong>Locked conversations.</strong> <a href="/releases/2.1.0">See 2.1.0, the latest</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.0.0</span> <strong>Locked conversations.</strong> <a href="/releases/2.2.0">See 2.2.0, the latest</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Lock what's</span> <span class="l hot"><span class="stamp">private.</span></span></h1>
@@ -650,7 +760,7 @@ npm run update</code></pre>
 </section>`;
 
   const v1 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/2.1.0">See 2.1.0, the latest</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/2.2.0">See 2.2.0, the latest</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Yakyard 1.0.0.</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
@@ -704,6 +814,7 @@ npm run update</code></pre>
   </div>
 </section>`;
   return [
+    ["/releases/2.2.0", layout({ title: "Yakyard 2.2.0: run it on your own server", description: "Yakyard 2.2.0 runs on your own Linux server with Docker, with HTTPS from Caddy, one-command backups and updates, and the limits stated plainly.", urlPath: "/releases/2.2.0", og: "home", ogType: "article", body: v22 })],
     ["/releases/2.1.0", layout({ title: "Yakyard 2.1.0: now open source", description: "Yakyard 2.1.0 is open source under Apache 2.0, with a live demo and optional updates and backups that run by themselves.", urlPath: "/releases/2.1.0", og: "home", ogType: "article", body: v21 })],
     ["/releases/2.0.0", layout({ title: "Yakyard 2.0.0: locked conversations", description: "Yakyard 2.0.0 lets you lock a DM or private channel so only the people in it can read it.", urlPath: "/releases/2.0.0", og: "home", ogType: "article", body: v2 })],
     ["/releases/1.0.0", layout({ title: "Yakyard 1.0.0: the first release", description: "The first Yakyard release: free team chat on your own Cloudflare account.", urlPath: "/releases/1.0.0", og: "home", ogType: "article", body: v1 })],

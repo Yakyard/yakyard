@@ -9,12 +9,13 @@
 
 <p align="center"><b>Yakyard</b> is a free Slack alternative you run on your own Cloudflare account.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
 
-<p align="center"><b>New in 2.1:</b> Yakyard is open source under Apache 2.0, with a live demo anyone can click into. <a href="docs/releases/2.1.0.md">What changed</a></p>
+<p align="center"><b>New in 2.2:</b> Yakyard runs on your own Linux server too, with Docker and Caddy. <a href="docs/releases/2.2.0.md">What changed</a></p>
 
 <p align="center"><a href="https://yakyard-demo.qvinta.workers.dev"><b>Try the live demo</b></a>. One click, no signup. It resets every night.</p>
 
 <p align="center">
   <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32"></a>
+  <br><sub>Rather use your own server? <a href="#run-it-on-your-own-server">Run it with Docker</a>.</sub>
 </p>
 
 <p align="center">

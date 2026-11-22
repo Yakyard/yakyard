@@ -2,7 +2,7 @@
 
 Each Yakyard release lists the security code of its locking code and the SHA-256 of every file behind it. The app shows the same code after an update (see [E2EE.md](E2EE.md#code-delivered-by-the-server)). To check a running Yakyard against this release: `npm run lock:verify -- https://your-yakyard`.
 
-## Yakyard 2.1.0 (yakyard-lock 1.0.0)
+## Yakyard 2.2.0 (yakyard-lock 1.0.0)
 
 Security code: **65AF-0FCF-2AF9-AA5B**
 

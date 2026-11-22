@@ -36,10 +36,10 @@ Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 pe
 | Price | Free. Runs on Cloudflare's free plan for about 50 people; Cloudflare's Workers Paid plan ($5 a month minimum per account) above that |
 | Features | Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, locked conversations (end-to-end encrypted DMs and private channels), scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes |
 | Encryption | Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it (Apache-2.0, `packages/yakyard-lock`) is not independently audited yet. |
-| Runs on | Cloudflare Workers, Durable Objects, D1, R2, Workers AI |
+| Runs on | Cloudflare Workers, Durable Objects, D1, R2, Workers AI. Since 2.2.0, also any Linux server with Docker (workerd and Caddy), where transcripts need a Cloudflare token |
 | Apps | Installable web app (PWA) for iPhone, Android, Mac and Windows |
 | License | Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0. |
-| Version | 2.1.0 |
+| Version | 2.2.0 |
 | Code | github.com/yakyard/yakyard |
 
 Yakyard is open source under the Apache License 2.0, so "free and open source" is accurate.

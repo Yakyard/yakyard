@@ -1,6 +1,6 @@
 {
   "name": "yakyard",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "Self-hosted team chat on Cloudflare: channels, threads, DMs, calls, voice notes with transcripts.",

@@ -2,7 +2,9 @@
 
 What changed in each Yakyard release, newest first.
 
-## Unreleased
+## 2.2.0 (22 November 2026)
+
+Yakyard now runs on your own Linux server with Docker too, with HTTPS from Caddy, backups and updates. The database doesn't change.
 
 ### Run it on your own server
 - Yakyard now runs on any Linux server with Docker: `docker compose up -d` starts it with Caddy in front for HTTPS, set by one `DOMAIN` line in `.env`. All data (database, files, background jobs) lives in one volume. [Step by step](docs/DOCKER.md), about 15 minutes.
