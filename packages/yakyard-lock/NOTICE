@@ -1,0 +1,7 @@
+yakyard-lock
+Copyright 2026 QVINTA Ltd
+
+This product includes vodozemac (https://github.com/matrix-org/vodozemac),
+Copyright The Matrix.org Foundation C.I.C., licensed under the Apache License 2.0,
+compiled into dist/yakyard-crypto_bg.wasm together with the Rust crates it depends on
+(MIT, Apache-2.0, BSD-3-Clause and Unicode-3.0 licensed; see THIRD-PARTY.md in Yakyard).

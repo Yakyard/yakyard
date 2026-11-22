@@ -5,7 +5,9 @@
   </picture>
 </p>
 
-<p align="center">Team chat you run on your own Cloudflare account, free.<br>Channels, threads, DMs, calls and voice notes with transcripts. No per-seat bill.</p>
+<p align="center">Team chat you run on your own Cloudflare account, free.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
+
+<p align="center"><b>New in Yakyard 2:</b> locked conversations, end-to-end encrypted. <a href="CHANGELOG.md">What changed</a></p>
 
 <p align="center">
   <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32"></a>
@@ -62,6 +64,10 @@ It started as an internal tool. It's built for and used every day by a real team
 
 <p align="center"><img src="docs/screens/desktop-dark.png" alt="The dark theme: a link, a mention and a voice note in a channel" width="760"></p>
 
+**Lock what's private.** Tick **Lock it** when you start a DM or private channel. Messages, files and voice notes are then encrypted on each person's device, with vodozemac, the library behind Element's encryption. The server only stores scrambled data: not the admin, not someone with your Cloudflare account, not us. Locking takes two approvals, and the app tells you plainly what works differently in there (search stays on your device, no transcripts, and a lost recovery key means lost messages). [How it works](docs/E2EE.md).
+
+<p align="center"><img src="docs/screens/locked-dm.png" alt="A locked DM: a Locked tag in the header, a banner that says only the people here can read it, a photo and a voice note with no transcript" width="760"></p>
+
 **Bring people in, keep others out.** Invite links, passwords, or Sign in with Google limited to your company domain. Guests (clients, freelancers) only see the channels you give them.
 
 **Leave Slack with your history.** Each person copies their own Slack DMs, group messages and private channels, with files and reactions. Read-only access, removed when the copy is done.
@@ -103,12 +109,13 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 - One-command backups to a file you keep.
 - Three themes, including Yaky, the loud one we made for fun.
 - You can read and change every line of code.
+- Optional end-to-end encryption for DMs and private channels you choose to lock.
 
 **Worth knowing**
 - Someone on your team runs it. Updates and backups are one command each.
 - Cloudflare only. It doesn't run on your own server or another cloud.
 - No app store app. It's an installable web app, with notifications.
-- Not end-to-end encrypted. Whoever controls your Cloudflare account can read the data.
+- Only locked conversations are end-to-end encrypted. The rest is readable to whoever controls your Cloudflare account. Locked ones have limits: search only on your device, no transcripts, and a lost recovery key means lost messages.
 
 The fine print (calls, transcript languages, the Slack import, support) is in [Pros and cons](docs/PROS-AND-CONS.md). The license is under [License](#license).
 
@@ -127,7 +134,7 @@ The fine print (calls, transcript languages, the Slack import, support) is in [P
 | Campfire | Free | No calls listed | Yes, your server | MIT |
 | Element (Matrix) | Enterprise per seat, by quote | Community is for non-professional use | Yes, your server | AGPL-3.0 / commercial |
 
-Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of these beat Yakyard at things that might matter to you. Need OSI open source? Zulip, Campfire, Mattermost Team Edition or Element. Need end-to-end encryption? Element. The app-by-app version is in [COMPARE.md](docs/COMPARE.md).
+Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of these beat Yakyard at things that might matter to you. Need OSI open source? Zulip, Campfire, Mattermost Team Edition or Element. Need end-to-end encryption on every conversation, with an audited client? Element. The app-by-app version is in [COMPARE.md](docs/COMPARE.md).
 
 ## Install
 
@@ -155,7 +162,9 @@ Phone notifications, Slack import, Google sign-in, team clocks and every other s
 
 **Can I use it at work?** Yes. Any company can run it for its own team, for free. What you can't do is sell Yakyard or offer it as a chat service to others.
 
-**Who can read our messages?** People in your workspace, and whoever has access to your Cloudflare account. Messages aren't end-to-end encrypted. Nobody at Yakyard can see them.
+**Who can read our messages?** People in your workspace, and whoever has access to your Cloudflare account. Nobody at Yakyard can see them.
+
+**Is it end-to-end encrypted?** Yes, optionally, for DMs and private channels you lock. Only the people in a locked conversation can read it, not the admin and not the server. The trade-offs: search there only covers your device, notifications don't show the message, no transcripts or link previews, and losing every device and your recovery key loses those messages. [Details](docs/E2EE.md).
 
 **Is there a phone app?** Yakyard installs from the browser on iPhone and Android, with its own icon and notifications. There's no App Store or Play Store app.
 
@@ -179,10 +188,13 @@ Yakyard is free and source-available under the [PolyForm Shield License 1.0.0](L
 
 PolyForm Shield isn't an OSI-approved open source license, so we don't call Yakyard open source.
 
+The encryption code for locked conversations, in [`packages/yakyard-lock`](packages/yakyard-lock), is under the Apache License 2.0 instead, so anyone can audit it and reuse it.
+
 Bundled fonts and libraries keep their own licenses: see [THIRD-PARTY.md](THIRD-PARTY.md).
 
 ## Credits
 
+- Locked conversations: vodozemac (Apache-2.0), Matrix.org's Olm and Megolm, compiled to WebAssembly.
 - Voice transcripts: OpenAI Whisper (MIT), running on Cloudflare Workers AI.
 - Emoji picker: emoji-mart (MIT).
 - Link previews: adapted from tldraw's cloudflare-workers-unfurl (MIT).
@@ -192,7 +204,7 @@ Bundled fonts and libraries keep their own licenses: see [THIRD-PARTY.md](THIRD-
 ## More
 
 - [Why Yakyard](docs/WHY-YAKYARD.md) · [Pros and cons](docs/PROS-AND-CONS.md) · [Compare](docs/COMPARE.md) · [FAQ](docs/FAQ.md)
-- [Setup](docs/SETUP.md) · [User guide](docs/GUIDE.md) · [Technical notes](docs/TECHNICAL.md) · [Changelog](CHANGELOG.md)
+- [Setup](docs/SETUP.md) · [User guide](docs/GUIDE.md) · [Technical notes](docs/TECHNICAL.md) · [Locked conversations](docs/E2EE.md) · [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Support](SUPPORT.md) · [Press kit](docs/PRESS-KIT.md)
 
 Yakyard is an independent project. It isn't affiliated with or endorsed by Slack, Salesforce, Cloudflare or any other company named here. Their names are used only to describe and compare.

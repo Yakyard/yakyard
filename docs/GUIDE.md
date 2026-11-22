@@ -15,6 +15,7 @@ The **?** button at the top right of the app has the short version of this page.
 - [Mentions and reactions](#mentions-and-reactions)
 - [Voice notes and transcripts](#voice-notes-and-transcripts)
 - [Pop in: calls](#pop-in-calls)
+- [Locked conversations](#locked-conversations)
 - [Search](#search)
 - [Send later, reminders and Later](#send-later-reminders-and-later)
 - [Notifications](#notifications)
@@ -90,6 +91,70 @@ Tap the mic in the message box, talk, then send. Up to 15 minutes.
 ## Pop in: calls
 
 Click **Pop in** at the top of any channel or direct message to start a voice call there. Others see it and can pop in too. Turn on video or share your screen from the call bar. Ctrl + Shift + H pops you in or out.
+
+## Locked conversations
+
+Some talks should stay between the people in them: pay, hiring, a client's numbers. Lock that DM or private channel. Its messages, photos, files and voice notes are then scrambled on your device before they leave it. Only the people in it can read them, not your admin and not the server.
+
+Your workspace owner turns this on first (**Admin**, **Locked conversations**).
+
+**Lock a DM.** Click **+ New message**, pick the people, tick **Lock it**, then **Go**.
+
+**Lock a channel.** **Add channels**, **Create a new channel**, tick **Lock it**. A locked channel is always private.
+
+**Step 1: read what changes.** A list shows what works and what doesn't. Tick **I understand what changes here**, then **Continue**.
+
+![Step 1: a Works list and a Doesn't work list, side by side, with an I understand box](guide/locked-step1.png)
+
+**Step 2: confirm.** Type the channel name, or `lock` for a DM.
+
+![Step 2: type lock to confirm](guide/locked-step2.png)
+
+**The first time: your recovery key.** You get a key of 53 letters and numbers. It opens your locked conversations on a new phone or computer. Copy it into a password manager or download it, then type its last 4 characters to show you saved it.
+
+![The recovery key screen with Copy and Download buttons and a warning in red](guide/locked-recovery-key.png)
+
+> If you lose every device **and** your recovery key, your locked messages are gone for good. Nobody can get them back, not even your admin.
+
+**Then a second person says yes.** Nobody can post until then, and the conversation says what it's waiting for.
+- A DM locks when everyone in it accepts. They see **Review and accept** at the bottom, and go through the same two steps.
+- A channel locks when an admin or the owner approves it in **Admin**. If you're an admin yourself, another admin approves it (unless you're the only one).
+
+![The other person's view: a request to lock the conversation, with Decline and Review and accept](guide/locked-accept.png)
+
+![A channel waiting for an admin to approve locking](guide/locked-channel-waiting.png)
+
+![Admin: the Locked conversations card with a channel waiting for approval](guide/locked-admin-approve.png)
+
+Every request, acceptance and approval shows as a line in the conversation, with who and when.
+
+**In a locked conversation** you see a **Locked** tag next to its name and a banner at the top. **What's different here?** opens the list again.
+
+![What's different here: the Works and Doesn't work lists](guide/locked-whats-different.png)
+
+What works differently:
+- **Search:** the search bar at the top doesn't look inside locked conversations. Use **Search here** in the banner. It searches messages already on this device.
+- **Phone notifications:** say "New message in a locked conversation", not what it says.
+- **Voice notes:** play as usual, but there's no transcript.
+- **Link previews and scheduled messages:** off.
+- **Slack import:** can't add old Slack messages to a locked conversation.
+- **Calls:** work as usual, but they aren't part of the lock.
+- **Locked for good:** a conversation can't be unlocked. To stop, start a new normal one.
+- **What the server still sees:** who is in it, who writes and when, and how big files are. Never what anyone says.
+
+![Search here, with "Searching this device only" under the box](guide/locked-search-here.png)
+
+**A new phone or computer.** Open a locked conversation and click **Set up this device to read it**. Type your recovery key, or click **Approve from another device instead**: your other device asks **Is this you?** and shows a code. If both codes match, approve it.
+
+![Enter your recovery key on a new device](guide/locked-new-device.png)
+
+![Is this you? The same 20-digit code shows on both devices](guide/locked-approve-device.png)
+
+**Signing out** removes the keys from that device. To read locked conversations there again, you need your recovery key or another device.
+
+**Your devices:** the **?** button, then **Your devices and recovery key**, lists the devices that can read your locked conversations. Remove any you no longer use.
+
+How it works underneath, and what it does and doesn't protect against: [Locked conversations, technical](E2EE.md).
 
 ## Search
 

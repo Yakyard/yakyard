@@ -9,7 +9,7 @@ Ready-to-post drafts for telling people about Yakyard, plus a plan for launch da
 Rules for every post:
 - Say "free and source-available", never "open source". Name the license (PolyForm Shield 1.0.0) early.
 - No made-up numbers, user counts, testimonials or "as seen on".
-- Say the limits out loud: Cloudflare only, no native mobile apps, not end-to-end encrypted, no paid support.
+- Say the limits out loud: Cloudflare only, no native mobile apps, end-to-end encryption only in locked conversations (and not audited yet), no paid support.
 - Reply to every comment for the first day, especially the critical ones. Thank people for bugs.
 
 ## Positioning
@@ -74,8 +74,9 @@ allowances work out to about 50 people. When a quota runs out (database
 reads, transcript minutes), it tells you and resets at midnight UTC, and
 Workers Paid ($5/month per account) lifts it.
 
-What it doesn't do: no native mobile apps (it's a PWA with push), no
-end-to-end encryption, calls are browser-to-browser mesh so small groups
+What it doesn't do: no native mobile apps (it's a PWA with push),
+end-to-end encryption only in the DMs and private channels you lock (Olm/Megolm
+via vodozemac, our wrapper not yet audited), calls are browser-to-browser mesh so small groups
 only, Slack import brings DMs and private channels but not public channel
 history, and it only runs on Cloudflare.
 
@@ -162,7 +163,7 @@ Also be upfront that it's not a "run on your own box" app. People in r/selfhoste
   needs a card on file.
 - License: PolyForm Shield 1.0.0. Free and source-available, not OSI open
   source. Use it for anything except selling it or competing with it.
-- Limits: no native apps (PWA), no E2EE, mesh calls for small groups.
+- Limits: no native apps (PWA), E2EE only in locked conversations, mesh calls for small groups.
 - Docs: step-by-step setup, user guide, backups and restore.
 - Repo: https://github.com/yakyard/yakyard
 ```
@@ -185,8 +186,8 @@ with transcripts. It fits Cloudflare's free plan for about 50 people, so
 it costs us nothing.
 
 Honest trade-offs: someone has to own setup and updates (one command
-each), there are no app store apps (it installs from the browser), no
-end-to-end encryption, and no paid support. Each person can copy their
+each), there are no app store apps (it installs from the browser),
+end-to-end encryption only in conversations you lock, and no paid support. Each person can copy their
 own Slack DMs and private channels across, but public channel history
 stays in Slack.
 
@@ -234,7 +235,7 @@ The usual. Your team will know where everything is.
 ```
 
 ```
-7/ What it doesn't have: no app store apps (it installs from the browser), no end-to-end encryption, no paid support, Cloudflare only.
+7/ What it doesn't have: no app store apps (it installs from the browser), no paid support, Cloudflare only. End-to-end encryption is there, but only in conversations you lock.
 ```
 
 ```
@@ -257,7 +258,7 @@ For 25 people on Slack Pro, that's $2,175 a year we don't spend.
 What to know before you try it:
 • Someone on your team owns setup and updates. One command each, no coding.
 • It installs from the browser on phones, with notifications. No app store app.
-• Messages live in your Cloudflare account. Not end-to-end encrypted.
+• Messages live in your Cloudflare account. Lock a DM or private channel to encrypt it end to end.
 • Each person can bring their Slack DMs and private channels across.
 
 It's free for any business and source-available. The setup guide takes about 30 minutes: github.com/yakyard/yakyard

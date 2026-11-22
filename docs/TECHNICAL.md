@@ -18,6 +18,7 @@ Everything an admin or developer needs beyond the [setup guide](SETUP.md): what 
 - [Backups](#backups)
 - [Old accounts](#old-accounts)
 - [Sign-in throttling](#sign-in-throttling)
+- [Locked conversations](#locked-conversations)
 - [Tests](#tests)
 - [How it's built](#how-its-built)
 
@@ -44,6 +45,7 @@ Yakyard is built to fit Cloudflare's free plan with zero paid features turned on
 | One phone notification | about 1 ms | Encryption only (Web Push, written out in `src/webpush.js`, no library). The signed VAPID token is made by the fan-out job and kept in the database for 11 hours. Sending a message only starts a background job; that job works out who gets a buzz and starts one more job per device. |
 | Slack import, one page of 50 messages | 2 ms | Each import is a chain of background jobs: 3 pages (150 messages) per job, the next job 4 seconds later. |
 | Voice note to transcript, per minute of audio | under 1 ms | Native base64. Each note gets its own background job, which retries if Workers AI is busy and waits for tomorrow if today's free time is used up. |
+| Locked conversations (end-to-end encrypted) | 2 to 3 ms | All encryption runs in the browser. The server stores ciphertext, relays sealed key packages between devices and keeps an encrypted key backup. Measured cold with `npm run cpu-bench`: sending 2.7 ms, relaying keys to 20 devices 2.7 ms, backing up 100 keys 3.0 ms. |
 | Link previews and outside pictures | small | Page parsing is native (HTMLRewriter), capped at 512 KB. Pictures are streamed, 5 MB max. |
 
 Calls (Pop in) go browser to browser. The server only relays the short setup messages.
@@ -206,13 +208,23 @@ Sign-in allows 30 tries per network address and 25 per account in 15 minutes, fr
 
 The step before sign-in (the browser asking for its password salt) allows 100 requests per address in 15 minutes. Changing a password allows 10 tries per person.
 
+## Locked conversations
+
+Off until the owner turns them on in Admin (stored in `settings` as `allow_locked`). No secret, variable or Cloudflare setting is needed. Everything about how they work, the threat model and what the server can see is in [E2EE.md](E2EE.md). Per release, [E2EE-HASHES.md](E2EE-HASHES.md) lists the security code and file hashes; `npm run lock:verify -- https://your-yakyard` compares a running server with them.
+
+Commands:
+- `npm run lock:sync` copies `packages/yakyard-lock` to `public/lock/` and updates the manifest and E2EE-HASHES.md. Run it after changing the package or `public/locked.js`. The tests fail if you forget.
+- `npm run lock:build` rebuilds the WebAssembly from Rust (needs `rustup target add wasm32-unknown-unknown` and `cargo install wasm-bindgen-cli --version 0.2.100`), then syncs.
+
+The app's Content Security Policy allows `'wasm-unsafe-eval'` so the WebAssembly can start; it still runs scripts only from its own address.
+
 ## Tests
 
 ```bash
 npm test
 ```
 
-Runs the unit tests, then the security checks against a local server if one is running (`npx wrangler dev --local --port 8797` on a fresh `npm run db:init:local`). The security checks need Python 3 with `requests` and `playwright`. To use another port and database copy: `node scripts/migrate.mjs --local --persist-to=/tmp/yy`, `npx wrangler dev --local --persist-to /tmp/yy --port 8811`, then `YY_BASE=http://localhost:8811 YY_PERSIST=/tmp/yy npm test`.
+Runs the unit tests (including the encryption tests in `packages/yakyard-lock/test` and `test/locked.test.mjs`), checks that `public/lock` matches the package, then the security checks against a local server if one is running (`npx wrangler dev --local --port 8797` on a fresh `npm run db:init:local`). The security checks need Python 3 with `requests` and `playwright`. To use another port and database copy: `node scripts/migrate.mjs --local --persist-to=/tmp/yy`, `npx wrangler dev --local --persist-to /tmp/yy --port 8811`, then `YY_BASE=http://localhost:8811 YY_PERSIST=/tmp/yy npm test`.
 
 ## How it's built
 
@@ -232,4 +244,7 @@ No framework and no build step. Plain JavaScript in `public/app.js`, a Cloudflar
 | Backups | `scripts/backup.mjs`, `scripts/restore.mjs` |
 | CPU check on Cloudflare | `scripts/cpu-check.mjs` |
 | Password stretching in the browser | `public/auth.js` |
+| Locked conversations: encryption (Apache-2.0) | `packages/yakyard-lock/` (copied to `public/lock/`) |
+| Locked conversations: screens and approvals | `public/locked.js` |
+| Locked conversations: keys, relay, backup, approvals on the server | `src/e2ee.js` |
 

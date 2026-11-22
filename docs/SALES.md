@@ -33,7 +33,7 @@ For the person who wants their team on Yakyard and has to convince someone: a bo
 >
 > There's no server to look after. Updates and backups are one command each. Each of us can copy our own Slack DMs and private channels across.
 >
-> The trade-offs: no native app store apps (it installs from the browser, with notifications), no end-to-end encryption, no support contract, and public channel history stays in Slack. It's free and source-available: any business can use it, but nobody can resell it.
+> The trade-offs: no native app store apps (it installs from the browser, with notifications), end-to-end encryption only in the conversations we choose to lock, no support contract, and public channel history stays in Slack. It's free and source-available: any business can use it, but nobody can resell it.
 >
 > It was built for a real team that left Slack, and they use it every day. I'd like to try it with [a few people / one project] for two weeks before we decide.
 
@@ -56,9 +56,17 @@ Each answer starts by agreeing with what's true, answers with facts, and ends wi
 
 *What's underneath:* fear of a leak, and of being the one who picked the tool.
 
-> Fair question. It's not end-to-end encrypted, and it hasn't had a formal audit, so I won't oversell it. What it does have: passwords are stretched in the browser and only a hash is stored, sign-in is rate-limited, private channels stay private even from admins, guests only see what they're given, and there's a security test suite in the code. The data sits in our own Cloudflare account, so the biggest thing we control is who can sign in to that account. We'd turn on two-factor sign-in there. Would that cover what you're worried about, or do we need end-to-end encryption?
+> Fair question. Yakyard hasn't had a formal audit, so I won't oversell it. What it does have: passwords are stretched in the browser and only a hash is stored, sign-in is rate-limited, private channels stay private even from admins, guests only see what they're given, and there's a security test suite in the code. The data sits in our own Cloudflare account, so the biggest thing we control is who can sign in to that account. We'd turn on two-factor sign-in there.
+>
+> For the sensitive stuff (pay, hiring, legal, a client's numbers) we can lock a DM or private channel. Then it's end-to-end encrypted on our devices, with the same library Element uses, and not even the admin or the Cloudflare account can read it. Would that cover what you're worried about?
 
-If the answer is "we need end-to-end encryption", recommend Element, not Yakyard.
+If the answer is "every conversation must be encrypted" or "we need an audited client", recommend Element, not Yakyard.
+
+### "What about privacy? Can the admin read our DMs?"
+
+*What's underneath:* trust between people, not just security. Often HR, managers or clients.
+
+> Normal DMs sit in our Cloudflare account, so whoever runs that account could read them. That's true of most hosted chat too. The difference: anyone can lock a DM or private channel. Then the messages are encrypted on each person's phone or laptop, and the admin, the server and Cloudflare only ever see scrambled data. Locking needs two approvals and can't be undone, and the app spells out what works differently (search only on your device, no transcripts, and losing every device plus the recovery key means losing those messages). The server still sees who talks to whom and when. Which conversations would you want locked?
 
 ### "Free means abandoned."
 
@@ -162,7 +170,7 @@ An example plan for a team of about 20. Adjust the days to taste.
 >
 > What I like: no per-seat price, our messages stay in our account with no 90-day limit, and there's no server to look after.
 >
-> What to know: no app store apps (it installs from the browser, with notifications), no end-to-end encryption, no support contract, and public channel history stays in Slack. Any business can use it free. It just can't be resold.
+> What to know: no app store apps (it installs from the browser, with notifications), end-to-end encryption only in conversations we lock, no support contract, and public channel history stays in Slack. Any business can use it free. It just can't be resold.
 >
 > I'd like to try it with [team] for two weeks. Setup takes me about 30 minutes, and if it doesn't work we change nothing.
 >

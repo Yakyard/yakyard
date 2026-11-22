@@ -30,6 +30,7 @@ Yakyard has what a team uses every day: channels and threads, DMs, mentions, rea
 
 - **Voice notes with transcripts.** Talk instead of typing, and everyone can still skim and search what you said.
 - **Pop in.** A voice call in any channel or DM, with screen share, without opening a meeting app.
+- **Locked conversations.** Lock a DM or private channel and only the people in it can read it: not the admin, not the server. End-to-end encrypted with vodozemac, the library behind Element. Two approvals to turn it on, and plain words about what works differently.
 
 There are three themes. One of them, Yaky, is not subtle.
 
@@ -40,13 +41,14 @@ There are three themes. One of them, Yaky, is not subtle.
 - **Founders and ops leads** who'd rather own a tool than renew a contract.
 - **Teams with clients and freelancers** who want them in a channel without paying for another seat.
 - **People who like voice notes** and want them searchable.
+- **Teams with a few things that must stay private** (pay, hiring, a client's numbers) next to everything else.
 - **Someone on the team can follow a setup guide** and type a few commands. No coding.
 
 ## Who it's not for
 
 We'd rather lose you now than disappoint you later.
 
-- **Teams that need end-to-end encryption.** Yakyard doesn't have it. Look at Element (Matrix).
+- **Teams that need every conversation end-to-end encrypted, or an audited client.** Yakyard encrypts only the DMs and private channels you lock, and its own code around the encryption library isn't audited yet. Look at Element (Matrix).
 - **Regulated industries** that need SOC 2, HIPAA or similar paperwork for chat. Yakyard has none.
 - **Companies that only allow OSI open source licenses.** Yakyard is source-available. Zulip, Mattermost Team Edition, Rocket.Chat Community, Campfire and Element are open source.
 - **Teams that need their own hardware** or can't use Cloudflare. Yakyard only runs on Cloudflare.

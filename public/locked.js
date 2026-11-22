@@ -201,7 +201,7 @@ export function confirmLock({ kind, name, accept }) {
   return new Promise((resolve) => {
     const box = h('input', { type: 'checkbox', id: 'lk-understand' });
     const item = (ok) => ([t, d]) => h('li', { class: ok ? 'ok' : 'no' }, h('span', { class: 'lk-ico', 'aria-hidden': 'true' }, ok ? '✓' : '✕'), h('span', {}, h('b', {}, t), ': ', d));
-    X.modal(accept ? 'Lock this conversation?' : kind === 'channel' ? 'Lock this channel?' : 'Lock this conversation?', h('div', { class: 'lk' },
+    const m = X.modal(accept ? 'Lock this conversation?' : kind === 'channel' ? 'Lock this channel?' : 'Lock this conversation?', h('div', { class: 'lk' },
       h('p', {}, 'Locked messages are scrambled on your device before they leave it. Only the people in it can read them, not the server and not your admin.'),
       h('div', { class: 'lk-cols' },
         h('section', {}, h('h3', {}, 'Works'), h('ul', { class: 'lk-list', 'aria-label': 'Works in locked conversations' }, ...WORKS.map(item(true)))),
@@ -212,7 +212,12 @@ export function confirmLock({ kind, name, accept }) {
       if (!box.checked) { box.focus(); throw new Error('Tick "I understand" first.'); }
       typeToConfirm({ kind, name, accept }, resolve); return true;
     }]]);
+    readFromTop(m);
   });
+}
+// Long lists: start reading at the top (the first field would otherwise scroll the list away).
+function readFromTop(m) {
+  setTimeout(() => { const b = m.querySelector('.modal-body'); if (b) b.scrollTop = 0; const t = m.querySelector('h2'); t.setAttribute('tabindex', '-1'); t.focus(); }, 40);
 }
 function typeToConfirm({ kind, name, accept }, resolve) {
   const { h } = X;
@@ -231,7 +236,7 @@ export function confirmAllow() {
   const { h } = X;
   return new Promise((resolve) => {
     const box = h('input', { type: 'checkbox' });
-    X.modal('Allow locked conversations?', h('div', { class: 'lk' },
+    const m = X.modal('Allow locked conversations?', h('div', { class: 'lk' },
       h('p', {}, 'People can then lock DMs and private channels. Locked messages are scrambled on people\'s devices. You, as the owner, can\'t read them, and neither can the server.'),
       h('ul', { class: 'lk-list' }, ...DIFFERENT('channel').slice(0, 9).map(([t, d]) => h('li', { class: 'no' }, h('span', { class: 'lk-ico', 'aria-hidden': 'true' }, '✕'), h('span', {}, h('b', {}, t), ': ', d)))),
       h('p', {}, 'An admin approves every locked channel. Both sides accept every locked DM.'),
@@ -243,6 +248,7 @@ export function confirmAllow() {
         [['Cancel', () => resolve(false)], ['Turn on', async () => { if (input.value.trim().toLowerCase() !== 'lock') throw new Error('Type lock exactly.'); resolve(true); }]]);
       return true;
     }]]);
+    readFromTop(m);
   });
 }
 export function explain(ch) {

@@ -1,3 +1,5 @@
+> **Scope.** This PolyForm Shield license covers everything in this repository except the `packages/yakyard-lock/` directory (the end-to-end encryption for locked conversations, and its built copy in `public/lock/`), which is licensed under the Apache License 2.0: see `packages/yakyard-lock/LICENSE`. Third-party code keeps its own license: see `THIRD-PARTY.md`.
+
 Required Notice: Copyright 2026 QVINTA Ltd (Hong Kong)
 Licensor Line of Business: Yakyard, team chat software
 

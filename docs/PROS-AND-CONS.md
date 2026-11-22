@@ -36,6 +36,8 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **Fast to make yours.** No framework, no build step: plain JavaScript and one Cloudflare Worker. You can read every line in an afternoon and change what you need.
 
+**Locked conversations when you need them.** Tick **Lock it** on a DM or private channel and its messages, files and voice notes are encrypted on each person's device, with the same library Element uses (vodozemac). Not even the admin or someone with your Cloudflare account can read them. It takes two approvals, so nobody locks a channel by accident. ([how it works](E2EE.md))
+
 **Nothing phones home.** Yakyard doesn't report to us. The outside services it talks to are the ones you turn on: Cloudflare, push services for notifications, Google if you use Google sign-in, Slack during an import, Open-Meteo if you turn on weather.
 
 **Used for real.** It was built for and is used every day by a real team that left Slack.
@@ -48,7 +50,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **No app store app.** Yakyard installs from the browser and sends push notifications, including on iPhone (after Add to Home Screen). It isn't in the App Store or Play Store, and it needs a connection to load messages.
 
-**Not end-to-end encrypted.** Messages are stored readable in your Cloudflare database. Anyone with access to your Cloudflare account can read them. If you need end-to-end encryption, look at Element (Matrix).
+**Only locked conversations are end-to-end encrypted, and they have limits.** Normal channels and DMs are stored readable in your Cloudflare database, for anyone with access to that account. Locked conversations (DMs and private channels, after two approvals) are encrypted on each device instead. In those, search only covers what's on your device, notifications don't show the message, there are no voice transcripts, link previews or scheduled messages, and someone who loses every device and their recovery key loses those messages for good. The server still sees who talks to whom and when. Yakyard's code around the encryption library hasn't been audited yet. Details in [E2EE.md](E2EE.md).
 
 ## The fine print
 
@@ -68,7 +70,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **Few integrations.** No app directory, bots marketplace or Jira/GitHub/Google Drive connectors. It's chat, calls and voice notes.
 
-**Young.** Version 1. Fewer people have run it than the big names, so you'll find rough edges first.
+**Young.** Version 2. Fewer people have run it than the big names, so you'll find rough edges first.
 
 ## License
 

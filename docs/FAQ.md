@@ -88,11 +88,24 @@ You do. They're stored in a D1 database and an R2 bucket in your Cloudflare acco
 
 ### Who can read our messages?
 
-People in your workspace can read the conversations they're in. Private channels are only for their members: admins can't add themselves to one. Anyone who can sign in to your Cloudflare account can read the database. Keep that account locked down with two-factor sign-in.
+People in your workspace can read the conversations they're in. Private channels are only for their members: admins can't add themselves to one. Anyone who can sign in to your Cloudflare account can read the database, except locked conversations, which are end-to-end encrypted (see the next answer). Keep that account locked down with two-factor sign-in.
 
 ### Is it end-to-end encrypted?
 
-No. Messages travel over HTTPS and are stored readable in your database. If you need end-to-end encryption, look at Element (Matrix).
+Yes, optionally, for DMs and private channels. Tick **Lock it** when you start one. Messages, edits, reactions, files and voice notes are then encrypted on each person's device. The server stores only scrambled data, so nobody can read them there: not the admin, not someone with your Cloudflare account, not us.
+
+The owner turns locked conversations on first, and each lock takes two steps plus a second person: an admin approves a locked channel, and everyone in a locked DM accepts it.
+
+The limits, in plain words:
+- Search only finds locked messages already on your device.
+- Phone notifications say "New message in a locked conversation", nothing more.
+- No voice transcripts, no link previews, no scheduled messages, and Slack import can't add to them.
+- Each person gets a recovery key. Lose every device and that key, and the locked messages are gone for good.
+- The server still sees who talks to whom and when, and file sizes.
+- A conversation can't be unlocked later. Public channels and older conversations stay as they are.
+- The encryption library (vodozemac, from Matrix) was audited; Yakyard's own code around it hasn't been yet.
+
+How it works, and what it protects against: [E2EE.md](E2EE.md).
 
 ### Does Yakyard collect anything about us?
 
@@ -207,7 +220,9 @@ Nobody outside the project has audited it. Here's what it does:
 - Outside pictures load through a proxy.
 - A security test suite runs on every change.
 
-What it doesn't have: end-to-end encryption, two-factor sign-in for passwords (Google sign-in can cover that), or a formal audit.
+- Locked conversations: optional end-to-end encryption for DMs and private channels ([E2EE.md](E2EE.md)).
+
+What it doesn't have: two-factor sign-in for passwords (Google sign-in can cover that), or a formal audit. The encryption library inside locked conversations (vodozemac) was audited; Yakyard's own code wasn't, yet.
 
 ### How do I report a security problem?
 

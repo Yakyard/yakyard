@@ -29,7 +29,7 @@ A locked conversation is a DM or private channel with end-to-end encryption. Mes
 - **New device.** Enter the recovery key, or approve the new device from one you already use, after checking that both show the same 20-digit code.
 - **In the conversation:** a "Locked" tag in the header, a lock banner with "What's different here?" and "Search here", and notes right where a limit applies (search, voice notes, link previews, Slack import).
 
-Screens and steps for people: [GUIDE.md](GUIDE.md#locked-conversations). For the owner setting: [SETUP.md](SETUP.md#locked-conversations).
+Screens and steps for people: [GUIDE.md](GUIDE.md#locked-conversations). For the owner setting: [SETUP.md](SETUP.md#12-optional-locked-conversations).
 
 ## Turning it on
 
@@ -97,7 +97,7 @@ In a web app, the server sends the code that does the encryption. A malicious op
 - **Release manifest.** `public/lock/manifest.json` lists the SHA-256 of every file that runs the locking code (`lock.js`, `store-idb.js`, the WebAssembly and its glue, `locked.js`). The app checks the WebAssembly against it before running it.
 - **Security code in the app.** The app shows a short code made from the manifest: 16 characters in four groups, the first 64 bits of a SHA-256 over every file hash. It remembers it, and when it changes it says "Yakyard was updated. The code that locks your conversations changed" with the old and new code and the version.
 - **Published hashes.** Each release lists its security code and file hashes in [E2EE-HASHES.md](E2EE-HASHES.md). `npm run lock:verify -- https://your-yakyard` downloads the files from any running Yakyard and compares them.
-- **Reproducible WebAssembly.** `npm run lock:build` rebuilds it from `packages/yakyard-lock/crypto` (Rust, pinned `Cargo.lock`, `wasm-bindgen 0.2.100`), so anyone can check the committed binary.
+- **Reproducible WebAssembly.** `npm run lock:build` rebuilds it from `packages/yakyard-lock/crypto` (Rust, pinned `Cargo.lock`, `wasm-bindgen 0.2.100`), so anyone can check the committed binary. Two builds on the same toolchain gave the same bytes (SHA-256 in [E2EE-HASHES.md](E2EE-HASHES.md)); the 2.0.0 binary was built with rustc 1.97.0.
 - **Strict page rules.** The app's Content Security Policy only runs scripts from its own address, plus `'wasm-unsafe-eval'` so WebAssembly can start.
 
 What it can't do: a service worker can't refuse updates to itself (browsers fetch it from the server), so pinning code in the service worker would only move the problem. Code changed on purpose would also change the check. These are detection tools for teams that check, not a guarantee.

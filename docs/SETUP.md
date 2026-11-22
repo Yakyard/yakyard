@@ -150,6 +150,25 @@ On iPhone, people first add Yakyard to their Home Screen (Share, then **Add to H
 
 Each person can copy their own Slack messages (DMs, group DMs, private channels) into Yakyard. It needs a small Slack app that you create once. The steps are in [TECHNICAL.md](TECHNICAL.md#optional-features), row **Slack import**. The copy runs in the background, about a thousand messages a minute, slower if Slack asks it to wait. You can close Yakyard while it runs.
 
+## 12. Optional: locked conversations
+
+Locked conversations are DMs and private channels with end-to-end encryption: only the people in them can read them, not you as the owner, and not someone with your Cloudflare account. They're off until you turn them on. Nothing to install or configure on Cloudflare.
+
+1. Open **Admin** in Yakyard (you need to be the owner).
+2. In **Locked conversations**, click **Turn on…**.
+3. Read the list of what works differently, tick **I understand what changes**, then **Continue**.
+4. Type `lock` and click **Turn on**.
+
+From then on, people can tick **Lock it** when they start a DM or private channel. Each locked channel waits for you (or another admin) to approve it: you'll see it under **Waiting for approval** in Admin. Each locked DM waits for everyone in it to accept.
+
+Before you turn it on, know this:
+- People who lose every device **and** their recovery key lose their locked messages for good. You can't recover them for anyone.
+- Search, phone notification previews, voice transcripts, link previews, scheduled messages and the Slack import don't work inside locked conversations.
+- Locking can't be undone. Turning the setting off later only stops new locked conversations.
+- Yakyard's encryption code hasn't had an independent audit yet. Details and the threat model are in [E2EE.md](E2EE.md).
+
+After each update, you can check that your server sends the published encryption code: `npm run lock:verify -- https://your-yakyard-address` (see [E2EE-HASHES.md](E2EE-HASHES.md)).
+
 ## Updates
 
 When a new version comes out, first save a backup (see [Backups](#backups)). Then:

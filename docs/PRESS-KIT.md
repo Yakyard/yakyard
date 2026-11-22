@@ -14,13 +14,13 @@ Tagline: **Yak all you want. Pay nobody.**
 
 ## 50 words
 
-Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, and voice notes with automatic transcripts. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. It's free and source-available under PolyForm Shield.
+Yakyard is a team chat you deploy to your own Cloudflare account. It has channels, threads, DMs, calls, voice notes with automatic transcripts, and locked conversations with end-to-end encryption. Built to fit Cloudflare's free plan, it costs nothing for teams of up to about 50 people. Free and source-available.
 
 ## 150 words
 
 Yakyard is team chat for small teams that are tired of paying per seat to talk to each other. You deploy it once to your own Cloudflare account, with one command or a Deploy to Cloudflare button, and there's no server to run.
 
-It covers what teams use every day: public and private channels, threads, direct and group messages, mentions, reactions, search, scheduled send, reminders, guests and push notifications. It adds voice notes with automatic, searchable transcripts, and "Pop in" calls with screen share in any channel. It installs like an app on phones and computers, and each person can bring their Slack DMs and private channels along.
+It covers what teams use every day: public and private channels, threads, direct and group messages, mentions, reactions, search, scheduled send, reminders, guests and push notifications. It adds voice notes with automatic, searchable transcripts, and "Pop in" calls with screen share in any channel. It installs like an app on phones and computers, and each person can bring their Slack DMs and private channels along. Since version 2, any DM or private channel can be locked: end-to-end encrypted on each device with vodozemac, the library behind Element, so not even the admin can read it.
 
 Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 people pays $0. Messages stay in the team's own account. It's free for any business and source-available under the PolyForm Shield License 1.0.0.
 
@@ -34,11 +34,12 @@ Yakyard is written to fit Cloudflare's free plan, so a team of up to about 50 pe
 |---|---|
 | What | Self-hosted team chat on Cloudflare Workers |
 | Price | Free. Runs on Cloudflare's free plan for about 50 people; Cloudflare's Workers Paid plan ($5 a month minimum per account) above that |
-| Features | Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes |
+| Features | Channels, threads, DMs, mentions, reactions, search, voice notes with transcripts, calls with screen share, locked conversations (end-to-end encrypted DMs and private channels), scheduled send, reminders, Later, push notifications, guests, Google sign-in, Slack import, three themes |
+| Encryption | Optional, per conversation: Olm and Megolm (vodozemac 0.11.2, Apache-2.0, audited by Least Authority in 2022) in the browser. Yakyard's own code around it (Apache-2.0, `packages/yakyard-lock`) is not independently audited yet. |
 | Runs on | Cloudflare Workers, Durable Objects, D1, R2, Workers AI |
 | Apps | Installable web app (PWA) for iPhone, Android, Mac and Windows |
-| License | PolyForm Shield License 1.0.0 (free and source-available, not OSI open source) |
-| Version | 1.0 |
+| License | PolyForm Shield License 1.0.0 (free and source-available, not OSI open source). The encryption package is Apache-2.0. |
+| Version | 2.0.0 |
 | Code | github.com/yakyard/yakyard |
 
 Please don't describe Yakyard as "open source". It's source-available: free to use, read and change, but not to resell or to build a competing product with.
@@ -103,6 +104,10 @@ Real screenshots of the app, with made-up team names and messages. Use any of th
 | [`docs/screens/admin-usage.png`](screens/admin-usage.png) | Admin: team numbers and free plan usage |
 | [`docs/guide/later.png`](guide/later.png) | Later: a scheduled message |
 | [`docs/screens/slack-import.png`](screens/slack-import.png) | A finished Slack import |
+| [`docs/screens/locked-dm.png`](screens/locked-dm.png) | A locked DM: the Locked tag, the lock banner, a photo and a voice note |
+| [`docs/screens/phone-locked-dm.png`](screens/phone-locked-dm.png) | Phone, a locked DM |
+| [`docs/guide/locked-step1.png`](guide/locked-step1.png) | Locking, step 1: what works and what doesn't |
+| [`docs/guide/locked-recovery-key.png`](guide/locked-recovery-key.png) | The recovery key screen |
 | [`docs/guide/notifications.png`](guide/notifications.png) | Notification settings |
 
 ## Contact

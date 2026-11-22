@@ -10,18 +10,18 @@ We say where others are better. Several are.
 
 ## At a glance
 
-| | Cheapest paid price | Free option | Run it yourself | Needs a server | License | Voice notes with transcripts |
-|---|---|---|---|---|---|---|
-| **Yakyard** | $0 for the software; Cloudflare $5 a month per account above about 50 people | Yes, about 50 people on Cloudflare's free plan | Yes, on your Cloudflare account | No | PolyForm Shield 1.0.0 (source-available) | Yes |
-| Slack | Pro $7.25 yearly / $8.75 monthly | 90 days of history, 10 apps, 1:1 huddles | No | n/a | Closed | Not compared |
-| Microsoft Teams | Essentials $4 (yearly) | Free Teams: 60-minute group calls, 100 people, 5 GB each | No | n/a | Closed | Not compared |
-| Google Chat | Workspace Business Starter $7 yearly / $8.40 flexible | No free business plan | No | n/a | Closed | Not compared |
-| Discord | Free for servers; Nitro $2.99 or $9.99 is a personal extra | Yes | No | n/a | Closed | Not compared |
-| Mattermost | Paid plans by quote | Entry: 10,000 messages of history; Team Edition: free | Yes | Linux + PostgreSQL | MIT (Team Edition), commercial (Enterprise) | Not compared |
-| Rocket.Chat | Commercial plans by quote | Starter: up to 50 people; Community: 100 at once | Yes | Yes | MIT (Community), commercial | Not compared |
-| Zulip | Cloud Standard $6.67 yearly / $8 monthly | Cloud Free: 10,000 messages searchable, 5 GB files; self-hosted free | Yes | Yes | Apache 2.0 | Not compared |
-| Campfire | Free | Yes | Yes | Yes | MIT | Not listed |
-| Element (Matrix) | Enterprise per seat, by quote | Community, for non-professional use | Yes | Yes | AGPL-3.0, commercial | Not compared |
+| | Cheapest paid price | Free option | Run it yourself | Needs a server | License | Voice notes with transcripts | End-to-end encryption |
+|---|---|---|---|---|---|---|---|
+| **Yakyard** | $0 for the software; Cloudflare $5 a month per account above about 50 people | Yes, about 50 people on Cloudflare's free plan | Yes, on your Cloudflare account | No | PolyForm Shield 1.0.0 (source-available) | Yes | Optional: locked DMs and private channels (Olm/Megolm via vodozemac). Not in normal channels. |
+| Slack | Pro $7.25 yearly / $8.75 monthly | 90 days of history, 10 apps, 1:1 huddles | No | n/a | Closed | Not compared | Not compared |
+| Microsoft Teams | Essentials $4 (yearly) | Free Teams: 60-minute group calls, 100 people, 5 GB each | No | n/a | Closed | Not compared | Not compared |
+| Google Chat | Workspace Business Starter $7 yearly / $8.40 flexible | No free business plan | No | n/a | Closed | Not compared | Not compared |
+| Discord | Free for servers; Nitro $2.99 or $9.99 is a personal extra | Yes | No | n/a | Closed | Not compared | Not compared |
+| Mattermost | Paid plans by quote | Entry: 10,000 messages of history; Team Edition: free | Yes | Linux + PostgreSQL | MIT (Team Edition), commercial (Enterprise) | Not compared | Not compared |
+| Rocket.Chat | Commercial plans by quote | Starter: up to 50 people; Community: 100 at once | Yes | Yes | MIT (Community), commercial | Not compared | Not compared |
+| Zulip | Cloud Standard $6.67 yearly / $8 monthly | Cloud Free: 10,000 messages searchable, 5 GB files; self-hosted free | Yes | Yes | Apache 2.0 | Not compared | Not compared |
+| Campfire | Free | Yes | Yes | Yes | MIT | Not listed | Not compared |
+| Element (Matrix) | Enterprise per seat, by quote | Community, for non-professional use | Yes | Yes | AGPL-3.0, commercial | Not compared | Yes, the main pitch ("end-to-end encrypted messaging and calls") |
 
 "Not compared" means we didn't check that feature for that app, so we make no claim.
 
@@ -103,16 +103,16 @@ Campfire, from 37signals, is the closest in spirit: free, simple, self-hosted.
 
 ## Yakyard vs Element (Matrix)
 
-**Element is better at:** end-to-end encryption, Matrix federation between organizations, sovereign and air-gapped deployments, and open source (AGPL-3.0). If encryption is a must, choose Element.
+**Element is better at:** encryption everywhere (Yakyard only encrypts the DMs and private channels you lock, and its own code around the encryption library isn't audited yet), encrypted calls, Matrix federation between organizations, sovereign and air-gapped deployments, and open source (AGPL-3.0). Both use the same encryption library, vodozemac. If every conversation must be encrypted, or you need an audited client, choose Element.
 
 **Yakyard is better at:** easy setup and zero cost for a business. Element's free Community offering is for "non-professional deployments and evaluations", and the Synapse server is AGPL or commercial. Enterprise is priced per seat by quote, and you run the servers. Yakyard is free for any business and needs no server.
 
-**Pick Element if** you need end-to-end encryption or federation. **Pick Yakyard if** you want a simple, free team chat.
+**Pick Element if** you need encryption on everything, encrypted calls or federation. **Pick Yakyard if** you want a simple, free team chat where the sensitive DMs and private channels can be locked.
 
 ## The short version
 
 - Want **no bill and no server**, and you're under about 50 people? **Yakyard.**
-- Need **end-to-end encryption**? Element.
+- Need **end-to-end encryption for a few sensitive conversations**? Yakyard's locked conversations. **For everything, with an audited client?** Element.
 - Need **OSI open source** and have a server? Zulip, Campfire, Mattermost Team Edition, Rocket.Chat Community or Element.
 - Need **integrations, native apps, a vendor and compliance**? Slack, Teams or Google Chat, and the per-seat bill that comes with them.
 - Running a **community**? Discord.
