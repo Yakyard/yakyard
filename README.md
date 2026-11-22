@@ -92,25 +92,25 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 ## Pros and cons
 
 **Good**
-- $0 for most teams under about 50 people, $5 a month above that. No per-seat price.
-- Your messages and files sit in your own Cloudflare account. You back them up, and you can delete all of it.
-- No server to look after: no VPS, no Docker, no database to patch. Cloudflare runs it.
-- Voice notes with searchable transcripts, built in.
-- Familiar if you come from Slack, and it brings your Slack DMs and private channels with you.
+- $0 for most teams under about 50 people. No per-seat price, ever: above that, $5 a month for the whole account.
+- Your messages and files live in your own Cloudflare account. You back them up, and you can delete all of it.
+- Voice notes with transcripts, written automatically and searchable.
+- Calls built in: pop in to any channel or DM, with screen share.
+- Your Slack DMs, private channels and files come with you.
+- Installs on phone and desktop, with push notifications.
+- Private channels stay private, even from admins.
+- One click to deploy. No server or Docker to look after.
+- One-command backups to a file you keep.
+- Three themes, including Yaky, the loud one we made for fun.
 - You can read and change every line of code.
 
-**Not so good**
-- You're the admin. Updates, backups and settings are your job (each is one command).
-- Tied to Cloudflare. It doesn't run on your own server or another cloud.
-- No native phone apps. The installable web app does notifications, but it isn't from an app store.
-- Not end-to-end encrypted. Whoever controls your Cloudflare account can read the database.
-- Transcripts use one language for the whole team (English unless you change it).
-- Calls connect every browser to every other, so they suit small groups, not all-hands.
-- Slack import brings each person's DMs, group messages and private channels. Public channel history doesn't come over.
-- No company behind it selling support, and no compliance certifications.
-- Free and source-available, not open source (see [License](#license)).
+**Worth knowing**
+- Someone on your team runs it. Updates and backups are one command each.
+- Cloudflare only. It doesn't run on your own server or another cloud.
+- No app store app. It's an installable web app, with notifications.
+- Not end-to-end encrypted. Whoever controls your Cloudflare account can read the data.
 
-The longer version is in [Pros and cons](docs/PROS-AND-CONS.md).
+The fine print (calls, transcript languages, the Slack import, support) is in [Pros and cons](docs/PROS-AND-CONS.md). The license is under [License](#license).
 
 ## How it compares
 
