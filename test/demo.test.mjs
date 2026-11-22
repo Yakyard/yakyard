@@ -79,7 +79,7 @@ test('demo: the sign-in page has one button and the banner text; one click seeds
   const { env, db, r2 } = envFor({ DEMO_MODE: '1' });
   const page = await (await call(env, '/')).text();
   assert.match(page, /Try the demo/);
-  assert.match(page, /This is a public demo\. Everyone sees what you post\. It resets every night\./);
+  assert.match(page, /This is a public demo\. Everyone sees what you post in channels\. It resets every night\./);
   assert.doesNotMatch(page, /type="password"/);
   assert.equal((await call(env, '/setup')).status, 200);   // setup page is never offered: the demo page shows instead
   assert.doesNotMatch(await (await call(env, '/setup')).text(), /Setup code/);

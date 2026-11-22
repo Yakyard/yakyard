@@ -245,7 +245,7 @@ With `DEMO_MODE` set to `"1"`:
 - Each visitor gets their own DMs from the team (a welcome, a group DM that @mentions them, pointers to things to try), a few unread channels and a mention for each @here message, so the app opens looking lived in. Nobody else sees those DMs.
 - Visitors don't see each other in member lists, member counts, people pickers or team clocks. They still see each other's posts.
 - Team clocks and weather are on (`TEAM_LOCATION` and `WEATHER` in `wrangler.demo.jsonc`), with made-up cities for the team. Visitors can't share their own location.
-- A line at the top of the app says: "This is a public demo. Everyone sees what you post. It resets every night."
+- A line at the top of the app says: "This is a public demo. Everyone sees what you post in channels. It resets every night."
 - Off, each with a short message: file uploads, new voice notes and transcripts, admin settings, the Slack import, invites, phone notifications, locked conversations and passwords. The seeded voice note plays and shows its transcript without Workers AI.
 - Limits: 5 new visitors per network address and 60 in total per 15 minutes; per visitor, 30 messages and 120 other changes per 15 minutes. Read marks don't count.
 - The seeded voice note, packaging diagram, price list (PDF) and order sheet (CSV) are in `public/demo/` and are copied to file storage on the first reset.

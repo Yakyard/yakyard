@@ -2355,7 +2355,7 @@ async function start() {
   let fresh = null;
   if (cb) { applyBoot(cb); fresh = bootstrap().then(() => { drawMe(); renderSidebar(); drawClocks(); }).catch(() => {}); }
   else await bootstrap();
-  if (S.workspace.demo) document.body.prepend(h('div', { class: 'demo-banner', role: 'note' }, 'This is a public demo. Everyone sees what you post. It resets every night.'));
+  if (S.workspace.demo) document.body.prepend(h('div', { class: 'demo-banner', role: 'note' }, 'This is a public demo. Everyone sees what you post in channels. It resets every night.'));
   drawMe();
   $('#me-avatar').onclick = (e) => meMenu(e.currentTarget);
   $('#btn-find').onclick = findConversation;
