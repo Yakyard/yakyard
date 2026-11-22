@@ -7,7 +7,7 @@
 
 <p align="center"><b>Yakyard</b> is a free Slack alternative you run on your own Cloudflare account.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
 
-<p align="center"><b>New in Yakyard 2:</b> locked conversations, end-to-end encrypted. <a href="CHANGELOG.md">What changed</a></p>
+<p align="center"><b>New in Yakyard 2:</b> locked conversations, end-to-end encrypted, as a preview. <a href="CHANGELOG.md">What changed</a></p>
 
 <p align="center">
   <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32"></a>
@@ -68,6 +68,8 @@ It started as an internal tool. It's built for and used every day by a real team
 
 **Lock what's private.** Tick **Lock it** when you start a DM or private channel. Messages, files and voice notes are then encrypted on each person's device, with vodozemac, the library behind Element's encryption. The server only stores scrambled data. Your admin can't read it, and neither can someone with your Cloudflare account, or us. Locking takes two approvals, and the app tells you plainly what works differently in there (search stays on your device, no transcripts, and if you lose every device and your recovery key, those messages are gone). [How it works](docs/E2EE.md).
 
+**Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
+
 <p align="center"><img src="docs/screens/locked-dm.png" alt="A locked DM: a Locked tag in the header, a banner that says only the people here can read it, a photo and a voice note with no transcript" width="760"></p>
 
 **Bring people in, keep others out.** Invite links, passwords, or Sign in with Google limited to your company domain. Guests (clients, freelancers) only see the channels you give them.
@@ -108,13 +110,13 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 - Installs on phone and desktop, with push notifications.
 - Private channels stay private, even from admins.
 - One click to deploy. No server or Docker to look after.
-- One-command backups to a file you keep.
+- Backups to a file you keep, with one command or every night by themselves.
 - Three themes, including Yaky, the loud one we made for fun.
 - You can read and change every line of code.
-- Optional end-to-end encryption for DMs and private channels you choose to lock.
+- Optional end-to-end encryption for DMs and private channels you choose to lock (a preview).
 
 **Worth knowing**
-- Someone on your team runs it. Updates and backups are one command each.
+- Someone on your team runs it. Updates and backups can run by themselves, or take one command each.
 - Cloudflare only. It doesn't run on your own server or another cloud.
 - No app store app. It's an installable web app, with notifications.
 - Only locked conversations are end-to-end encrypted. The rest is readable to whoever controls your Cloudflare account. Locked ones have limits: search only on your device, no transcripts, and a lost recovery key means lost messages.
@@ -156,7 +158,7 @@ npm run deploy        # prints your address and a one-time setup code
 
 The full walkthrough for people who don't code, with notifications, Google sign-in and Slack import, is [Set up Yakyard, free](docs/SETUP.md). About 30 minutes.
 
-Phone notifications, Slack import, Google sign-in, team clocks and every other setting are in [TECHNICAL.md](docs/TECHNICAL.md): see [Notifications](docs/TECHNICAL.md#notifications), [Optional features](docs/TECHNICAL.md#optional-features) and [All settings](docs/TECHNICAL.md#all-settings). Updates and backups are one command each: [Updating](docs/TECHNICAL.md#updating), [Backups](docs/TECHNICAL.md#backups).
+Phone notifications, Slack import, Google sign-in, team clocks and every other setting are in [TECHNICAL.md](docs/TECHNICAL.md): see [Notifications](docs/TECHNICAL.md#notifications), [Optional features](docs/TECHNICAL.md#optional-features) and [All settings](docs/TECHNICAL.md#all-settings). Updates and backups are one command each, or can run by themselves: [Updating](docs/TECHNICAL.md#updating), [Backups](docs/TECHNICAL.md#backups), [By themselves](docs/SETUP.md#updates-and-backups-by-themselves).
 
 ## FAQ
 
@@ -166,7 +168,7 @@ Phone notifications, Slack import, Google sign-in, team clocks and every other s
 
 **Who can read our messages?** People in your workspace, and whoever has access to your Cloudflare account. Nobody at Yakyard can see them.
 
-**Is it end-to-end encrypted?** Yes, optionally, for DMs and private channels you lock. Only the people in a locked conversation can read it, not the admin and not the server. The trade-offs: search there only covers your device, notifications don't show the message, no transcripts or link previews, and losing every device and your recovery key loses those messages. [Details](docs/E2EE.md).
+**Is it end-to-end encrypted?** Yes, optionally, for DMs and private channels you lock. Only the people in a locked conversation can read it, not the admin and not the server. The trade-offs: search there only covers your device, notifications don't show the message, no transcripts or link previews, and losing every device and your recovery key loses those messages. **Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit. [Details](docs/E2EE.md).
 
 **Is there a phone app?** Yakyard installs from the browser on iPhone and Android, with its own icon and notifications. There's no App Store or Play Store app.
 
@@ -179,6 +181,12 @@ Phone notifications, Slack import, Google sign-in, team clocks and every other s
 **Is it open source?** No. It's free and source-available under PolyForm Shield 1.0.0. You can read, change and run the code, but not sell it or build a competing product with it.
 
 More answers in the [full FAQ](docs/FAQ.md).
+
+## Who runs Yakyard
+
+QVINTA Ltd, a Hong Kong company, makes and maintains Yakyard. It started as the in-house chat of a design and wholesale team that left Slack in 2026, and that team still uses it every day. The public history starts in November 2026 because the code was cleaned up from that private app before it went public.
+
+Report problems in [GitHub issues](https://github.com/yakyard/yakyard/issues). Report security holes privately, as [SECURITY.md](SECURITY.md) explains.
 
 ## License
 

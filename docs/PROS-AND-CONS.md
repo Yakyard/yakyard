@@ -38,6 +38,8 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **Locked conversations when you need them.** Tick **Lock it** on a DM or private channel and its messages, files and voice notes are encrypted on each person's device, with the same library Element uses (vodozemac). Not even the admin or someone with your Cloudflare account can read them. It takes two approvals, so nobody locks a channel by accident. ([how it works](E2EE.md))
 
+**Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
+
 **Nothing phones home.** Yakyard doesn't report to us. The outside services it talks to are the ones you turn on: Cloudflare, push services for notifications, Google if you use Google sign-in, Slack during an import, Open-Meteo if you turn on weather.
 
 **Used for real.** It was built for and is used every day by a real team that left Slack.
@@ -50,7 +52,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **No app store app.** Yakyard installs from the browser and sends push notifications, including on iPhone (after Add to Home Screen). It isn't in the App Store or Play Store, and it needs a connection to load messages.
 
-**Only locked conversations are end-to-end encrypted, and they have limits.** Normal channels and DMs are stored readable in your Cloudflare database, for anyone with access to that account. Locked conversations (DMs and private channels, after two approvals) are encrypted on each device instead. In those, search only covers what's on your device, notifications don't show the message, there are no voice transcripts, link previews or scheduled messages, and someone who loses every device and their recovery key loses those messages for good. The server still sees who talks to whom and when. Yakyard's code around the encryption library hasn't been audited yet. Details in [Locked conversations](E2EE.md).
+**Only locked conversations are end-to-end encrypted, and they have limits.** Normal channels and DMs are stored readable in your Cloudflare database, for anyone with access to that account. Locked conversations (DMs and private channels, after two approvals) are encrypted on each device instead. In those, search only covers what's on your device, notifications don't show the message, there are no voice transcripts, link previews or scheduled messages, and someone who loses every device and their recovery key loses those messages for good. The server still sees who talks to whom and when. Locked conversations are a preview: the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit. Details in [Locked conversations](E2EE.md).
 
 ## The fine print
 

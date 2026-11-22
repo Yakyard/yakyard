@@ -4,6 +4,8 @@
 
 # Locked conversations: how they work
 
+**Preview:** the encryption library is audited, Yakyard's own code around it is not yet. We have applied for an independent audit.
+
 A locked conversation is a DM or private channel that only the people in it can read. Messages, edits, reactions, files and voice notes are scrambled on the sender's device and unscrambled on the readers' devices. The server only ever stores and passes on the scrambled version.
 
 **In plain words, before you lock:**
@@ -13,7 +15,7 @@ A locked conversation is a DM or private channel that only the people in it can 
 - You get a recovery key. If you lose every device **and** that key, your locked messages are gone for good. Nobody can get them back, not even your admin.
 - A locked conversation stays locked. To stop, start a new normal one.
 
-> **Not checked by outside experts yet.** The encryption library underneath (vodozemac) was audited in 2022. Yakyard's own code around it (how devices share access, the recovery key, device approval, `packages/yakyard-lock`) hasn't had an outside review. We applied for one ([AUDIT-APPLICATION.md](AUDIT-APPLICATION.md)). Until then, use locked conversations for private team talk, not for secrets that could put someone in danger.
+> **What the preview means.** The encryption library underneath (vodozemac) was audited in 2022. Yakyard's own code around it (how devices share access, the recovery key, device approval, `packages/yakyard-lock`) hasn't had an outside review. We applied for one ([AUDIT-APPLICATION.md](AUDIT-APPLICATION.md)). Until then, use locked conversations for private team talk, not for secrets that could put someone in danger.
 
 The rest of this page is technical, for people who want to check how it works.
 

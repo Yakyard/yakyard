@@ -1,0 +1,136 @@
+# Updates and backups that run by themselves, for your own copy of Yakyard (the one the Deploy to Cloudflare
+# button made in your GitHub). Off until you turn it on: docs/SETUP.md, "Updates and backups by themselves".
+#   Every night: backs up the database into your R2 bucket, one file per weekday (backups/yakyard-monday.sql...),
+#   so the last 7 nights are kept and nothing piles up.
+#   Sunday night (every night if YAKYARD_AUTO is "daily"): if a newer Yakyard release is out, backs up to
+#   backups/yakyard-before-update.sql, brings the release into this repository, deploys it (database update
+#   included, the same `npm run deploy` that `npm run update` ends with) and saves it here.
+#   If anything fails it stops there and opens an issue in this repository saying what happened.
+# Settings > Secrets and variables > Actions: secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, and the
+# variable YAKYARD_AUTO set to "on", "daily" (updates as soon as a release is out) or "backups" (no updates).
+name: Yakyard updates and backups
+
+on:
+  schedule:
+    - cron: "23 2 * * *"   # 02:23 UTC every night
+  workflow_dispatch:
+    inputs:
+      update:
+        description: Also update now if a newer Yakyard release is out
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # save the update in this repository
+  issues: write     # say what went wrong
+
+concurrency:
+  group: yakyard-auto
+  cancel-in-progress: false
+
+jobs:
+  run:
+    # Never in Yakyard's own repository, and only once you've turned it on.
+    if: github.repository != 'yakyard/yakyard' && contains(fromJSON('["on","daily","backups"]'), vars.YAKYARD_AUTO)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: "false"
+      UPSTREAM: https://github.com/yakyard/yakyard.git
+      STEP: /tmp/yakyard-step   # the sentence the issue uses if the step that wrote it fails
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the two secrets
+        run: |
+          echo "Yakyard couldn't start: the secret CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is missing or empty. Nothing was backed up or changed. Add both under Settings > Secrets and variables > Actions (docs/SETUP.md, \"Updates and backups by themselves\")." > "$STEP"
+          test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Install
+        run: |
+          echo "Installing Yakyard's tools failed, before the backup. Nothing was changed. Run the workflow again from the Actions tab; if it fails again, the log of this run says why." > "$STEP"
+          npm ci --no-audit --no-fund
+
+      - name: Back up the database to R2
+        run: |
+          echo "The backup failed. Nothing was changed and no update was tried. Often the API token is missing the D1 Edit permission: docs/SETUP.md, \"Updates and backups by themselves\", step 1." > "$STEP"
+          bucket=$(grep -oE 'bucket_name"?[[:space:]]*[:=][[:space:]]*"[^"]+"' wrangler.jsonc wrangler.toml 2>/dev/null | head -1 | sed -E 's/.*"([^"]+)"$/\1/')
+          test -n "$bucket"
+          echo "BUCKET=$bucket" >> "$GITHUB_ENV"
+          node scripts/backup.mjs "$RUNNER_TEMP/yakyard.sql"
+          # shortcut: wrangler uploads files up to 300 MB; a bigger database needs the R2 S3 API instead.
+          npx wrangler r2 object put "$bucket/backups/yakyard-$(date -u +%A | tr '[:upper:]' '[:lower:]').sql" --file "$RUNNER_TEMP/yakyard.sql" --content-type application/sql --remote
+
+      - name: Look for a newer Yakyard release
+        id: check
+        if: inputs.update || (github.event_name == 'schedule' && vars.YAKYARD_AUTO != 'backups')
+        run: |
+          echo "Checking for a new Yakyard release failed. Nothing was changed, and the backup is saved." > "$STEP"
+          # Weekly by default: on a schedule with YAKYARD_AUTO "on", only Sunday nights look for a release.
+          if [ "${{ vars.YAKYARD_AUTO }}" = "on" ] && [ "${{ github.event_name }}" = "schedule" ] && [ "$(date -u +%u)" != "7" ]; then exit 0; fi
+          have=v$(node -p "require('./package.json').version")
+          latest=$(git ls-remote --tags --refs "$UPSTREAM" 'v*' | sed 's#.*refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          echo "This copy runs $have, the latest release is $latest."
+          if [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$have" "$latest" | sort -V | tail -1)" != "$have" ]; then
+            echo "have=$have" >> "$GITHUB_OUTPUT"; echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Back up again before updating
+        if: steps.check.outputs.latest
+        run: |
+          echo "The backup before updating to ${{ steps.check.outputs.latest }} failed, so the update was not tried. Your Yakyard still runs ${{ steps.check.outputs.have }}." > "$STEP"
+          npx wrangler r2 object put "$BUCKET/backups/yakyard-before-update.sql" --file "$RUNNER_TEMP/yakyard.sql" --content-type application/sql --remote
+
+      - name: Bring in the new release
+        if: steps.check.outputs.latest
+        env:
+          HAVE: ${{ steps.check.outputs.have }}
+          LATEST: ${{ steps.check.outputs.latest }}
+        run: |
+          echo "The update to $LATEST couldn't be combined with the changes in this repository (usually your own edits to wrangler.jsonc and an update touching the same lines). Nothing was deployed: your Yakyard still runs $HAVE. Update once by hand (docs/SETUP.md, \"Updates\"), and the next runs work again." > "$STEP"
+          git fetch --no-tags "$UPSTREAM" "refs/tags/$HAVE:refs/tags/$HAVE" "refs/tags/$LATEST:refs/tags/$LATEST"
+          # Only what changed between the two releases is applied, so your own changes stay. This works whether or not
+          # this repository shares Yakyard's git history. Workflow files can't be changed by a workflow: see the issue below.
+          git diff --binary "$HAVE" "$LATEST" -- . ':(exclude).github/workflows' | git apply --3way --index
+          git -c user.name="github-actions[bot]" -c user.email="41898699+github-actions[bot]@users.noreply.github.com" commit -q -m "Update Yakyard to $LATEST [skip ci]"
+          git diff --quiet "$HAVE" "$LATEST" -- .github/workflows || echo "WORKFLOWS_CHANGED=1" >> "$GITHUB_ENV"
+
+      - name: Deploy
+        if: steps.check.outputs.latest
+        run: |
+          echo "Deploying ${{ steps.check.outputs.latest }} failed. Check your Yakyard: it may still run ${{ steps.check.outputs.have }}, or the new version may be live with an error. To go back: Cloudflare dashboard, Workers & Pages, your yakyard Worker, Deployments, and pick the one before. If data went wrong, restore backups/yakyard-before-update.sql from your R2 bucket with npm run restore (docs/SETUP.md, \"Backups\"). The update was not saved in this repository." > "$STEP"
+          npm run deploy
+
+      - name: Save the update in this repository
+        if: steps.check.outputs.latest
+        run: |
+          echo "${{ steps.check.outputs.latest }} is live, but saving it in this repository failed. Until it is saved, a deploy from this repository would bring back ${{ steps.check.outputs.have }}. Open the Actions tab and run this workflow again with \"update now\" ticked." > "$STEP"
+          git push origin HEAD
+          echo "Updated to ${{ steps.check.outputs.latest }}." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Say which workflow files changed
+        if: env.WORKFLOWS_CHANGED
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=$(git diff --name-only "${{ steps.check.outputs.have }}" "${{ steps.check.outputs.latest }}" -- .github/workflows | sed 's/^/- /')
+          gh issue create --title "Yakyard ${{ steps.check.outputs.latest }}: copy these workflow files by hand" --body "$(printf 'The update to %s is live. It also changed these files, which GitHub does not let a workflow change:\n\n%s\n\nOpen each one in Yakyard'"'"'s repository (github.com/yakyard/yakyard, tag %s), copy its content over the same file here, and commit. Then close this issue.' "${{ steps.check.outputs.latest }}" "$files" "${{ steps.check.outputs.latest }}")"
+
+      - name: Open an issue saying what went wrong
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          what=$(cat "$STEP" 2>/dev/null || echo "Something failed before the first step started.")
+          body=$(printf '%s\n\nDetails are in the log of this run: %s\n\nClose this issue once it is fixed. To stop these runs, delete the YAKYARD_AUTO variable under Settings > Secrets and variables > Actions.' "$what" "$RUN")
+          title="Yakyard updates and backups: something failed"
+          open=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          if [ -n "$open" ]; then gh issue comment "$open" --body "$body"; else gh issue create --title "$title" --body "$body"; fi

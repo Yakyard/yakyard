@@ -175,7 +175,7 @@ When a new version comes out, first save a backup (see [Backups](#backups)). The
 
 - **With Git:** in the Yakyard folder, type `npm run update`. It keeps your own settings in `wrangler.jsonc`, gets the new version and deploys it.
 - **With the ZIP:** download the new ZIP and unzip it. Open your old `wrangler.jsonc` and the new one, and copy your values in the `"vars"` part from the old file to the new one. Then run `npm run deploy` from the new folder.
-- **With the Deploy button:** open your copy of Yakyard on GitHub and click **Sync fork** (or merge the update the original suggests). Cloudflare deploys it by itself.
+- **With the Deploy button:** turn on [updates and backups by themselves](#updates-and-backups-by-themselves) once, and new versions arrive on their own.
 
 It worked when the last line says `Deployed version` and a number.
 
@@ -222,6 +222,41 @@ npx wrangler d1 time-travel restore DB --timestamp=2026-11-20T09:00:00.000+00:00
 Messages and changes made after that moment disappear. The command prints a bookmark: keep it, it brings them back if you picked the wrong time. More in Cloudflare's [Time Travel guide](https://developers.cloudflare.com/d1/reference/time-travel/).
 
 Files and voice notes stay in R2 and are not in the backup. Cloudflare stores them on several machines, so a lost file is very unlikely.
+
+## Updates and backups by themselves
+
+For a Yakyard you made with the **Deploy to Cloudflare** button. It lives in your own GitHub, and GitHub can look after it for you:
+
+- Every night it backs up the database into your Cloudflare file storage (R2). It keeps the last 7 nights, one file per weekday, plus one from just before the latest update.
+- On Sunday nights it checks for a new Yakyard release. If there is one, it backs up again, brings the release into your copy, updates the database and deploys.
+- If anything fails, it stops there and opens an issue in your GitHub copy saying what happened and what to do. GitHub emails you about it.
+
+It's off until you do the three steps below. Allow 10 minutes.
+
+**1. Make a Cloudflare API token.** This is a key that lets GitHub deploy and back up Yakyard for you.
+
+1. In the Cloudflare dashboard, open **Manage account**, then **Account API tokens**, then click **Create Token**.
+2. Choose the **Edit Cloudflare Workers** permissions (a ready-made set; depending on the page it is a template or sits in a **Custom** menu).
+3. Add one more permission: **D1**, **Edit**. Backups need it.
+4. Click **Continue to summary**, then **Create Token**. Copy the token: Cloudflare shows it only once.
+
+**2. Give GitHub the token and your account ID.**
+
+1. In the Cloudflare dashboard, press Cmd + K (Ctrl + K on Windows), type `Copy account ID` and pick it. Your account ID is now copied.
+2. Open your copy of Yakyard on GitHub. Click **Settings**, then **Secrets and variables**, then **Actions**.
+3. Click **New repository secret**. Name: `CLOUDFLARE_ACCOUNT_ID`. Secret: paste the account ID. Click **Add secret**.
+4. Click **New repository secret** again. Name: `CLOUDFLARE_API_TOKEN`. Secret: paste the token from step 1. Click **Add secret**.
+
+**3. Turn it on.**
+
+1. On the same page, open the **Variables** tab and click **New repository variable**.
+2. Name: `YAKYARD_AUTO`. Value: `on`. Click **Add variable**.
+
+Check it once: open the **Actions** tab, click **Yakyard updates and backups** on the left, then **Run workflow**, then the green **Run workflow** button. After a few minutes it shows a green tick. In Cloudflare, under **R2**, your bucket (`yakyard-files` unless you renamed it) now has a `backups` folder with today's file.
+
+Other values for `YAKYARD_AUTO`: `daily` updates the night a release comes out instead of waiting for Sunday, and `backups` only backs up. To stop everything, delete the variable.
+
+To use a backup: in **R2**, open the `backups` folder, download the file, then follow [Backups](#backups) to put it back with `npm run restore`. The backups count toward your free 10 GB of R2.
 
 ## Storage limits
 
