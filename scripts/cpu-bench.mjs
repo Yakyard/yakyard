@@ -69,6 +69,18 @@ function seed(db, setup) {
     if (i % 3 === 0) db.prepare("INSERT INTO reactions (message_id,user_id,emoji) VALUES (?,?,'👍'),(?,?,'🎉')").run(id, 'Ubob0000000000002', id, 'Usam0000000000003');
     if (i % 5 === 0) db.prepare("INSERT INTO files (key,uploader,channel_id,created_at,size) VALUES (?,?,'Cgeneral000000001',0,1234)").run(`2026-11/F${i}/photo.png`, 'Uowner00000000001');
   }
+  // A locked DM with keys: the server side of end-to-end encryption only stores and relays.
+  const K = 'A'.repeat(43), ENC = JSON.stringify({ v: 1, s: 'S'.repeat(43), c: 'C'.repeat(400) });
+  db.prepare("INSERT INTO settings (key,value) VALUES ('allow_locked','1')").run();
+  db.prepare("INSERT INTO channels (id,kind,name,private,dm_key,created_at,last_ts,locked) VALUES ('Dlocked0000000001','dm','',1,'L:Ubob0000000000002,Uowner00000000001',0,?,1)").run(now);
+  for (const u of ['Uowner00000000001', 'Ubob0000000000002']) db.prepare("INSERT INTO members (channel_id,user_id,last_read,joined_at) VALUES ('Dlocked0000000001',?,0,0)").run(u);
+  for (let i = 0; i < 50; i++) db.prepare("INSERT INTO messages (id,channel_id,user_id,ts,text,enc) VALUES (?,'Dlocked0000000001',?,?,'',?)").run('L' + String(i).padStart(16, '0'), i % 2 ? 'Ubob0000000000002' : 'Uowner00000000001', now - i * 1000, ENC);
+  for (const u of ['Uowner00000000001', 'Ubob0000000000002']) {
+    db.prepare('INSERT INTO e2ee_identity (user_id,master_pub,created_at) VALUES (?,?,0)').run(u, K);
+    db.prepare("INSERT INTO e2ee_devices (user_id,device_id,curve,ed,sig,fallback,created_at) VALUES (?,?,?,?,?,?,0)").run(u, 'D' + u.slice(1, 12), K, K, 'G'.repeat(86), JSON.stringify({ id: 'f', key: K }));
+    for (let i = 0; i < 50; i++) db.prepare('INSERT INTO e2ee_otk (user_id,device_id,key_id,key) VALUES (?,?,?,?)').run(u, 'D' + u.slice(1, 12), 'k' + i, K);
+  }
+  for (let i = 0; i < 40; i++) db.prepare('INSERT INTO e2ee_inbox (id,user_id,device_id,sender_user,sender_device,sender_key,body,created_at) VALUES (?,?,?,?,?,?,?,?)').run('K' + i, 'Uowner00000000001', 'Downer000000', 'Ubob0000000000002', 'Dbob00000000', K, '0:' + 'B'.repeat(900), i);
   db.prepare("INSERT INTO scheduled (id,user_id,channel_id,text,files,send_at,created_at) VALUES ('Qbench00000000001','Uowner00000000001','Cgeneral000000001','Scheduled hello','[]',1,0)").run();
   db.prepare("INSERT INTO reminders (id,user_id,text,due_at) VALUES ('Rbench00000000001','Uowner00000000001','Call Sam',1)").run();
   return { salt, key };
@@ -95,6 +107,13 @@ const PATHS = {
   'GET /files/:key': { run: (w, env, s, ctx) => w.fetch(req('GET', '/files/' + encodeURIComponent('2026-11/F0/photo.png')), env, ctx) },
   'GET /files/:key?w=880': { run: (w, env, s, ctx) => w.fetch(req('GET', '/files/' + encodeURIComponent('2026-11/F0/photo.png') + '?w=880'), env, ctx) },
   'POST /api/upload': { run: (w, env, s, ctx) => { const f = new FormData(); f.append('file', new Blob([randomBytes(200000)], { type: 'image/png' }), 'pic.png'); return w.fetch(new Request(B + '/api/upload', { method: 'POST', headers: { cookie: 'yy_session=' + SID, origin: B }, body: f }), env, ctx); } },
+  'POST locked message (ciphertext)': { run: (w, env, s, ctx) => w.fetch(req('POST', '/api/channels/Dlocked0000000001/messages', { enc: JSON.stringify({ v: 1, s: 'S'.repeat(43), c: 'C'.repeat(600) }), mentions: ['Ubob0000000000002'] }), env, ctx) },
+  'GET locked messages': { run: (w, env, s, ctx) => w.fetch(req('GET', '/api/channels/Dlocked0000000001/messages'), env, ctx) },
+  'POST /api/e2ee/keys': { run: (w, env, s, ctx) => w.fetch(req('POST', '/api/e2ee/keys', { user_ids: ['Uowner00000000001', 'Ubob0000000000002'] }), env, ctx) },
+  'POST /api/e2ee/claim': { run: (w, env, s, ctx) => w.fetch(req('POST', '/api/e2ee/claim', { devices: [{ user_id: 'Ubob0000000000002', device_id: 'Dbob00000000' }] }), env, ctx) },
+  'POST /api/e2ee/send (20 devices)': { run: (w, env, s, ctx) => w.fetch(req('POST', '/api/e2ee/send', { device_id: 'Downer000000', messages: Array.from({ length: 20 }, (_, i) => ({ user_id: 'Ubob0000000000002', device_id: 'Dbob00000000', sender_key: 'A'.repeat(43), body: '0:' + 'B'.repeat(900) })) }), env, ctx) },
+  'GET /api/e2ee/inbox': { run: (w, env, s, ctx) => w.fetch(req('GET', '/api/e2ee/inbox?device=Downer000000'), env, ctx) },
+  'PUT /api/e2ee/backup (100 keys)': { run: (w, env, s, ctx) => w.fetch(req('PUT', '/api/e2ee/backup', { items: Array.from({ length: 100 }, (_, i) => ({ session_id: 'S' + i, data: 'D'.repeat(400) })) }), env, ctx) },
   'GET /api/admin/people': { run: (w, env, s, ctx) => w.fetch(req('GET', '/api/admin/people'), env, ctx) },
   'GET /api/later': { run: (w, env, s, ctx) => w.fetch(req('GET', '/api/later'), env, ctx) },
   'job: scheduled message': { job: { kind: 'sched', id: 'Qbench00000000001' } },
