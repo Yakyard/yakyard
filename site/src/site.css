@@ -36,7 +36,7 @@
     --hi: inset 0 1px 0 rgba(255,255,255,.07);
     --sh-1: 0 1px 2px rgba(5,4,20,.35);
     --sh-2: 0 1px 2px rgba(5,4,20,.35), 0 12px 28px -10px rgba(5,4,20,.5);
-    --sh-3: 0 1px 1px rgba(0,0,0,.3), 0 16px 28px -8px rgba(0,0,0,.45), 0 36px 64px -24px rgba(106,92,255,.2);
+    --sh-3: 0 1px 1px rgba(0,0,0,.3), 0 16px 28px -8px rgba(0,0,0,.45), 0 36px 64px -24px rgba(0,0,0,.4);
   }
 }
 

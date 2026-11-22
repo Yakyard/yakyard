@@ -59,7 +59,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
     <h1 class="d-xl" id="hero-title"><span class="l">Yak all you want.</span> <span class="l hot">Pay nobody.</span></h1>
     <div class="hero__grid">
       <div class="hero__copy">
-        <p class="lede">Team chat you run on your own Cloudflare account. Channels, threads, calls and voice notes with transcripts. No per-seat bill.</p>
+        <p class="lede">Channels, threads, calls and voice notes with transcripts, running on your own Cloudflare account. Nobody pays per seat.</p>
         <div class="btn-row">
           <a class="btn btn--primary" href="${DEPLOY_URL}">${icon("cloud-arrow-up")}Deploy to Cloudflare</a>
           <a class="btn btn--ghost" href="/docs/setup">Read the setup guide</a>
