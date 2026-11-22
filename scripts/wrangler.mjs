@@ -1,12 +1,12 @@
 // Runs wrangler for the scripts. Uses wrangler.toml when an older install made one (it holds that install's
-// database id), otherwise the wrangler.jsonc that comes with Yakyard.
+// database id), otherwise the wrangler.jsonc that comes with Yakyard. YY_CONFIG picks another file (the public demo).
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 export const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const config = existsSync(join(root, 'wrangler.toml')) ? 'wrangler.toml' : 'wrangler.jsonc';
+export const config = process.env.YY_CONFIG || (existsSync(join(root, 'wrangler.toml')) ? 'wrangler.toml' : 'wrangler.jsonc');
 const win = process.platform === 'win32';
 export function wrangler(args, opts = {}) {
   return execFileSync(win ? 'npx.cmd' : 'npx', ['wrangler', ...args, '--config', config], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], shell: win, maxBuffer: 1 << 30, ...opts });

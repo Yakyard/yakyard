@@ -6,6 +6,7 @@ import { parseVoiceMeta, transcribe, patchMessage, voiceJob, fmtDur, VOICE_MAX }
 import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { cacheGet, cachePut, cacheCleanup } from './cache.js';
 import { e2eeApi, startLockedChannel, openLockedDm, lockedAllowed, e2eeHousekeeping } from './e2ee.js';
+import { demoOn, demoGuard, demoReset, ensureSeeded, DEMO_CRON } from './demo.js';
 
 const SESSION_DAYS = 30;
 const SESSION_COOKIE = 'yy_session', STATE_COOKIE = 'yy_state';
@@ -390,6 +391,10 @@ ${error ? `<p class="login-error" role="alert">${escH(error)}</p>` : ''}
 }
 
 function loginPage(env, message = '', email = '') {
+  if (demoOn(env)) return page(env, 'Try Yakyard', `<h1>Try Yakyard</h1><p>Look around a small team's chat: channels, threads, reactions and a voice note. No sign-up, no email.</p>
+${message ? `<p class="login-error" role="alert">${escH(message)}</p>` : ''}
+<form method="post" action="/auth/demo" class="login-form"><button class="login-btn primary" type="submit">Try the demo</button></form>
+<p class="login-note">This is a public demo. Everyone sees what you post. It resets every night.</p>`);
   const google = googleOn(env) ? `<div class="login-or"><span>or</span></div>
 <a class="login-btn" href="/auth/google"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Continue with Google</a>` : '';
   return page(env, 'Sign in to Yakyard', `<h1>Sign in to Yakyard</h1>
@@ -399,6 +404,22 @@ ${message ? `<p class="login-error" role="alert">${escH(message)}</p>` : ''}
 <label>Password<input class="input" data-pw type="password" required autocomplete="current-password"></label>
 <button class="login-btn primary" type="submit">Sign in</button></form><noscript><p class="login-error">Turn on JavaScript to sign in.</p></noscript>${google}
 <p class="login-note">New here or forgot your password? Ask your workspace admin for a sign-in link.</p>`);
+}
+
+// Demo mode: one click makes a new member with a made-up name, in every public channel, and signs them in.
+async function demoSignIn(req, env) {
+  await ensureSeeded(env);   // first: seeding clears the sign-in counters
+  const ip = clientIp(req);
+  if ((await bump(env, 'demo:' + ip)) > 5 || (await bump(env, 'demo:all')) > 60) return loginPage(env, 'The demo is busy right now. Try again in 15 minutes.');
+  const id = uid('U'), sid = uid('sess_') + uid(), t = now(), name = 'Visitor ' + (1000 + Math.floor(Math.random() * 9000));
+  const u = { id, email: `visitor-${id.slice(1).toLowerCase()}@demo.invalid`, name, title: 'Demo visitor', avatar: '', color: colorFor(id), role: 'member', active: 1 };
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO users (id,email,name,title,avatar,color,role,active,created_at) VALUES (?,?,?,?,'',?,'member',1,?)").bind(id, u.email, name, u.title, u.color, t),
+    env.DB.prepare("INSERT OR IGNORE INTO members (channel_id,user_id,last_read,joined_at) SELECT id,?,0,? FROM channels WHERE kind='channel' AND private=0 AND archived=0").bind(id, t),
+    ...sessionStmts(env, id, await sha256hex(sid)),
+  ]);
+  await broadcast(env, { type: 'user_updated', user: u }, await nonGuestIds(env));
+  return signedIn(req, sid);
 }
 
 // ---------------------------------------------------------------- helpers
@@ -628,7 +649,7 @@ async function api_bootstrap_GET(c, m) {
   return json({
     emoji: ce ? JSON.parse(ce.value) : {},
     me: pickMe(user),
-    workspace: { name: env.WORKSPACE_NAME || 'Yakyard', location: locationOn(env), weather: locationOn(env) && weatherOn(env), locked: lockR.results[0]?.value === '1' },
+    workspace: { name: env.WORKSPACE_NAME || 'Yakyard', demo: demoOn(env), location: locationOn(env), weather: locationOn(env) && weatherOn(env), locked: lockR.results[0]?.value === '1' },
     users: users.results,
     channels: chans.results.map((c) => ({ ...c, members: dmMembers[c.id] })),
     sections: sections.results,
@@ -1278,7 +1299,11 @@ async function imgProxy(env, target) {
 export default {
   // Every 5 minutes, a safety net only: background work runs as its own jobs (class Job below). This re-arms
   // anything overdue and starts the hourly tidy-up.
-  async scheduled(event, env) { await sweep(env, event.scheduledTime); },
+  async scheduled(event, env) {
+    // Demo mode: the nightly reset runs as its own background job, like everything else.
+    if (demoOn(env) && event.cron === DEMO_CRON) await arm(env, 'demoreset', 'nightly', event.scheduledTime);
+    await sweep(env, event.scheduledTime);
+  },
   fetch: (req, env, ctx) => handle(req, env, ctx),
 };
 // Nothing should crash into a Cloudflare error page, including when a free daily allowance runs out.
@@ -1319,6 +1344,11 @@ async function authRoute(req, env, url, path) {
       if (o && o !== url.origin) return err(403, 'Bad origin');
       return saltFor(req, env);
     }
+    if (demoOn(env) && path === '/auth/demo' && req.method === 'POST') {
+      const o = req.headers.get('origin');
+      if (o && o !== url.origin) return err(403, 'Bad origin');
+      return demoSignIn(req, env);
+    }
     if (path.startsWith('/join/')) {
       const o = req.headers.get('origin');
       if (req.method === 'POST' && o && o !== url.origin) return err(403, 'Bad origin');
@@ -1355,11 +1385,11 @@ async function route(req, env, ctx, url, path) {
     const isStatic = !path.startsWith('/files/') && /\.(css|js|woff2|png|svg|ico|webmanifest|json|wasm)$/.test(path);
     if (isStatic) return env.ASSETS.fetch(req);
 
-    if (path === '/setup') return setupPage(req, env);
+    if (path === '/setup' && !demoOn(env)) return setupPage(req, env);
     const user = await currentUser(req, env);
     if (!user) {
       if (path.startsWith('/api/') || path === '/ws' || path.startsWith('/files/')) return err(401, 'Sign in required');
-      if (!(await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first())) return new Response(null, { status: 302, headers: { location: '/setup' } });
+      if (!demoOn(env) && !(await env.DB.prepare('SELECT 1 FROM users LIMIT 1').first())) return new Response(null, { status: 302, headers: { location: '/setup' } });
       return loginPage(env);
     }
 
@@ -1368,6 +1398,7 @@ async function route(req, env, ctx, url, path) {
       const origin = req.headers.get('origin');
       if (origin && origin !== url.origin) return err(403, 'Bad origin');
     }
+    if (demoOn(env)) { const blocked = await demoGuard(env, user, path, req.method, bump); if (blocked) return blocked; }
 
     if (path === '/ws') {
       // Browsers always send Origin on a WebSocket handshake. Only our own pages may connect.
@@ -1646,6 +1677,7 @@ function runJob(env, ctx, { kind, id, data }) {
   if (kind === 'import') return importJob(env, id);
   if (kind === 'push') return pushBatch(env, data);
   if (kind === 'fanout') return fanoutJob(env, id, data);
+  if (kind === 'demoreset') return demoOn(env) ? demoReset(env) : null;
   if (kind === 'house') return Promise.all([housekeeping(env), cacheCleanup(env), e2eeHousekeeping(env)]).then(() => null);
   return null;
 }

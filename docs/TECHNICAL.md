@@ -19,6 +19,7 @@ Everything an admin or developer needs beyond the [setup guide](SETUP.md): what 
 - [Old accounts](#old-accounts)
 - [Sign-in throttling](#sign-in-throttling)
 - [Locked conversations](#locked-conversations)
+- [Public demo](#public-demo)
 - [Tests](#tests)
 - [How it's built](#how-its-built)
 
@@ -171,6 +172,7 @@ Settings marked `vars` go in `wrangler.jsonc`, under `"vars"`. Secrets are set w
 | `SLACK_API` | `vars` | no | Tests only: point the Slack import at a mock server. |
 | `VOICE_AI_URL` | `vars` | no | Tests only: a local stand-in for Workers AI (localhost addresses only). |
 | `PUSH_TEST_URL` | `vars` | no | Tests only: a local stand-in for the push services (localhost addresses only). |
+| `DEMO_MODE` | `vars` | no | `"1"` turns a Yakyard into a public demo (see [Public demo](#public-demo)). Leave it out on your own Yakyard. |
 
 ## Updating
 
@@ -230,6 +232,23 @@ Commands:
 
 The app's Content Security Policy allows `'wasm-unsafe-eval'` so the WebAssembly can start; it still runs scripts only from its own address.
 
+## Public demo
+
+A demo anyone can click into, with no sign-up. It runs as its own Worker (`yakyard-demo`) with its own database and file storage, set in `wrangler.demo.jsonc`, so your own Yakyard is never touched:
+
+```bash
+npm run demo:deploy
+```
+
+With `DEMO_MODE` set to `"1"`:
+- The sign-in page has one button, **Try the demo**. Each click makes a new member called "Visitor" and a number, in every public channel of a made-up team, and signs them in. No email, no password.
+- A line at the top of the app says: "This is a public demo. Everyone sees what you post. It resets every night."
+- Off, each with a short message: file uploads, new voice notes and transcripts, admin settings, the Slack import, invites, phone notifications, locked conversations and passwords. The seeded voice note (audio in `public/demo/`, transcript in `src/demo.js`) plays and shows its transcript without Workers AI.
+- Limits: 5 new visitors per network address and 60 in total per 15 minutes; per visitor, 30 messages and 120 other changes per 15 minutes. Read marks don't count.
+- Every night at 03:00 UTC a background job wipes everything and seeds the team again (`src/demo.js`). The first visitor after a deploy seeds it too.
+
+`DEMO_MODE` is not in `wrangler.jsonc`, so a normal install never has it.
+
 ## Tests
 
 ```bash
@@ -259,4 +278,5 @@ No framework and no build step. Plain JavaScript in `public/app.js`, a Cloudflar
 | Locked conversations: encryption (Apache-2.0) | `packages/yakyard-lock/` (copied to `public/lock/`) |
 | Locked conversations: screens and approvals | `public/locked.js` |
 | Locked conversations: keys, relay, backup, approvals on the server | `src/e2ee.js` |
+| Public demo: sign-in limits, blocked features, seed data, nightly reset | `src/demo.js` |
 

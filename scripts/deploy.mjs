@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, statSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import { root, wrangler } from './wrangler.mjs';
+import { root, wrangler, config } from './wrangler.mjs';
 import { fromToml } from './settings.mjs';
 
 const ci = !!(process.env.CI || process.env.WORKERS_CI);
@@ -36,7 +36,7 @@ try {
   if (!migrated) run('node scripts/migrate.mjs --remote');
   console.log(`Deployed version ${v}`);
   // First deploy from a computer: make the setup code and show it once. (The Deploy button asks for it instead.)
-  if (!ci && !wrangler(['secret', 'list']).includes('SETUP_TOKEN')) {
+  if (!ci && config !== 'wrangler.demo.jsonc' && !wrangler(['secret', 'list']).includes('SETUP_TOKEN')) {
     const code = randomBytes(24).toString('hex');
     wrangler(['secret', 'put', 'SETUP_TOKEN'], { input: code, stdio: ['pipe', 'inherit', 'inherit'] });
     console.log(`\nYour setup code (shown once, keep it until you have set up Yakyard):\n\n  ${code}\n`);
