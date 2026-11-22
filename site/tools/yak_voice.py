@@ -17,6 +17,21 @@ lines = {
   "hi-4": "Your chat lives on your account. Not mine.",
   "egg": "Okay, okay. I'm a yak, not a doorbell.",
 }
+LUFS = -16.0  # clearly audible on laptop and phone speakers, like a voice message
+
+def lufs(path):
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-af", "ebur128", "-f", "null", "-"], capture_output=True, text=True)
+    return float([l for l in r.stderr.splitlines() if l.strip().startswith("I:")][-1].split()[1])
+
+# One-pass loudnorm can't reach the target on clips this short (it falls back and leaves them 4 to 7 dB quiet),
+# so: linear gain toward -16 LUFS, a limiter to keep peaks under -2 dBFS, measure, correct, three rounds.
+def normalize(src, dst):
+    gain = LUFS - lufs(src)
+    for _ in range(3):
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-af", f"volume={gain:.2f}dB,alimiter=limit=0.79:attack=2:release=60:level=false", dst], check=True)
+        gain += LUFS - lufs(dst)
+    return dst
+
 pipe = KPipeline(lang_code="a")
 out = {}
 for key, text in lines.items():
@@ -30,9 +45,11 @@ for key, text in lines.items():
     a = np.concatenate(audio)
     sf.write(TMP + f"{key}.wav", a, 24000)
     # pitch up via asetrate, then atempo so the net speed is TEMPO
-    af = f"asetrate={int(24000*PITCH)},aresample=24000,atempo={TEMPO/PITCH:.4f},highpass=f=70,loudnorm=I=-16:TP=-1.5"
+    af = f"asetrate={int(24000*PITCH)},aresample=24000,atempo={TEMPO/PITCH:.4f},highpass=f=70"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", TMP + f"{key}.wav", "-af", af, "-ac", "1", TMP + f"{key}.voiced.wav"], check=True)
+    norm = normalize(TMP + f"{key}.voiced.wav", TMP + f"{key}.norm.wav")
     for ext, codec in [("webm", ["-c:a", "libopus", "-b:a", "24k", "-application", "voip"]), ("mp3", ["-c:a", "libmp3lame", "-b:a", "32k", "-ar", "22050"])]:
-        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", TMP + f"{key}.wav", "-af", af, "-ac", "1", *codec, OUT + f"{key}.{ext}"], check=True)
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", norm, "-ac", "1", *codec, OUT + f"{key}.{ext}"], check=True)
     scale = 1 / TEMPO
     dur = len(a) / 24000 * scale
     entry = {"text": text, "dur": round(dur, 2), "words": [[w, round(t * scale, 2)] for w, t in words]}

@@ -12,37 +12,159 @@
     new IntersectionObserver(([e]) => nav.classList.toggle("is-stuck", !e.isIntersecting)).observe(s);
   }
 
-  // ---------- sound: only ever after a click, and a toggle that remembers ----------
-  const KEY = "yakyard-sound";
+  // ---------- sound: only ever after a click, never on its own ----------
+  // Clips are fetched as bytes and played through Web Audio. The context is woken inside the first tap or
+  // key press (what iOS Safari needs), so a clip that arrives a moment later still plays. Plain <audio> is
+  // the fallback for browsers without Web Audio. Sound is on by default; the toggle remembers "off" only.
+  const MUTE = "yakyard-mute";
   let soundOn = true;
-  try { soundOn = localStorage.getItem(KEY) !== "off"; } catch {}
+  try { soundOn = localStorage.getItem(MUTE) !== "1"; localStorage.removeItem("yakyard-sound"); } catch {}
   const snd = document.querySelector(".snd");
-  const paintSnd = () => snd && snd.setAttribute("aria-pressed", String(soundOn));
+  const sndTxt = snd && snd.querySelector(".snd__txt");
+  const paintSnd = () => {
+    if (!snd) return;
+    snd.setAttribute("aria-pressed", String(soundOn));
+    snd.title = soundOn ? "Yak sound is on" : "Yak sound is off";
+    if (sndTxt) sndTxt.textContent = soundOn ? "Sound on" : "Sound off";
+  };
   paintSnd();
+
+  // a small, polite note under the speaker button when sound is off or the browser held it back
+  let hintEl = null, hintT = 0;
+  function hint(text) {
+    if (!snd) return;
+    if (!hintEl) {
+      hintEl = document.createElement("p");
+      hintEl.className = "snd-hint";
+      hintEl.setAttribute("role", "status");
+      snd.after(hintEl);
+    }
+    hintEl.textContent = text;
+    hintEl.classList.add("is-on");
+    clearTimeout(hintT);
+    hintT = setTimeout(() => hintEl.classList.remove("is-on"), 3600);
+  }
+  const unhint = () => { clearTimeout(hintT); hintEl && hintEl.classList.remove("is-on"); };
+
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const apple = navigator.vendor === "Apple Computer, Inc.";
+  const EXT = (() => { try { return !apple && new Audio().canPlayType('audio/webm; codecs="opus"') ? "webm" : "mp3"; } catch { return "mp3"; } })();
+  let ac = null, out = null;
+  function ctx() {
+    if (!AC) return null;
+    if (!ac) {
+      try { ac = new AC(); out = ac.createGain(); out.gain.value = soundOn ? 1 : 0; out.connect(ac.destination); }
+      catch { ac = null; }
+    }
+    return ac;
+  }
+  // call only inside a user gesture: starts (or restarts) the audio context
+  function wake() {
+    const c = ctx();
+    if (!c || c.state === "running") return;
+    c.resume().catch(() => {});
+    try { const s = c.createBufferSource(); s.buffer = c.createBuffer(1, 1, 22050); s.connect(c.destination); s.start(0); } catch {}
+  }
+  const GESTURES = ["pointerup", "touchend", "keydown", "click"];
+  const onGesture = () => { wake(); if (ac && ac.state === "running") GESTURES.forEach((g) => removeEventListener(g, onGesture, true)); };
+  GESTURES.forEach((g) => addEventListener(g, onGesture, { capture: true, passive: true }));
+
+  const raw = new Map(), bufs = new Map();
+  function bytes(name, ext = EXT) {
+    const k = `${name}.${ext}`;
+    if (!raw.has(k)) {
+      const p = fetch(`/audio/${k}`).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); });
+      p.catch(() => raw.delete(k));
+      raw.set(k, p);
+    }
+    return raw.get(k);
+  }
+  function buffer(name) {
+    if (!bufs.has(name)) {
+      const c = ctx();
+      const dec = (ab) => new Promise((ok, no) => { const r = c.decodeAudioData(ab.slice(0), ok, no); if (r && r.then) r.then(ok, no); });
+      const p = bytes(name).then(dec).catch(() => bytes(name, "mp3").then(dec));
+      p.catch(() => bufs.delete(name));
+      bufs.set(name, p);
+    }
+    return bufs.get(name);
+  }
+  const warm = (name) => { bytes(name).catch(() => {}); };
+
+  let cur = null; // one clip at a time, so the yak never talks over itself
+  // play(name, seconds, {onStart, onEnd}) -> { stop(), time() }. time() is the audio clock, or null while nothing is audible.
+  function play(name, dur, { onStart, onEnd } = {}) {
+    cur && cur.stop();
+    let done = false, src = null, el = null, t0 = 0, timer = 0;
+    const asked = performance.now();
+    const h = {
+      stop() {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (src) { src.onended = null; try { src.stop(); } catch {} }
+        if (el) { el.onended = null; el.pause(); }
+        if (cur === h) cur = null;
+        if (navigator.audioSession) try { navigator.audioSession.type = "auto"; } catch {}
+        onEnd && onEnd();
+      },
+      time() {
+        if (done) return null;
+        if (src) return ac.currentTime - t0;
+        if (el && !el.paused && el.currentTime > 0) return el.currentTime;
+        return null;
+      },
+    };
+    cur = h;
+    const endIn = (s) => { clearTimeout(timer); timer = setTimeout(() => h.stop(), s * 1000); };
+    endIn(dur + 0.8); // captions always finish, sound or not
+    if (!soundOn) { hint("Sound is off. Turn it on with the speaker button."); return h; }
+    unhint();
+    const started = (len) => { endIn(len + 0.6); onStart && onStart(); };
+    const blocked = () => { if (!done) hint("Your browser held the sound back. Tap again to hear the yak."); };
+    const viaElement = () => {
+      el = new Audio(`/audio/${name}.${EXT}`);
+      el.onended = () => h.stop();
+      const p = el.play();
+      if (p && p.then) p.then(() => started(dur), blocked); else started(dur);
+    };
+    const c = ctx();
+    if (!c) { viaElement(); return h; }
+    wake();
+    if (navigator.audioSession) try { navigator.audioSession.type = "playback"; } catch {} // plays with the iPhone's silent switch on, like a video
+    buffer(name).then((b) => {
+      if (done) return;
+      const go = () => {
+        if (done) return;
+        if (c.state !== "running") return blocked();
+        if (performance.now() - asked > 2500) return hint("The yak's voice is still on its way. Tap again in a second.");
+        src = c.createBufferSource();
+        src.buffer = b;
+        src.connect(out);
+        src.onended = () => h.stop();
+        src.start();
+        t0 = c.currentTime;
+        started(b.duration);
+      };
+      if (c.state === "running") go();
+      else Promise.race([c.resume(), new Promise((r) => setTimeout(r, 2000))]).then(go, go);
+    }, () => { if (!done) hint("The yak's voice didn't load. Tap again to try once more."); });
+    return h;
+  }
+
   snd?.addEventListener("click", () => {
     soundOn = !soundOn;
-    try { localStorage.setItem(KEY, soundOn ? "on" : "off"); } catch {}
+    try { soundOn ? localStorage.removeItem(MUTE) : localStorage.setItem(MUTE, "1"); } catch {}
     paintSnd();
-    if (player) player.muted = !soundOn;
+    if (out) out.gain.setTargetAtTime(soundOn ? 1 : 0, ac.currentTime, 0.015);
+    if (soundOn) { wake(); unhint(); }
   });
+  // for the site's own audio check (and curious people): is the yak audible right now?
+  window.yakyardSound = { position: () => (cur ? cur.time() : null), state: () => (ac ? ac.state : "none"), on: () => soundOn };
 
-  const ext = (() => { try { return new Audio().canPlayType('audio/webm; codecs="opus"') ? "webm" : "mp3"; } catch { return "mp3"; } })();
-  let player = null; // one audio element for everything, so two clips never talk over each other
-  let stopCurrent = null;
-  function play(name, onEnd) {
-    stopCurrent?.();
-    if (!player) { player = new Audio(); player.preload = "auto"; }
-    player.muted = !soundOn;
-    player.src = `/audio/${name}.${ext}`;
-    let done = false;
-    const finish = () => { if (done) return; done = true; player.onended = null; player.pause(); stopCurrent = null; onEnd?.(); };
-    stopCurrent = finish;
-    player.onended = finish;
-    const p = player.play();
-    if (p && p.catch) p.catch(() => {}); // muted or blocked: the captions and timing still run
-    return player;
-  }
-  const warm = (name) => { const l = document.createElement("link"); l.rel = "prefetch"; l.as = "audio"; l.href = `/audio/${name}.${ext}`; document.head.append(l); };
+  // fetch the clips (about 70 KB) once the page is idle, so the first tap answers at once. Nothing plays until a tap.
+  const preload = () => ["hi-1", "hi-2", "note"].forEach(warm);
+  (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(preload, { timeout: 4000 });
 
   // ---------- the yak ----------
   const LINES = [
@@ -68,16 +190,14 @@
     document.querySelectorAll(".yak.is-talking").forEach((y) => y.classList.remove("is-talking"));
     yak.classList.add("is-talking");
     if (!reduce) retrigger(yak, "is-wiggle", 700);
-    if (say) { say.textContent = text; say.classList.add("is-on"); }
-    const end = () => {
-      yak.classList.remove("is-talking");
-      clearTimeout(yak._hide);
-      yak._hide = setTimeout(() => say && say.classList.remove("is-on"), 1400);
-    };
-    play(file, end);
-    const mine = stopCurrent;
-    clearTimeout(yak._safety);
-    yak._safety = setTimeout(() => { if (stopCurrent === mine && player.paused) mine(); }, (dur + 1) * 1000);
+    if (say) { clearTimeout(yak._hide); say.textContent = text; say.classList.add("is-on"); }
+    play(file, dur, {
+      onEnd: () => {
+        yak.classList.remove("is-talking");
+        clearTimeout(yak._hide);
+        yak._hide = setTimeout(() => say && say.classList.remove("is-on"), 1400);
+      },
+    });
   }
 
   function egg(origin) {
@@ -119,14 +239,26 @@
   }
 
   document.querySelectorAll("[data-yak]").forEach((yak) => {
-    yak.addEventListener("pointerenter", () => warm(LINES[lineIx % LINES.length][0]), { once: true });
+    yak.addEventListener("pointerenter", () => LINES.forEach(([f]) => warm(f)), { once: true });
     yak.addEventListener("click", () => {
       if (countClick(yak)) { talk(yak, EGG); return; }
       talk(yak, LINES[lineIx++ % LINES.length]);
     });
   });
   const hero = document.querySelector(".yak--hero");
-  if (hero) setTimeout(() => hero.classList.remove("is-intro"), 3600);
+  if (hero) {
+    // after the intro the yak offers to talk once, quietly, so people know it has a voice. Never plays by itself.
+    setTimeout(() => {
+      hero.classList.remove("is-intro");
+      const say = hero.parentElement.querySelector(".say");
+      if (!say || say.classList.contains("is-on") || scrollY > innerHeight / 2) return;
+      say.setAttribute("aria-live", "off");
+      say.textContent = "Poke me. I talk.";
+      say.classList.add("is-on", "is-invite");
+      hero._hide = setTimeout(() => say.classList.remove("is-on"), 5200);
+      hero.addEventListener("click", () => { say.setAttribute("aria-live", "polite"); say.classList.remove("is-invite"); }, { once: true, capture: true });
+    }, 3600);
+  }
 
   // nav logo on the home page: you're already home, so it types back instead of reloading
   const logo = document.querySelector("[data-yak-logo]");
@@ -159,7 +291,7 @@
     const yakAv = chat.querySelector(".msg--yak .av");
     const dur = +chat.dataset.dur;
     const total = Math.round(dur - 0.4);
-    let raf = 0, start = 0, audio = null;
+    let raf = 0, start = 0, clip = null;
     const fmt = (s) => "0:" + String(Math.max(0, Math.floor(s))).padStart(2, "0");
     const paint = (t) => {
       const p = t / dur;
@@ -180,16 +312,17 @@
     };
     const tick = () => {
       // the audio clock when it's really playing, a plain clock when sound is off or blocked
-      const t = audio && !audio.paused && !audio.muted && audio.currentTime > 0 ? audio.currentTime : (performance.now() - start) / 1000;
+      const a = clip && soundOn ? clip.time() : null;
+      const t = a != null ? a : (performance.now() - start) / 1000;
       paint(Math.min(t, dur));
-      if (t >= dur) { stopCurrent?.(); return; }
+      if (t >= dur) { clip && clip.stop(); return; }
       raf = requestAnimationFrame(tick);
     };
     btn.addEventListener("pointerenter", () => warm("note"), { once: true });
     btn.addEventListener("click", () => {
-      if (btn.getAttribute("aria-pressed") === "true") { stopCurrent?.(); return; }
-      audio = play("note", reset);
+      if (btn.getAttribute("aria-pressed") === "true") { clip && clip.stop(); return; }
       start = performance.now();
+      clip = play("note", dur, { onStart: () => { start = performance.now(); }, onEnd: () => { clip = null; reset(); } });
       btn.classList.remove("is-invite");
       btn.setAttribute("aria-pressed", "true");
       btn.setAttribute("aria-label", "Pause the yak's voice note");

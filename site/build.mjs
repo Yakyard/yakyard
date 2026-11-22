@@ -119,7 +119,7 @@ export function layout({ title, description, urlPath, og = "home", body, current
     </a>
     <nav aria-label="Main"><ul>${nav}</ul></nav>
     <div class="nav__end">
-      ${home ? `<button class="snd" type="button" aria-pressed="true" title="Yak sound">${icon("speaker-high", "ic ic-on")}${icon("speaker-slash", "ic ic-off")}<span class="sr">Yak sound</span></button>` : ""}
+      ${home ? `<span class="snd-wrap"><button class="snd" type="button" aria-pressed="true" title="Yak sound is on"><span class="snd__ic">${icon("speaker-high", "ic ic-on")}${icon("speaker-slash", "ic ic-off")}</span><span class="sr">Sound</span><span class="snd__txt" aria-hidden="true">Sound on</span></button></span>` : ""}
       <a class="nav__gh" href="${REPO}">${icon("github-logo")}<span>GitHub</span></a>
       <a class="btn btn--primary" href="${DEPLOY_URL}">Deploy to Cloudflare</a>
     </div>
