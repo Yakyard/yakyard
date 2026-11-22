@@ -15,7 +15,7 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Semgrep (JavaScript and secrets rules, must pass)
         run: >
           semgrep scan --config p/javascript --config p/secrets --error --metrics=off
@@ -30,7 +30,7 @@ jobs:
       YY_BASE: http://localhost:8811
       YY_PERSIST: /tmp/yy-ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -91,7 +91,7 @@ jobs:
       YY_BASE: http://localhost:8811
       YY_PERSIST: /tmp/yy-docker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
