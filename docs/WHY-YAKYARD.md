@@ -12,7 +12,7 @@ Most teams rent that record. The bill grows with every hire: Slack Pro is $7.25 
 
 The free plans aren't much better. Slack's free plan shows the last 90 days. Since August 2024 it deletes anything older than a year, and deleted messages can't be restored ([sources](sources.md#slack)). So the choice is to pay per head or lose your history.
 
-Per-seat pricing made sense when every new user meant another server in a rack. It doesn't now. A message is a few hundred bytes. Cloudflare's free plan alone handles 100,000 requests a day.
+Per-seat pricing made sense when every new person meant another server in a rack. It doesn't now. A message is a few hundred bytes. Cloudflare's free plan alone handles 100,000 requests a day.
 
 ## So we built one that runs for free
 

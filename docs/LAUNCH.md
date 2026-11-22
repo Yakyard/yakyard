@@ -164,7 +164,7 @@ Also be upfront that it's not a "run on your own box" app. People in r/selfhoste
 - License: PolyForm Shield 1.0.0. Free and source-available, not OSI open
   source. Use it for anything except selling it or competing with it.
 - Limits: no native apps (PWA), E2EE only in locked conversations, mesh calls for small groups.
-- Docs: step-by-step setup, user guide, backups and restore.
+- Docs: step-by-step setup, a how-to guide, backups and restore.
 - Repo: https://github.com/yakyard/yakyard
 ```
 

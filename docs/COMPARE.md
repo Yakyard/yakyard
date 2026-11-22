@@ -63,7 +63,7 @@ We say where others are better. Several are.
 
 **Discord is better at:** communities and big public servers. It's free for servers. Nitro ($2.99 or $9.99 a month) is a personal extra.
 
-**Yakyard is better at:** being a company's own chat. Discord's terms give Discord a license to your content and don't let you run the software yourself. Users must be 13 or older, and the product is built around communities. Yakyard runs on your account, under your control, with guests, reminders, scheduled send and a Slack-style layout.
+**Yakyard is better at:** being a company's own chat. Discord's terms give Discord a license to your content and don't let you run the software yourself. You must be 13 or older to use it, and the product is built around communities. Yakyard runs on your account, under your control, with guests, reminders, scheduled send and a Slack-style layout.
 
 **Pick Discord if** you run a community. **Pick Yakyard if** you run a team.
 

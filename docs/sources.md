@@ -45,7 +45,7 @@ Yakyard's own measurements (CPU per request, people per free plan) are in the [R
 | Fact | Source |
 |---|---|
 | Nitro Basic $2.99 a month, Nitro $9.99 a month (per person, prices vary by country). | [discord.com/nitro](https://discord.com/nitro) |
-| Users must be at least 13. You give Discord a license to your content. The software license is granted "solely to access our services". No self-hosting is offered. | [Discord Terms of Service](https://discord.com/terms) |
+| You must be at least 13. You give Discord a license to your content. The software license is granted "solely to access our services". No self-hosting is offered. | [Discord Terms of Service](https://discord.com/terms) |
 
 ## Mattermost
 

@@ -63,7 +63,7 @@ Calls (Pop in) go browser to browser. The server only relays the short setup mes
 | Voice transcripts | depends | about 214 minutes for the whole team | |
 | File storage | depends | 10 GB (Yakyard stops new uploads at 9 GB) | |
 
-The tightest line is about 250 people. Real teams are bursty and some people are heavy users, so plan on a fifth of that: **up to about 50 people**, comfortably. The first things a busy team feels are voice transcripts (about 4 minutes per person a day for 50 people) and photo previews (5,000 a month).
+The tightest line is about 250 people. Real teams are bursty and some people post a lot, so plan on a fifth of that: **up to about 50 people**, comfortably. The first things a busy team feels are voice transcripts (about 4 minutes per person a day for 50 people) and photo previews (5,000 a month).
 
 **When something runs out, nothing breaks:**
 - Voice transcripts: notes still send and play. The transcript says it comes tomorrow and its background job fills it in after midnight UTC.

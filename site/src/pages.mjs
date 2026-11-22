@@ -124,7 +124,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
       </article>
       <article class="tile t-locked">
         <h3>Lock what's private</h3>
-        <p>Tick Lock it on a DM or private channel. Messages, files and voice notes are scrambled on each device, so the server only keeps what it can't read. Locking takes two approvals, and the app says plainly what works differently in there.</p>
+        <p>Tick "Lock it" on a DM or private channel. Messages, files and voice notes are scrambled on each device, so the server only keeps what it can't read. Locking takes two approvals, and the app says plainly what works differently in there.</p>
         <div class="tile__shot">${shot("locked-dm", { alt: "A locked DM: a Locked tag in the header, a banner that says only the people here can read it, a photo and a voice note", sz: "(min-width: 960px) 640px, 100vw" })}</div>
       </article>
     </div>
@@ -463,12 +463,12 @@ export function releasePages({ layout, shot, DEPLOY_URL, REPO }) {
   <div class="wrap">
     <div class="sec__head">
       <h2 class="d-l" id="why-title">Some talks belong to the people in them.</h2>
-      <p>Pay, hiring, a client's numbers. Until now, anyone with access to your Cloudflare account could read every message. Tick Lock it when you start a DM or a private channel, and messages, edits, reactions, files and voice notes are scrambled on your device before they leave it.</p>
+      <p>Pay, hiring, a client's numbers. Until now, anyone with access to your Cloudflare account could read every message. Tick "Lock it" when you start a DM or a private channel, and messages, edits, reactions, files and voice notes are scrambled on your device before they leave it.</p>
     </div>
     <div class="bento">
       <article class="tile t-thread">
         <h3>Two approvals, never one click</h3>
-        <p>You read what works and what doesn't and tick I understand. You type the channel name, or lock for a DM. Then a second person agrees: an admin for a channel, everyone in it for a DM. Each step shows up in the conversation.</p>
+        <p>You read what works and what doesn't and tick "I understand". You type the channel name, or <code>lock</code> for a DM. Then a second person agrees: an admin for a channel, everyone in it for a DM. Each step shows up in the conversation.</p>
         <div class="tile__shot">${shot("guide-locked-step2", { alt: "Step two: type lock to confirm", sz: "(min-width: 960px) 640px, 100vw" })}</div>
       </article>
       <article class="tile t-phone">
@@ -483,7 +483,7 @@ export function releasePages({ layout, shot, DEPLOY_URL, REPO }) {
       </article>
       <article class="tile t-slack">
         <h3>The app says what works differently</h3>
-        <p>A banner links to What's different here. Search here looks through messages on your own device. Voice notes say why they have no transcript. Link previews are off, and the message box says so. Notifications only say New message in a locked conversation. The Slack import skips locked conversations and tells you why.</p>
+        <p>A banner links to "What's different here?". "Search here" looks through messages on your own device. Voice notes say why they have no transcript. Link previews are off, and the message box says so. Notifications only say "New message in a locked conversation". The Slack import skips locked conversations and tells you why.</p>
         <div class="tile__shot">${shot("guide-locked-whats-different", { alt: "The What's different here panel", sz: "(min-width: 960px) 640px, 100vw" })}</div>
       </article>
     </div>
@@ -516,7 +516,7 @@ export function releasePages({ layout, shot, DEPLOY_URL, REPO }) {
 
 <section class="sec install band" id="update" aria-labelledby="update-title">
   <div class="wrap rel-two">
-    <div class="sec__head"><h2 class="d-l" id="update-title">Update.</h2><p>The update adds the new tables by itself. Then, as the owner, open Admin, go to Locked conversations and choose Turn on.</p></div>
+    <div class="sec__head"><h2 class="d-l" id="update-title">Update.</h2><p>The update adds the new tables by itself. Then, as the owner, open Admin, go to Locked conversations and choose "Turn on".</p></div>
     <div>
       <pre class="rel-code"><code>npm run backup
 npm run update</code></pre>
@@ -547,7 +547,7 @@ npm run update</code></pre>
     <div class="bento">
       <article class="tile t-thread">
         <h3>Talk out loud</h3>
-        <p>Voice notes up to 15 minutes with a live waveform. Each gets a written transcript (Whisper on Cloudflare Workers AI) you can search. Pop in starts a call in any channel or DM, with camera and screen share.</p>
+        <p>Voice notes up to 15 minutes with a live waveform. Each gets a written transcript (Whisper on Cloudflare Workers AI) you can search. "Pop in" starts a call in any channel or DM, with camera and screen share.</p>
         <div class="tile__shot">${shot("voice-note-transcript", { alt: "A voice note with its transcript", sz: "(min-width: 960px) 640px, 100vw" })}</div>
       </article>
       <article class="tile t-phone">
@@ -557,7 +557,7 @@ npm run update</code></pre>
       </article>
       <article class="tile t-themes">
         <h3>Find it later</h3>
-        <p>Search with from:, in:, has:, before: and after:. Activity, Threads, Mentions, Files and Later each get a page. Schedule messages, set reminders, save things for Later.</p>
+        <p>Search with <code>from:</code>, <code>in:</code>, <code>has:</code>, <code>before:</code> and <code>after:</code>. Activity, Threads, Mentions, Files and Later each get a page. Schedule messages, set reminders, save things for Later.</p>
         <div class="tile__shot">${shot("search-voice", { alt: "Search results with filters", sz: "(min-width: 960px) 460px, 100vw" })}</div>
       </article>
       <article class="tile t-slack">

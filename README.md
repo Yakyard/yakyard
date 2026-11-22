@@ -205,7 +205,9 @@ Bundled fonts and libraries keep their own licenses: see [THIRD-PARTY.md](THIRD-
 ## More
 
 - [Why Yakyard](docs/WHY-YAKYARD.md) · [Pros and cons](docs/PROS-AND-CONS.md) · [Compare](docs/COMPARE.md) · [FAQ](docs/FAQ.md)
-- [Setup](docs/SETUP.md) · [User guide](docs/GUIDE.md) · [Technical notes](docs/TECHNICAL.md) · [Locked conversations](docs/E2EE.md) · [Changelog](CHANGELOG.md)
+- [Setup](docs/SETUP.md) · [How to use it](docs/GUIDE.md) · [Technical notes](docs/TECHNICAL.md) · [Locked conversations](docs/E2EE.md) · [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Support](SUPPORT.md) · [Press kit](docs/PRESS-KIT.md)
 
 Yakyard is an independent project. It isn't affiliated with or endorsed by Slack, Salesforce, Cloudflare or any other company named here. Their names are used only to describe and compare.
+
+<sub>Free forever. Made by QVINTA Ltd.</sub>

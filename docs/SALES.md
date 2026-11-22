@@ -140,7 +140,7 @@ An example plan for a team of about 20. Adjust the days to taste.
 4. Recreate your main channels with the same names.
 
 **Week 1: one team tries it.**
-1. Invite 4 to 6 people. Send them [the user guide](GUIDE.md).
+1. Invite 4 to 6 people. Send them [the guide](GUIDE.md).
 2. Everyone installs it on their phone and computer and turns on notifications.
 3. Each person runs **Import from Slack** once.
 4. Move one project's conversations to Yakyard. Keep Slack open for everything else.
