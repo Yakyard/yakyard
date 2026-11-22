@@ -66,7 +66,7 @@ If the answer is "every conversation must be encrypted" or "we need an audited c
 
 *What's underneath:* trust between people, not just security. Often HR, managers or clients.
 
-> Normal DMs sit in our Cloudflare account, so whoever runs that account could read them. That's true of most hosted chat too. The difference: anyone can lock a DM or private channel. Then the messages are encrypted on each person's phone or laptop, and the admin, the server and Cloudflare only ever see scrambled data. Locking needs two approvals and can't be undone, and the app spells out what works differently (search only on your device, no transcripts, and losing every device plus the recovery key means losing those messages). The server still sees who talks to whom and when. Which conversations would you want locked?
+> Normal DMs sit in our Cloudflare account, so whoever runs that account could read them. That's true of most hosted chat too. The difference: anyone can lock a DM or private channel. Then the messages are encrypted on each person's phone or laptop, and the admin, the server and Cloudflare only ever see scrambled data. Locking needs two approvals and can't be undone. The app spells out what works differently: search only on your device, no voice transcripts, and if someone loses every device and their recovery key, they lose those messages. The server still sees who talks to whom and when. Which conversations would you want locked?
 
 ### "Free means abandoned."
 

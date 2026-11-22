@@ -114,6 +114,7 @@ test('group DM locks only when the last person accepts', async () => {
   const ch = await openLockedDm({ DB: t.DB }, t.x, t.user('ben'), ['ben', 'cara', 'ada']);
   assert.equal((await t.call('cara', 'POST', `/api/channels/${ch.id}/lock/accept`)).body.locked, 2);
   assert.equal((await t.call('ada', 'POST', `/api/channels/${ch.id}/lock/accept`)).body.locked, 1);
+  assert.deepEqual(JSON.parse(t.db.prepare('SELECT lock_accepts FROM channels WHERE id=?').get(ch.id).lock_accepts).sort(), ['ada', 'ben', 'cara'], 'accepting twice or at once keeps everyone');
 });
 
 test('key relay: sealed packages only, to the device asked for; inbox is per device; backup is per person', async () => {
@@ -123,13 +124,13 @@ test('key relay: sealed packages only, to the device asked for; inbox is per dev
   assert.equal((await t.call('ben', 'POST', '/api/e2ee/identity', { master_pub: 'B'.repeat(43) })).status, 409, 'no silent replacement');
   await t.call('ben', 'POST', '/api/e2ee/devices', { device_id: 'DBEN0000001', curve: k, ed: k, sig: 's', otks: { a: k, b: k.replace('A', 'C') }, fallback: { id: 'f', key: k } });
   assert.equal((await t.call('ben', 'POST', '/api/e2ee/devices', { device_id: 'DBEN0000001', curve: 'D'.repeat(43), ed: k })).status, 409, 'device keys never change');
-  const c1 = (await t.call('cara', 'POST', '/api/e2ee/claim', { devices: [{ user_id: 'ben', device_id: 'DBEN0000001' }] })).body;
-  const c2 = (await t.call('cara', 'POST', '/api/e2ee/claim', { devices: [{ user_id: 'ben', device_id: 'DBEN0000001' }] })).body;
-  const c3 = (await t.call('cara', 'POST', '/api/e2ee/claim', { devices: [{ user_id: 'ben', device_id: 'DBEN0000001' }] })).body;
-  assert.notEqual(c1[0].key, c2[0].key, 'each one-time key is handed out once'); assert.equal(c3[0].fallback, true);
+  const claim = async () => (await t.call('cara', 'POST', '/api/e2ee/claim', { devices: [{ user_id: 'ben', device_id: 'DBEN0000001' }] })).body;
+  assert.deepEqual(await claim(), [], 'strangers cannot use up one-time keys');
   assert.equal((await t.call('cara', 'POST', '/api/e2ee/send', { device_id: 'DCARA000001', messages: [{ user_id: 'ben', device_id: 'DBEN0000001', sender_key: k, body: '0:sealed' }] })).body.sent, 0, 'strangers cannot send');
   t.db.prepare("INSERT INTO channels (id,kind,created_at) VALUES ('D8','dm',0)").run();
   for (const u of ['ben', 'cara']) t.db.prepare("INSERT INTO members (channel_id,user_id,joined_at) VALUES ('D8',?,0)").run(u);
+  const c1 = await claim(), c2 = await claim(), c3 = await claim();
+  assert.notEqual(c1[0].key, c2[0].key, 'each one-time key is handed out once'); assert.equal(c3[0].fallback, true);
   await t.call('cara', 'POST', '/api/e2ee/send', { device_id: 'DCARA000001', messages: [{ user_id: 'ben', device_id: 'DBEN0000001', sender_key: k, body: '0:sealed' }] });
   assert.equal((await t.call('ben', 'GET', '/api/e2ee/inbox?device=DOTHER00001')).body.length, 0);
   const inbox = (await t.call('ben', 'GET', '/api/e2ee/inbox?device=DBEN0000001')).body;

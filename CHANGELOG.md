@@ -8,7 +8,7 @@ Nothing yet.
 
 ## 2.0.0
 
-Yakyard 2. The big one: locked conversations, with end-to-end encryption.
+Yakyard 2 adds locked conversations: DMs and private channels with end-to-end encryption.
 
 ### Locked conversations
 - Lock a DM or a private channel when you start it. Messages, edits, reactions, files and voice notes are encrypted on each person's device. The server stores only ciphertext: not the admin, not someone with the Cloudflare account, not us.

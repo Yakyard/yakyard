@@ -111,7 +111,7 @@ const LOCK_STATUS = {
 };
 function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 3000);
+  clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), Math.max(3000, String(msg).length * 70)); // long notes stay long enough to read
 }
 
 // ------------------------------------------------------------------ people
@@ -368,7 +368,7 @@ async function openChannel(id) {
   const pendingLock = ch.locked === 2 && S.channels.has(id);
   const footer = pendingLock ? h('div', { class: 'composer-wrap lk-foot' }) : S.channels.has(id) ? composer({ channelId: id }) : joinBar(ch);
   main.replaceChildren(head, msgs, footer);
-  if (isLockedCh(ch)) lockMod().then((x) => { if (S.current !== id) return; const b = x.banner(ch); if (!b) return; if (pendingLock) footer.replaceChildren(b); else head.after(b); }).catch(() => toast("Locked conversations can't start in this browser."));
+  if (isLockedCh(ch)) lockMod().then((x) => { if (S.current !== id) return; const b = x.banner(ch); if (!b) return; if (pendingLock) footer.replaceChildren(b); else head.after(b); }).catch(() => toast("Locked conversations don't work in this browser. Try an up-to-date Chrome, Edge, Firefox or Safari."));
   const jump = h('button', { class: 'jump', hidden: true, onclick: () => { msgs.scrollTo({ top: msgs.scrollHeight, behavior: 'smooth' }); } }, svg(I.caret, 14), h('span', {}, 'Jump to latest'));
   main.append(jump);
   if (window.ResizeObserver) new ResizeObserver(() => main.style.setProperty('--comp-h', footer.offsetHeight + 'px')).observe(footer);
@@ -418,7 +418,7 @@ function channelHeader(ch) {
   }
   if (ch.locked === 1) title.append(h('span', { class: 'lk-tag' }, ch.kind === 'dm' ? svg(I.lockSolid, 12) : '', 'Locked'));
   else if (ch.locked === 2) title.append(h('span', { class: 'lk-tag wait' }, 'Waiting to lock'));
-  title.setAttribute('aria-label', (ch.kind === 'dm' ? chanLabel(ch) : ch.name) + (ch.locked === 1 ? ', locked conversation' : ch.locked === 2 ? ', waiting to lock' : '') + '. Details');
+  title.append(h('span', { class: 'sr' }, ', details'));
   title.append(svg(I.caret, 14));
   const pile = h('button', { class: 'member-pile', id: 'member-pile', onclick: () => channelDetails(ch, 'members') }, h('span', { class: 'stack' }), h('span', { class: 'n' }, ''));
   return h('div', {},
@@ -501,6 +501,7 @@ function renderMessages(scrollBottom) {
 }
 function channelIntro(ch, empty) {
   if (ch.locked === 1) return h('div', { class: 'chan-intro' }, h('h2', {}, ch.kind === 'dm' ? chanLabel(ch) : ch.name), h('p', {}, 'This conversation is locked. Messages, files and voice notes are scrambled on each device, and only the people here can read them.'));
+  if (ch.locked === 2) return h('div', { class: 'chan-intro' }, h('h2', {}, ch.kind === 'dm' ? chanLabel(ch) : ch.name), h('p', {}, ch.kind === 'dm' ? 'This conversation locks once everyone here accepts. Then only the people here can read it.' : 'This channel locks once an admin approves it. Then only the people here can read it.'));
   if (ch.kind === 'dm') {
     const others = dmOthers(ch);
     return h('div', { class: 'chan-intro' }, h('h2', {}, chanLabel(ch)),
@@ -653,7 +654,7 @@ function makePlayer(f) {
   const rates = [1, 1.5, 2];
   const btn = h('button', { class: 'vn-play', title: 'Play', 'aria-label': 'Play voice note' }, svg(VI.play, 16));
   const bars = wave.map((v) => h('i', { style: { height: Math.max(12, v) + '%' } }));
-  const waveEl = h('div', { class: 'vn-wave', role: 'slider', 'aria-label': 'Seek', tabindex: '0' }, ...bars);
+  const waveEl = h('div', { class: 'vn-wave', role: 'slider', 'aria-label': 'Seek', tabindex: '0', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0', 'aria-valuetext': '0%' }, ...bars);
   const time = h('span', { class: 'vn-time' }, dur ? clockDur(dur) : '');
   const speed = h('button', { class: 'vn-speed', title: 'Playback speed' }, '1×');
   const tBox = h('div', { class: 'vn-t' });
@@ -662,6 +663,7 @@ function makePlayer(f) {
   const paint = () => {
     const d = total(), at = audio.currentTime || 0, k = d ? at / d : 0, on = Math.round(k * bars.length);
     bars.forEach((b, i) => b.classList.toggle('on', i < on));
+    waveEl.setAttribute('aria-valuenow', String(Math.round(k * 100))); waveEl.setAttribute('aria-valuetext', clockDur(at) + (d ? ' of ' + clockDur(d) : ''));
     time.textContent = audio.paused && !at ? (d ? clockDur(d) : '') : clockDur(at) + (d ? ' / ' + clockDur(d) : '');
   };
   const setIcon = () => { btn.replaceChildren(svg(audio.paused ? VI.play : VI.pause, 16)); btn.title = audio.paused ? 'Play' : 'Pause'; node.classList.toggle('playing', !audio.paused); };
@@ -801,7 +803,7 @@ function reactionsEl(m) {
     const mine = r.users.includes(S.me.id);
     const popping = S.pop && S.pop.id === m.id && S.pop.emoji === r.emoji && Date.now() - S.pop.at < 900;
     const b = h('button', {
-      class: 'react' + (mine ? ' mine' : '') + (popping ? ' pop' : ''), 'aria-label': r.users.map((u) => user(u).name).join(', ') + ' reacted with ' + emojiName(r.emoji),
+      class: 'react' + (mine ? ' mine' : '') + (popping ? ' pop' : ''), 'aria-label': `${r.users.length} ${emojiName(r.emoji)}: ${r.users.map((u) => user(u).name).join(', ')}`,
       onclick: () => { hideReactTip(); react(m, r.emoji); },
       onmouseenter: (e) => showReactTip(e.currentTarget, r), onmouseleave: hideReactTip,
     }, h('span', { class: 'e' }, emojiNode(r.emoji)), h('span', { class: 'n' }, r.users.length));
@@ -1536,7 +1538,8 @@ function menu(items, x, y, flipY) {
   // Grow from the side the menu was opened from: pushed left by the screen edge, it opens from its right; placed above, from its bottom.
   m.style.transformOrigin = `${left < x - 1 ? 'right' : 'left'} ${top < y - 1 ? 'bottom' : 'top'}`;
 }
-function modal(title, body, buttons = [['Close']]) {
+// opts.onDismiss runs when the dialog closes without one of its buttons (Escape, the X, a click outside, the phone's back button).
+function modal(title, body, buttons = [['Close']], opts = {}) {
   const ov = $('#overlay');
   const foot = h('div', { class: 'modal-foot' });
   buttons.forEach(([label, fn, kind], i) => {
@@ -1546,7 +1549,7 @@ function modal(title, body, buttons = [['Close']]) {
         if (!fn) return closeModal();
         const btn = e.currentTarget, m = btn.closest('.modal'); btn.disabled = true;
         m.querySelector('.modal-error')?.remove();
-        try { const keep = await fn(); if (!keep) closeModal(); else btn.disabled = false; } catch (err) {
+        try { const keep = await fn(); if (!keep) { if (modal.owner === m) modal.dismiss = null; closeModal(); } else btn.disabled = false; } catch (err) {
           // The error sits in the dialog, next to what it is about, and focus goes to the field to fix.
           btn.disabled = false;
           m.querySelector('.modal-foot').before(h('p', { class: 'login-error modal-error', role: 'alert' }, err.message || "That didn't go through. Try again."));
@@ -1559,16 +1562,19 @@ function modal(title, body, buttons = [['Close']]) {
   const m = h('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
     h('div', { class: 'modal-head' }, h('h2', {}, title), h('button', { class: 'icon-btn', onclick: closeModal, title: 'Close' }, svg(I.close, 18))),
     h('div', { class: 'modal-body' }, body), buttons.length ? foot : '');
+  modal.owner = m; modal.dismiss = opts.onDismiss || null;
   ov.replaceChildren(m); ov.hidden = false; pushOverlay();
   ov.onmousedown = (e) => { if (e.target === ov) closeModal(); };
-  setTimeout(() => $('input, textarea', m)?.focus());
+  // Focus the first field; a dialog with nothing to fill starts on its title, so screen readers read it first.
+  setTimeout(() => { const f = $('input, textarea', m), t = m.querySelector('.modal-head h2'); if (f) f.focus(); else if (t) { t.tabIndex = -1; t.focus(); } });
   return m;
 }
-function closeModal() { const was = !$('#overlay').hidden; $('#overlay').hidden = true; $('#overlay').replaceChildren(); try { modal.returnTo?.focus(); } catch {} if (was) popOverlay(); }
+function closeModal() { const was = !$('#overlay').hidden; $('#overlay').hidden = true; $('#overlay').replaceChildren(); try { modal.returnTo?.focus(); } catch {} if (was) popOverlay(); dismissed(); }
+function dismissed() { const d = modal.dismiss; modal.dismiss = null; modal.owner = null; if (d) try { d(); } catch {} }
 // Phone back button closes whatever is open on top (pop-up, sheet, emoji picker) instead of leaving the screen.
 function pushOverlay() { if (!history.state?.overlay) history.pushState({ overlay: 1 }, '', location.href); }
 function popOverlay() { if (!history.state?.overlay) return Promise.resolve(); return new Promise((ok) => { addEventListener('popstate', () => setTimeout(ok, 0), { once: true }); history.back(); setTimeout(ok, 400); }); }
-addEventListener('popstate', () => { if (!$('#overlay').hidden) { $('#overlay').hidden = true; $('#overlay').replaceChildren(); } $$('.sheet-wrap').forEach((x) => x.remove()); $$('.menu, .emoji-pop').forEach((x) => x.remove()); $$('.msg.menu-open').forEach((x) => x.classList.remove('menu-open')); });
+addEventListener('popstate', () => { if (!$('#overlay').hidden) { $('#overlay').hidden = true; $('#overlay').replaceChildren(); dismissed(); } $$('.sheet-wrap').forEach((x) => x.remove()); $$('.menu, .emoji-pop').forEach((x) => x.remove()); $$('.msg.menu-open').forEach((x) => x.classList.remove('menu-open')); });
 // Keep Tab inside an open dialog.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab' || $('#overlay').hidden) return;
@@ -2035,7 +2041,7 @@ function peopleTable(counts) {
 }
 function personRow(p) {
   const locked = p.role === 'owner' || p.id === S.me.id;
-  const roleSel = h('select', { class: 'role-sel', disabled: locked || p.status === 'deactivated' || (p.role === 'admin' && S.me.role !== 'owner'), onchange: (e) => setPerson(p, { role: e.target.value }) },
+  const roleSel = h('select', { class: 'role-sel', 'aria-label': `Access for ${p.name}`, disabled: locked || p.status === 'deactivated' || (p.role === 'admin' && S.me.role !== 'owner'), onchange: (e) => setPerson(p, { role: e.target.value }) },
     ...['owner', 'admin', 'member', 'guest'].filter((r) => r !== 'owner' || p.role === 'owner').map((r) => {
       const o = h('option', { value: r }, ROLE_LABEL[r]);
       if (r === p.role) o.selected = true;
@@ -2249,7 +2255,7 @@ function openHelp() {
     ['Find something', 'Search takes filters: from:@ana in:#sales has:voice before:2026-12-01'],
     ['Send later', 'The clock next to Send schedules a message. Find it in Later.'],
     ['Quiet hours', 'In Status and notifications, pause alerts or set do not disturb hours.'],
-    ...(S.workspace.locked ? [['Locked conversations', 'Tick Lock it when you start a DM or private channel. Only the people in it can read it, not the server and not your admin. Search, transcripts and previews are limited there.']] : []),
+    ...(S.workspace.locked ? [['Locked conversations', 'Tick Lock it when you start a DM or private channel. Only the people in it can read it, not the server and not your admin. In there, search covers this device only, and voice transcripts and link previews are off.']] : []),
   ];
   modal('Help', h('div', { class: 'help' },
     h('dl', {}, ...tips.flatMap(([t, d]) => [h('dt', {}, t), h('dd', {}, d)])),

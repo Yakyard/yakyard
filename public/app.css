@@ -961,7 +961,7 @@ body.bubbles .msg.mine .text a { text-decoration: underline; text-underline-offs
 body.bubbles .msg.mine .text .mention { color: var(--ink); text-decoration: none; background: rgb(var(--ink-rgb) / .07); }
 body.bubbles .msg.mine .text .mention.me { color: var(--soft-red-ink); }
 body.bubbles .msg.mine .text code { background: rgb(var(--ink-rgb) / .06); color: var(--danger); border-color: transparent; }
-body.bubbles .msg.mine .text .edited { color: var(--ink-4); }
+body.bubbles .msg .text .edited { color: var(--ink-3); }
 body.bubbles .msg .text a { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgb(var(--accent-rgb) / .35); }
 /* quiet labels */
 .flag.saved, .flag.pinned { color: var(--ink-3); }
@@ -1689,3 +1689,15 @@ button { touch-action: manipulation; }
 .lk-foot { align-self: stretch; width: 100%; box-sizing: border-box; }
 .lk-foot .lk-banner { margin: 0; width: 100%; box-sizing: border-box; padding: 12px 14px; }
 .lk-status .linkish { font-style: normal; }
+.lk-links { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.lk-devs code.lk-code { font-size: var(--fs-md); letter-spacing: .04em; color: var(--ink); }
+.lk-key code { display: block; }
+@media (pointer: coarse), (max-width: 640px) {
+  .linkish { min-height: 44px; display: inline-flex; align-items: center; }
+  .lk-understand, .lk .check { min-height: 44px; align-items: center; }
+}
+.lk-banner { flex: none; }
+.lk-results { overscroll-behavior: contain; }
+.lk-dev .grow, .lk-reqs li .grow { min-width: 0; overflow-wrap: anywhere; }
+.lk-banner .lk-text, .lk-warnline { overflow-wrap: anywhere; }
+.lk-foot { padding: 8px 16px 16px; }

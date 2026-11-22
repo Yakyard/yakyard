@@ -87,6 +87,8 @@ test('recovery key: round trip, typo caught by checksum, look-alike letters acce
   const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
   const text = await encodeRecoveryKey(bytes);
   assert.equal(text.replace(/ /g, '').length, 53);
+  assert.match(text, /^([0-9A-Z]{4} ){12}[0-9A-Z]{5}$/, 'twelve groups of four, then one of five: never a lone last character');
+  assert.deepEqual(await decodeRecoveryKey(text.replace(/(.{4}) (.{4})/g, '$1$2 ')), bytes, 'old spacing still works');
   assert.deepEqual(await decodeRecoveryKey(text), bytes);
   assert.deepEqual(await decodeRecoveryKey(text.toLowerCase().replace(/ /g, '-')), bytes);
   const typo = text.slice(0, 5) + (text[5] === 'A' ? 'B' : 'A') + text.slice(6);

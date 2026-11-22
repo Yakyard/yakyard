@@ -110,7 +110,7 @@ Your workspace owner turns this on first (**Admin**, **Locked conversations**).
 
 ![Step 2: type lock to confirm](guide/locked-step2.png)
 
-**The first time: your recovery key.** You get a key of 53 letters and numbers. It opens your locked conversations on a new phone or computer. Copy it into a password manager or download it, then type its last 4 characters to show you saved it.
+**The first time: your recovery key.** You get a key of 53 letters and numbers. It opens your locked conversations on a new phone or computer. Copy it into a password manager or download it, then type its last group (5 characters) to show you saved it.
 
 ![The recovery key screen with Copy and Download buttons and a warning in red](guide/locked-recovery-key.png)
 
@@ -144,13 +144,17 @@ What works differently:
 
 ![Search here, with "Searching this device only" under the box](guide/locked-search-here.png)
 
+**Check it's really them.** For very private talks, open **What's different here?**, then **Check it's really them**. Each person has a code. Compare codes in person or on a call. If they match on both screens, your messages reach them and nobody else.
+
+**Someone started over.** If a person sets up a new recovery key, the banner says so, and your new messages don't reach them until you click **trust the new recovery key**. If that's a surprise, ask them first.
+
 **A new phone or computer.** Open a locked conversation and click **Set up this device to read it**. Type your recovery key, or click **Approve from another device instead**: your other device asks **Is this you?** and shows a code. If both codes match, approve it.
 
 ![Enter your recovery key on a new device](guide/locked-new-device.png)
 
 ![Is this you? The same 20-digit code shows on both devices](guide/locked-approve-device.png)
 
-**Signing out** removes the keys from that device. To read locked conversations there again, you need your recovery key or another device.
+**Signing out** makes that device forget how to open your locked conversations. To read them there again, use your recovery key or approve it from another device.
 
 **Your devices:** the **?** button, then **Your devices and recovery key**, lists the devices that can read your locked conversations. Remove any you no longer use.
 

@@ -50,7 +50,7 @@ What Yakyard does well, what's worth knowing before you move your team, and the 
 
 **No app store app.** Yakyard installs from the browser and sends push notifications, including on iPhone (after Add to Home Screen). It isn't in the App Store or Play Store, and it needs a connection to load messages.
 
-**Only locked conversations are end-to-end encrypted, and they have limits.** Normal channels and DMs are stored readable in your Cloudflare database, for anyone with access to that account. Locked conversations (DMs and private channels, after two approvals) are encrypted on each device instead. In those, search only covers what's on your device, notifications don't show the message, there are no voice transcripts, link previews or scheduled messages, and someone who loses every device and their recovery key loses those messages for good. The server still sees who talks to whom and when. Yakyard's code around the encryption library hasn't been audited yet. Details in [E2EE.md](E2EE.md).
+**Only locked conversations are end-to-end encrypted, and they have limits.** Normal channels and DMs are stored readable in your Cloudflare database, for anyone with access to that account. Locked conversations (DMs and private channels, after two approvals) are encrypted on each device instead. In those, search only covers what's on your device, notifications don't show the message, there are no voice transcripts, link previews or scheduled messages, and someone who loses every device and their recovery key loses those messages for good. The server still sees who talks to whom and when. Yakyard's code around the encryption library hasn't been audited yet. Details in [Locked conversations](E2EE.md).
 
 ## The fine print
 

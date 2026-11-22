@@ -92,7 +92,7 @@ People in your workspace can read the conversations they're in. Private channels
 
 ### Is it end-to-end encrypted?
 
-Yes, optionally, for DMs and private channels. Tick **Lock it** when you start one. Messages, edits, reactions, files and voice notes are then encrypted on each person's device. The server stores only scrambled data, so nobody can read them there: not the admin, not someone with your Cloudflare account, not us.
+Yes, optionally, for DMs and private channels. Tick **Lock it** when you start one. Messages, edits, reactions, files and voice notes are then encrypted on each person's device. The server stores only scrambled data. Your admin can't read it, someone with your Cloudflare account can't, and we can't.
 
 The owner turns locked conversations on first, and each lock takes two steps plus a second person: an admin approves a locked channel, and everyone in a locked DM accepts it.
 
@@ -103,9 +103,9 @@ The limits, in plain words:
 - Each person gets a recovery key. Lose every device and that key, and the locked messages are gone for good.
 - The server still sees who talks to whom and when, and file sizes.
 - A conversation can't be unlocked later. Public channels and older conversations stay as they are.
-- The encryption library (vodozemac, from Matrix) was audited; Yakyard's own code around it hasn't been yet.
+- The encryption library underneath (vodozemac, the one Element uses) was checked by outside experts. Yakyard's own code around it hasn't been yet.
 
-How it works, and what it protects against: [E2EE.md](E2EE.md).
+How it works, and what it protects against: [Locked conversations](E2EE.md).
 
 ### Does Yakyard collect anything about us?
 
@@ -220,7 +220,7 @@ Nobody outside the project has audited it. Here's what it does:
 - Outside pictures load through a proxy.
 - A security test suite runs on every change.
 
-- Locked conversations: optional end-to-end encryption for DMs and private channels ([E2EE.md](E2EE.md)).
+- Locked conversations: optional end-to-end encryption for DMs and private channels ([how it works](E2EE.md)).
 
 What it doesn't have: two-factor sign-in for passwords (Google sign-in can cover that), or a formal audit. The encryption library inside locked conversations (vodozemac) was audited; Yakyard's own code wasn't, yet.
 

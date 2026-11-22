@@ -1,6 +1,6 @@
 // Locked conversations (end-to-end encrypted). See docs/E2EE.md.
 // The server never sees a key or a word of a locked message: every bit of cryptography runs in the browser
-// (public/e2ee.js, vodozemac compiled to WebAssembly). This file only stores public device keys, relays
+// (public/locked.js and public/lock/, vodozemac compiled to WebAssembly). This file only stores public device keys, relays
 // sealed key packages between devices, keeps the encrypted key backup, and runs the two-step locking approvals.
 // Every handler is a few small queries, so each request stays far under the free plan's 10 ms of CPU.
 
@@ -132,8 +132,9 @@ export async function e2eeApi(c) {
       await x.broadcast(env, { type: 'lock_declined', by: user.id, kind: 'dm' }, [ch.lock_by]);
       return json({ ok: true, removed: true });
     }
-    const acc = new Set(JSON.parse(ch.lock_accepts || '[]')); acc.add(user.id);
-    await env.DB.prepare('UPDATE channels SET lock_accepts=? WHERE id=?').bind(JSON.stringify([...acc]), ch.id).run();
+    // Added in one statement, so two people accepting at the same moment can't overwrite each other.
+    const row = await env.DB.prepare("UPDATE channels SET lock_accepts=(SELECT json_group_array(v) FROM (SELECT value v FROM json_each(COALESCE(lock_accepts,'[]')) UNION SELECT ?)) WHERE id=? AND locked=2 RETURNING lock_accepts").bind(user.id, ch.id).first();
+    const acc = new Set(JSON.parse(row?.lock_accepts || '[]'));
     const mem = await x.channelMembers(env, ch.id);
     await systemNote(env, x, ch, user.id, `${user.name} accepted locking this conversation.`);
     if (mem.every((u) => acc.has(u))) {
@@ -238,7 +239,12 @@ export async function e2eeApi(c) {
   }
   // One one-time key per device, used up as it's handed out (or the device's fallback key when none are left).
   if (path === '/api/e2ee/claim' && method === 'POST') {
-    const want = (Array.isArray(body.devices) ? body.devices : []).slice(0, 100).filter((d) => d && devId(d.device_id));
+    let want = (Array.isArray(body.devices) ? body.devices : []).slice(0, 100).filter((d) => d && devId(d.device_id));
+    // Only keys of people I share a conversation with (and my own devices): nobody else can use up someone's one-time keys.
+    const others = [...new Set(want.map((d) => String(d.user_id || '')))].filter((u) => u && u !== user.id);
+    const ok = new Set([user.id]);
+    if (others.length) for (const r of (await q(`SELECT DISTINCT a.user_id FROM members a JOIN members b ON b.channel_id=a.channel_id WHERE b.user_id=? AND a.user_id IN (${others.map(() => '?').join(',')})`, user.id, ...others).all()).results) ok.add(r.user_id);
+    want = want.filter((d) => ok.has(String(d.user_id)));
     const out = [];
     for (const d of want) {
       const r = await q('DELETE FROM e2ee_otk WHERE rowid = (SELECT rowid FROM e2ee_otk WHERE user_id=? AND device_id=? LIMIT 1) RETURNING key_id, key', String(d.user_id), d.device_id).first();

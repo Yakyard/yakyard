@@ -45,10 +45,17 @@ const DIFFERENT = (kind) => [
   ['Slack import', "can't add old Slack messages here"],
   ['Calls', "work as usual, but they aren't part of the lock"],
   ['Lost devices', 'if you lose every device and your recovery key, these messages are gone for good. Nobody, not even the admin, can get them back'],
-  ['Unlocking', "can't be unlocked later. To stop, start a new normal conversation"],
+  ['Undo', "you can't unlock it later. To stop, start a new normal conversation"],
   kind === 'channel' ? ['Approval', 'an admin has to approve it before anyone can post'] : ['Approval', 'everyone in it has to accept before it locks'],
 ];
 const SEEN = 'The server still sees who is in it, who writes and when, and how big files are. It never sees what anyone says.';
+
+// Read a code out loud one character at a time, group by group: "A B C D, E F G H".
+const spell = (c) => c.trim().split(/\s+/).map((g) => g.split('').join(' ')).join(', ');
+const codeBox = (label, c, extra = {}) => h_('div', { class: 'lk-key', ...extra }, h_('code', { 'aria-hidden': 'true' }, c), h_('span', { class: 'sr' }, `${label}: ${spell(c)}`));
+const h_ = (...a) => X.h(...a);
+// "Ana", "Ana and Ben", "Ana, Ben and Cara"
+function names(ids) { const n = ids.map((u) => X.user(u).name); return n.length < 2 ? n.join('') : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1]; }
 
 // ---------------------------------------------------------------- start
 export function setup(helpers) {
@@ -117,13 +124,13 @@ function createKeyFlow(replace) {
     X.modal(replace ? 'Start over with a new recovery key' : 'Set up locked conversations', h('div', { class: 'lk' },
       h('p', {}, 'First, you get a recovery key. It lets you read your locked conversations on a new phone or computer.'),
       h('p', {}, 'You see it once. Have a password manager or a pen ready.')),
-    [['Not now', () => { resolve(false); }], ['Show my recovery key', async () => { idn = await L.createIdentity({ replace: !!replace }); showKey(idn, resolve); return true; }]]);
+    [['Not now', () => { resolve(false); }], ['Show my recovery key', async () => { idn = await L.createIdentity({ replace: !!replace }); showKey(idn, resolve); return true; }]], { onDismiss: () => resolve(false) });
   });
 }
 function showKey(idn, resolve) {
   const { h } = X;
-  const key = idn.recoveryKey, last4 = key.replace(/ /g, '').slice(-4);
-  const input = h('input', { class: 'input lk-last4', maxlength: 4, autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'lk-last4-hint', inputmode: 'text' });
+  const key = idn.recoveryKey, last = key.trim().split(/\s+/).pop();
+  const input = h('input', { class: 'input lk-last4', maxlength: 8, oninput: () => input.removeAttribute('aria-invalid'), autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'lk-last4-hint', inputmode: 'text' });
   const copy = h('button', { class: 'btn', type: 'button', onclick: () => navigator.clipboard?.writeText(key).then(() => { copy.textContent = 'Copied'; X.toast('Recovery key copied'); }, () => X.toast("Couldn't copy. Select the key and copy it yourself.")) }, 'Copy');
   const dl = h('button', { class: 'btn', type: 'button', onclick: () => {
     const text = `Yakyard recovery key for ${X.S.me.email} at ${location.host}\n\n${key}\n\nKeep this somewhere safe. It opens your locked conversations on a new device.\nAnyone with this key and your sign-in can read them.\n`;
@@ -131,16 +138,16 @@ function showKey(idn, resolve) {
   } }, 'Download');
   X.modal('Save your recovery key', h('div', { class: 'lk' },
     h('p', {}, 'This key opens your locked conversations on a new phone or computer. Save it in a password manager or write it down.'),
-    h('div', { class: 'lk-key', role: 'group', 'aria-label': 'Your recovery key' }, h('code', { tabindex: '0', 'aria-label': 'Recovery key: ' + key.split('').join(' ') }, key)),
+    codeBox('Your recovery key', key),
     h('div', { class: 'lk-keybtns' }, copy, dl),
     h('p', { class: 'lk-warn', role: 'note' }, h('b', {}, 'You only see this once. '), 'If you lose every device and this key, your locked messages are gone for good. Nobody can get them back, not even your admin.'),
-    h('label', { class: 'field' }, h('span', {}, 'To check you saved it, type its last 4 characters'), input, h('small', { id: 'lk-last4-hint' }, 'Letters or numbers, as shown at the end of the key.'))),
+    h('label', { class: 'field' }, h('span', {}, 'To check you saved it, type the last group of your key'), input, h('small', { id: 'lk-last4-hint' }, `${last.length} letters or numbers, from the very end of the key.`))),
   [['Cancel', () => { resolve(false); }], ['I saved it, continue', async () => {
-    if (input.value.trim().toUpperCase() !== last4) { input.setAttribute('aria-invalid', 'true'); throw new Error("That doesn't match the end of your key. Look at the key again."); }
+    if (input.value.replace(/\s/g, '').toUpperCase() !== last) { input.setAttribute('aria-invalid', 'true'); throw new Error("That doesn't match the last group of your key. Look at the key again."); }
     await idn.commit(); st = await L.status();
     X.toast('Locked conversations are set up on this device');
     resolve(true);
-  }]]);
+  }]], { onDismiss: () => resolve(false) });
 }
 function deviceFlow() {
   const { h } = X;
@@ -151,10 +158,10 @@ function deviceFlow() {
       h('label', { class: 'field' }, h('span', {}, 'Recovery key'), input),
       h('p', {}, h('button', { class: 'linkish', type: 'button', onclick: () => approveFlow(resolve) }, 'Approve from another device instead')),
       h('p', {}, h('button', { class: 'linkish', type: 'button', onclick: () => startOverFlow(resolve) }, 'I lost my recovery key and my other devices'))),
-    [['Not now', () => resolve(false)], ['Open', async () => {
+    [['Not now', () => resolve(false)], ['Use recovery key', async () => {
       try { const n = await L.restore(input.value); st = await L.status(); X.toast(n ? 'Done. Your locked conversations open on this device.' : 'Done. This device is ready.'); forgetPlain(); resolve(true); }
       catch (e) { throw new Error(e.message === 'wrong_key' ? "That's not your recovery key. Check it and try again." : e.message === 'bad_key' ? "That doesn't look like a recovery key. It has 53 letters and numbers." : "That didn't go through. Try again."); }
-    }]]);
+    }]], { onDismiss: () => resolve(false) });
   });
 }
 async function approveFlow(resolve) {
@@ -163,9 +170,9 @@ async function approveFlow(resolve) {
   X.modal('Approve from another device', h('div', { class: 'lk' },
     h('p', {}, 'Open Yakyard on a phone or computer where your locked conversations already work. It asks you to approve this device.'),
     h('p', {}, 'Check that it shows this code:'),
-    h('div', { class: 'lk-key' }, h('code', { 'aria-label': 'Code: ' + code }, code)),
+    codeBox('Code', code),
     h('p', { class: 'lk-muted', role: 'status', id: 'lk-wait' }, 'Waiting for your other device…')),
-  [['Cancel', () => resolve(false)]]);
+  [['Cancel', () => resolve(false)]], { onDismiss: () => resolve(false) });
   const t = setInterval(async () => {
     await L.processInbox().catch(() => {});
     if (L.hasRecovery()) { clearInterval(t); st = await L.status(); forgetPlain(); X.closeModal(); X.toast('Approved. Your locked conversations open on this device.'); resolve(true); }
@@ -177,9 +184,9 @@ function startOverFlow(resolve) {
   const box = h('input', { type: 'checkbox' });
   X.modal('Start over?', h('div', { class: 'lk' },
     h('p', {}, 'You get a new recovery key. Locked messages from before stay unreadable for you, on every device. Nobody can bring them back.'),
-    h('p', {}, 'People you talk to see a notice that your safety code changed.'),
+    h('p', {}, 'People in your locked conversations see a notice. Your new messages reach them once they trust your new recovery key.'),
     h('label', { class: 'check' }, box, h('span', {}, 'I understand my old locked messages are gone'))),
-  [['Cancel', () => resolve(false)], ['Start over', async () => { if (!box.checked) throw new Error('Tick the box first.'); resolve(await createKeyFlow(true)); return true; }, 'danger']]);
+  [['Cancel', () => resolve(false)], ['Start over', async () => { if (!box.checked) throw new Error('Tick the box first.'); resolve(await createKeyFlow(true)); return true; }, 'danger']], { onDismiss: () => resolve(false) });
 }
 // Another of my devices asks to be approved (event from the server).
 export async function onVerifyRequest(deviceId) {
@@ -190,7 +197,7 @@ export async function onVerifyRequest(deviceId) {
   const { h } = X;
   X.modal('Is this you?', h('div', { class: 'lk' },
     h('p', {}, 'A new device wants to open your locked conversations. Only approve it if the code below matches the one on that device.'),
-    h('div', { class: 'lk-key' }, h('code', { 'aria-label': 'Code: ' + code }, code))),
+    codeBox('Code', code)),
   [["It's not me", async () => { await L.removeDevice(deviceId); X.toast('Device removed. Change your password to be safe.'); }, 'danger'], ['Codes match, approve', async () => { await L.approveDevice(deviceId, code); X.toast('Approved'); }]]);
 }
 
@@ -211,7 +218,7 @@ export function confirmLock({ kind, name, accept }) {
     [['Cancel', () => resolve(false)], ['Continue', async () => {
       if (!box.checked) { box.focus(); throw new Error('Tick "I understand" first.'); }
       typeToConfirm({ kind, name, accept }, resolve); return true;
-    }]]);
+    }]], { onDismiss: () => resolve(false) });
     readFromTop(m);
   });
 }
@@ -222,14 +229,14 @@ function readFromTop(m) {
 function typeToConfirm({ kind, name, accept }, resolve) {
   const { h } = X;
   const word = kind === 'channel' && name ? name : 'lock';
-  const input = h('input', { class: 'input', autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'lk-type-hint' });
-  X.modal('Confirm', h('div', { class: 'lk' },
-    h('p', {}, accept ? 'Locking happens once everyone here accepts. It can\'t be undone.' : kind === 'channel' ? "An admin approves it next. Then it's locked for good." : "The others accept it next. Then it's locked for good."),
+  const input = h('input', { class: 'input', autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'lk-type-hint', oninput: () => input.removeAttribute('aria-invalid') });
+  X.modal(accept ? 'Confirm: accept and lock' : kind === 'channel' ? 'Confirm: lock this channel' : 'Confirm: lock this conversation', h('div', { class: 'lk' },
+    h('p', {}, accept ? "It locks once everyone here accepts. Then it's locked for good." : kind === 'channel' ? "An admin approves it next. Then it's locked for good." : "The others accept it next. Then it's locked for good."),
     h('label', { class: 'field' }, h('span', {}, `Type ${word} to confirm`), input, h('small', { id: 'lk-type-hint' }, word === 'lock' ? 'Four letters: l, o, c, k.' : 'The channel name, exactly.'))),
-  [['Cancel', () => resolve(false)], [accept ? 'Accept and lock' : kind === 'channel' ? 'Ask to lock it' : 'Ask to lock it', async () => {
+  [['Cancel', () => resolve(false)], [accept ? 'Accept and lock' : 'Ask to lock it', async () => {
     if (input.value.trim().toLowerCase() !== word.toLowerCase()) { input.setAttribute('aria-invalid', 'true'); throw new Error(`Type ${word} exactly.`); }
     resolve(true);
-  }]]);
+  }]], { onDismiss: () => resolve(false) });
 }
 // Owner: turning the workspace setting on takes the same two steps.
 export function confirmAllow() {
@@ -243,11 +250,11 @@ export function confirmAllow() {
       h('label', { class: 'check' }, box, h('span', {}, 'I understand what changes'))),
     [['Cancel', () => resolve(false)], ['Continue', async () => {
       if (!box.checked) throw new Error('Tick "I understand" first.');
-      const input = h('input', { class: 'input', autocomplete: 'off' });
-      X.modal('Confirm', h('div', { class: 'lk' }, h('label', { class: 'field' }, h('span', {}, 'Type lock to turn it on'), input)),
-        [['Cancel', () => resolve(false)], ['Turn on', async () => { if (input.value.trim().toLowerCase() !== 'lock') throw new Error('Type lock exactly.'); resolve(true); }]]);
+      const input = h('input', { class: 'input', autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'lk-allow-hint' });
+      X.modal('Confirm: turn on locked conversations', h('div', { class: 'lk' }, h('p', {}, 'You can turn it off later. Conversations that are already locked stay locked.'), h('label', { class: 'field' }, h('span', {}, 'Type lock to turn it on'), input, h('small', { id: 'lk-allow-hint' }, 'Four letters: l, o, c, k.'))),
+        [['Cancel', () => resolve(false)], ['Turn on', async () => { if (input.value.trim().toLowerCase() !== 'lock') throw new Error('Type lock exactly.'); resolve(true); }]], { onDismiss: () => resolve(false) });
       return true;
-    }]]);
+    }]], { onDismiss: () => resolve(false) });
     readFromTop(m);
   });
 }
@@ -258,10 +265,27 @@ export function explain(ch) {
   X.modal("What's different here", h('div', { class: 'lk' },
     h('p', {}, 'This conversation is locked. Messages are scrambled on each device. Only the people in it can read them.'),
     h('div', { class: 'lk-cols' },
-      h('section', {}, h('h3', {}, 'Works'), h('ul', { class: 'lk-list' }, ...WORKS.map(item(true)))),
-      h('section', {}, h('h3', {}, "Doesn't work, or works differently"), h('ul', { class: 'lk-list' }, ...DIFFERENT(kind).slice(0, 9).map(item(false))))),
+      h('section', {}, h('h3', {}, 'Works'), h('ul', { class: 'lk-list', 'aria-label': 'Works in locked conversations' }, ...WORKS.map(item(true)))),
+      h('section', {}, h('h3', {}, "Doesn't work, or works differently"), h('ul', { class: 'lk-list', 'aria-label': "Doesn't work in locked conversations" }, ...DIFFERENT(kind).slice(0, 9).map(item(false))))),
     h('p', { class: 'lk-muted' }, SEEN),
-    h('p', {}, h('button', { class: 'linkish', type: 'button', onclick: () => devicesPanel() }, 'Your devices and recovery key'))),
+    h('p', { class: 'lk-links' }, h('button', { class: 'linkish', type: 'button', onclick: () => compareCodes(ch) }, "Check it's really them"), h('button', { class: 'linkish', type: 'button', onclick: () => devicesPanel() }, 'Your devices and recovery key'))),
+  [['Close']]);
+}
+// Codes to compare in person or on a call. Matching codes mean nobody swapped in a key along the way.
+export async function compareCodes(ch) {
+  const { h } = X;
+  await ready;
+  const me = X.S.me.id;
+  const ids = [me, ...((X.S.members.get(ch.id) || ch.members || []).filter((u) => u !== me))];
+  const rows = await Promise.all(ids.map(async (u) => {
+    const c = await L.pinnedSafetyCode(u).catch(() => null);
+    return h('li', { class: 'lk-dev' }, h('span', { class: 'grow' }, h('b', {}, u === me ? 'Your code' : X.user(u).name), h('br'),
+      c ? h('span', {}, h('code', { class: 'lk-code', 'aria-hidden': 'true' }, c), h('span', { class: 'sr' }, spell(c))) : h('small', {}, "Hasn't set up locked conversations yet")));
+  }));
+  X.modal("Check it's really them", h('div', { class: 'lk' },
+    h('p', {}, 'Each person has a code. Compare codes with them in person or on a call. If they match on both screens, your messages reach them and nobody else.'),
+    h('p', { class: 'lk-muted' }, 'Most teams never need this. It helps for very private talks.'),
+    h('ul', { class: 'lk-devs' }, ...rows)),
   [['Close']]);
 }
 
@@ -275,7 +299,7 @@ export function banner(ch) {
     const w = L.warnings();
     const members = X.S.members.get(ch.id) || [];
     const changed = [...w.keys()].filter((u) => members.includes(u));
-    if (changed.length) { warn.hidden = false; warn.replaceChildren(`${changed.map((u) => X.user(u).name).join(', ')} set up locked conversations again, so their safety code changed. `, h('button', { class: 'linkish', onclick: async () => { for (const u of changed) await L.acceptNewSafetyCode(u); warn.hidden = true; X.toast('OK. New messages reach them again.'); } }, 'Trust the new code')); }
+    if (changed.length) { warn.hidden = false; warn.replaceChildren(`${names(changed)} started over with a new recovery key, so your new messages don't reach them yet. If you're sure it was them, `, h('button', { class: 'linkish', onclick: async () => { for (const u of changed) await L.acceptNewSafetyCode(u); warn.hidden = true; X.toast('Done. Your new messages reach them again.'); } }, 'trust the new recovery key'), '.'); }
   });
   return h('div', { class: 'lk-banner', role: 'note' },
     h('span', { class: 'lk-badge', 'aria-hidden': 'true' }, svg(I.lockSolid || I.lock, 14)),
@@ -384,8 +408,8 @@ function mentionsOf(text) { return { mentions: [...new Set([...text.matchAll(/<@
 export async function send(cid, { text, files, threadId, alsoChannel }) {
   await readyOrSetup();
   const r = await L.encryptFor(cid, { t: text, f: files.map((f) => f.secret) });
-  if (r.changed?.length) X.toast(`${r.changed.map((u) => X.user(u).name).join(', ')} changed their safety code. Open the conversation banner to trust it.`);
-  else if (r.missing?.length) X.toast(`${r.missing.map((u) => X.user(u).name).join(', ')} hasn't set up locked conversations yet. They can read it after they do.`);
+  if (r.changed?.length) X.toast(`${names(r.changed)} started over with a new recovery key, so this message didn't reach them. See the banner at the top.`);
+  else if (r.missing?.length) X.toast(`${names(r.missing)} ${r.missing.length > 1 ? "haven't" : "hasn't"} set up locked conversations yet. They can read this once they do.`);
   return X.api(`/api/channels/${cid}/messages`, { method: 'POST', body: { enc: r.enc, files: files.map((f) => f.server), thread_id: threadId || null, also_channel: !!alsoChannel, ...mentionsOf(text) } });
 }
 export async function edit(m, text) {
@@ -420,7 +444,7 @@ export async function upload(file, extra = {}) {
 export async function localSearch(ch) {
   const { h } = X;
   await ready;
-  const q = h('input', { class: 'input', type: 'search', placeholder: 'Search this conversation…', 'aria-describedby': 'lk-dev-only' });
+  const q = h('input', { class: 'input', type: 'search', autocomplete: 'off', placeholder: 'Search this conversation…', 'aria-label': 'Search this conversation', 'aria-describedby': 'lk-dev-only' });
   const list = h('div', { class: 'lk-results', role: 'list' });
   const run = async () => {
     const v = q.value.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
@@ -441,7 +465,7 @@ export async function devicesPanel() {
   const s = await L.status();
   const mine = L.myDeviceId();
   const rows = s.devices.map((d) => h('li', { class: 'lk-dev' }, h('span', { class: 'grow' }, h('b', {}, d.label || 'Device'), d.device_id === mine ? ' (this one)' : '', h('br'), h('small', {}, d.sig ? 'Approved' : 'Waiting for approval', d.last_seen ? ' · last used ' + new Date(d.last_seen).toLocaleDateString() : '')),
-    d.device_id !== mine ? h('button', { class: 'btn sm', onclick: async () => { await L.removeDevice(d.device_id); X.toast('Removed'); devicesPanel(); } }, 'Remove') : ''));
+    d.device_id !== mine ? h('button', { class: 'btn sm', 'aria-label': `Remove ${d.label || 'device'}`, onclick: async () => { if (!confirm(`Remove ${d.label || 'this device'}? It can't read your locked conversations anymore. To use it again, you need your recovery key.`)) return; await L.removeDevice(d.device_id); X.toast('Device removed'); devicesPanel(); } }, 'Remove') : ''));
   X.modal('Your devices', h('div', { class: 'lk' },
     s.identity ? h('ul', { class: 'lk-devs' }, ...rows) : h('p', {}, "You haven't set up locked conversations yet."),
     s.ready ? '' : h('p', {}, h('button', { class: 'btn', onclick: () => ensureReady() }, s.identity ? 'Open locked conversations on this device' : 'Set up locked conversations')),
@@ -469,7 +493,7 @@ export function adminCard(A) {
     if (!reqs.length) return;
     list.before(h('h4', {}, 'Waiting for approval'));
     list.replaceChildren(...reqs.map((r) => h('li', {}, h('span', { class: 'grow' }, h('b', {}, '#' + r.name), ` · asked by ${X.user(r.lock_by).name} · ${r.members} ${r.members === 1 ? 'person' : 'people'}`),
-      h('button', { class: 'btn sm', onclick: async () => { await X.api(`/api/channels/${r.id}/lock/decline`, { method: 'POST', body: {} }); X.toast('Declined. The channel was removed.'); X.reopenAdmin(); } }, 'Decline'),
+      h('button', { class: 'btn sm', onclick: async () => { if (!confirm(`Decline locking #${r.name}? The channel is removed, and ${X.user(r.lock_by).name} is told.`)) return; await X.api(`/api/channels/${r.id}/lock/decline`, { method: 'POST', body: {} }); X.toast('Declined. The channel was removed.'); X.reopenAdmin(); } }, 'Decline'),
       h('button', { class: 'btn sm primary', onclick: async () => {
         if (!(await confirmLock({ kind: 'channel', name: r.name }))) return;
         await X.api(`/api/channels/${r.id}/lock/approve`, { method: 'POST', body: {} }); X.toast(`#${r.name} is locked`); X.reopenAdmin();

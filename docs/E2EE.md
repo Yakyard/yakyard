@@ -4,9 +4,18 @@
 
 # Locked conversations: how they work
 
-A locked conversation is a DM or private channel with end-to-end encryption. Messages, edits, reactions, files and voice notes are encrypted on the sender's device and decrypted on the readers' devices. The server stores and relays ciphertext only.
+A locked conversation is a DM or private channel that only the people in it can read. Messages, edits, reactions, files and voice notes are scrambled on the sender's device and unscrambled on the readers' devices. The server only ever stores and passes on the scrambled version.
 
-> **Not independently audited yet.** The encryption library underneath (vodozemac) was audited in 2022. Yakyard's own code around it (key distribution, recovery, device approval, `packages/yakyard-lock`) has not had an outside review. We applied for one ([AUDIT-APPLICATION.md](AUDIT-APPLICATION.md)). Until then, treat locked conversations as a strong privacy layer, not a promise for life-or-death secrets.
+**In plain words, before you lock:**
+- Your admin, the server and anyone with your Cloudflare account can't read a locked conversation. Neither can we.
+- They can still see who is in it, who writes and when, and how big files are.
+- Search only finds messages already on your device. Phone notifications say "New message in a locked conversation", nothing more. Voice notes have no transcript. Link previews and scheduled messages are off. The Slack import can't add to it.
+- You get a recovery key. If you lose every device **and** that key, your locked messages are gone for good. Nobody can get them back, not even your admin.
+- A locked conversation stays locked. To stop, start a new normal one.
+
+> **Not checked by outside experts yet.** The encryption library underneath (vodozemac) was audited in 2022. Yakyard's own code around it (how devices share access, the recovery key, device approval, `packages/yakyard-lock`) hasn't had an outside review. We applied for one ([AUDIT-APPLICATION.md](AUDIT-APPLICATION.md)). Until then, use locked conversations for private team talk, not for secrets that could put someone in danger.
+
+The rest of this page is technical, for people who want to check how it works.
 
 - [What the person sees](#what-the-person-sees)
 - [Turning it on](#turning-it-on)
@@ -21,11 +30,11 @@ A locked conversation is a DM or private channel with end-to-end encryption. Mes
 
 ## What the person sees
 
-- **Lock it** when starting a DM or a private channel. Only there: public channels can't be locked, and an existing conversation can't be locked after the fact (its old messages are already on the server).
+- **Lock it** when you start a DM or a private channel. Only then: public channels can't be locked, and you can't lock a conversation that already exists (its old messages are already on the server).
 - **Two approvals, never one click.** Step 1 lists what works and what doesn't, side by side, with an "I understand" box. Step 2 asks you to type the channel name (or `lock` for a DM). Then a second person approves: an admin or the owner for a channel (not the person who asked, unless they're the only admin), and everyone in it for a DM. Until then the conversation shows "Waiting…" and nobody can post.
 - **Recorded.** Each request, acceptance and approval is a line in the conversation, with who and when.
 - **Can't be unlocked.** To stop, start a new normal conversation.
-- **Recovery key.** The first time, you get a 53-character recovery key. You copy or download it, then type its last 4 characters to show you saved it. It opens your locked conversations on a new device. Lose every device and the key, and those messages are gone for good: nobody can get them back, the admin included. The app says this on the key screen and in the "What's different here?" list.
+- **Recovery key.** The first time, you get a recovery key of 53 letters and numbers. You copy or download it, then type its last group (5 characters) to show you saved it. It opens your locked conversations on a new device. Lose every device and the key, and those messages are gone for good: nobody can get them back, the admin included. The app says this on the key screen and in the "What's different here?" list.
 - **New device.** Enter the recovery key, or approve the new device from one you already use, after checking that both show the same 20-digit code.
 - **In the conversation:** a "Locked" tag in the header, a lock banner with "What's different here?" and "Search here", and notes right where a limit applies (search, voice notes, link previews, Slack import).
 
@@ -58,7 +67,7 @@ All of it is in `packages/yakyard-lock` (Apache-2.0, see its [README](../package
 
 **Devices.** Each browser or installed app is a device with its own vodozemac Olm account (Curve25519 identity key, Ed25519 signing key, 50 one-time keys, one fallback key). Private keys never leave the device. On the device they sit in IndexedDB, sealed with an AES-256-GCM key that the browser generated as *non-extractable*: page code can use it but can't read it.
 
-**People.** The recovery key is 32 random bytes plus a checksum byte. HKDF-SHA256 turns it into (1) a per-person Ed25519 signing key and (2) an AES-256-GCM backup key. The signing key signs each of the person's devices (`yy-dev:v1:user:device:curve:ed`). Other people only send keys to devices with a valid signature from that person's signing key, which their device pins the first time it sees it. A changed signing key stops key sharing with that person until someone clicks "Trust the new code".
+**People.** The recovery key is 32 random bytes plus a checksum byte. HKDF-SHA256 turns it into (1) a per-person Ed25519 signing key and (2) an AES-256-GCM backup key. The signing key signs each of the person's devices (`yy-dev:v1:user:device:curve:ed`). Other people only send keys to devices with a valid signature from that person's signing key, which their device pins the first time it sees it. A changed signing key stops key sharing with that person until someone clicks "trust the new recovery key" in the banner.
 
 **Messages.** Each sending device has one Megolm session per conversation. Before it sends, it checks who is in the conversation (from the server) and which of their devices are signed. New devices get the session key, sealed with Olm, from the current message on. If any device that had the session is gone (someone left, was removed, or removed a device), it starts a new session first, so the removed person never gets the new key. Sessions also rotate after 100 messages and after 7 days. The encrypted payload includes the conversation id; the reader checks it, checks that the session belongs to the person the server says sent the message, and refuses a ciphertext that shows up under a second message id (replay).
 
@@ -80,7 +89,7 @@ All of it is in `packages/yakyard-lock` (Apache-2.0, see its [README](../package
 |---|---|
 | Read stored messages, files or backups | Ciphertext only. Keys are on devices; the backup needs the recovery key. |
 | Add a fake device to someone's account | Not signed by their signing key, so nobody sends it keys (tested). |
-| Swap someone's signing key | Their contacts' apps notice the change and stop sending them keys until a person clicks "Trust the new code". The very first key you see for someone is trusted as is (trust on first use): compare safety codes in person for high-stakes conversations. |
+| Swap someone's signing key | Their contacts' apps notice the change and stop sending them keys until a person clicks "trust the new recovery key". The very first key you see for someone is trusted as is (trust on first use): for high-stakes conversations, compare the 20-digit codes under **What's different here?**, **Check it's really them**, in person or on a call. Each device computes them from the key it pinned, not from what the server sends now. |
 | Add a person to a locked channel | Membership comes from the server, like in Matrix. The added person gets keys from then on, and shows in the member list. Watch the member list. |
 | Replay or move a message to another conversation or sender | Refused: conversation id is inside the ciphertext, sessions are tied to a sender, and replays are caught by message index. |
 | Drop or delay messages | Possible. End-to-end encryption doesn't stop a server from not delivering. |

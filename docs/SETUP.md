@@ -165,7 +165,7 @@ Before you turn it on, know this:
 - People who lose every device **and** their recovery key lose their locked messages for good. You can't recover them for anyone.
 - Search, phone notification previews, voice transcripts, link previews, scheduled messages and the Slack import don't work inside locked conversations.
 - Locking can't be undone. Turning the setting off later only stops new locked conversations.
-- Yakyard's encryption code hasn't had an independent audit yet. Details and the threat model are in [E2EE.md](E2EE.md).
+- Yakyard's encryption code hasn't had an independent audit yet. Details and the threat model are in [Locked conversations](E2EE.md).
 
 After each update, you can check that your server sends the published encryption code: `npm run lock:verify -- https://your-yakyard-address` (see [E2EE-HASHES.md](E2EE-HASHES.md)).
 

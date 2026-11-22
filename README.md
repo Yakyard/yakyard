@@ -65,7 +65,7 @@ It started as an internal tool. It's built for and used every day by a real team
 
 <p align="center"><img src="docs/screens/desktop-dark.png" alt="The dark theme: a link, a mention and a voice note in a channel" width="760"></p>
 
-**Lock what's private.** Tick **Lock it** when you start a DM or private channel. Messages, files and voice notes are then encrypted on each person's device, with vodozemac, the library behind Element's encryption. The server only stores scrambled data: not the admin, not someone with your Cloudflare account, not us. Locking takes two approvals, and the app tells you plainly what works differently in there (search stays on your device, no transcripts, and a lost recovery key means lost messages). [How it works](docs/E2EE.md).
+**Lock what's private.** Tick **Lock it** when you start a DM or private channel. Messages, files and voice notes are then encrypted on each person's device, with vodozemac, the library behind Element's encryption. The server only stores scrambled data. Your admin can't read it, and neither can someone with your Cloudflare account, or us. Locking takes two approvals, and the app tells you plainly what works differently in there (search stays on your device, no transcripts, and if you lose every device and your recovery key, those messages are gone). [How it works](docs/E2EE.md).
 
 <p align="center"><img src="docs/screens/locked-dm.png" alt="A locked DM: a Locked tag in the header, a banner that says only the people here can read it, a photo and a voice note with no transcript" width="760"></p>
 

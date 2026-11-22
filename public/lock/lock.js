@@ -29,14 +29,15 @@ const OTK_TARGET = 50, OTK_LOW = 20;
 const owners = (rec) => rec.owners || (rec.user ? [{ user: rec.user, curve: rec.curve }] : []);
 
 // ---------------------------------------------------------------- recovery key
-// 32 random bytes plus one checksum byte, written in Crockford base32 (no I, L, O, U), in groups of four.
+// 32 random bytes plus one checksum byte, written in Crockford base32 (no I, L, O, U): twelve groups of four, then one of five,
+// so the key never ends on a lone character (the app asks for the last group to check it was saved).
 const ALPHA = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 export async function encodeRecoveryKey(bytes) {
   const all = new Uint8Array(33); all.set(bytes); all[32] = (await sha256(bytes))[0];
   let bits = 0, val = 0, out = '';
   for (const x of all) { val = (val << 8) | x; bits += 8; while (bits >= 5) { out += ALPHA[(val >>> (bits - 5)) & 31]; bits -= 5; } }
   if (bits) out += ALPHA[(val << (5 - bits)) & 31];
-  return out.match(/.{1,4}/g).join(' ');
+  return (out.slice(0, 48).match(/.{4}/g).join(' ') + ' ' + out.slice(48)).trim();
 }
 export async function decodeRecoveryKey(text) {
   const s = String(text || '').toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
@@ -431,6 +432,14 @@ export function createLock({ api, store, wasm, me, label = '' }) {
     warnings: () => new Map(warnings),
     hasRecovery: () => !!master,
     myDeviceId: () => device?.id || null,
+    // The code to compare in person: from the signing key this device pinned (for me, the one my recovery key makes),
+    // never straight from the server, so a swapped key shows up as a different code.
+    pinnedSafetyCode: async (userId) => {
+      if (userId === me && master) return safetyCode(master.masterPub);
+      let pins = (await store.get('pins')) || {};
+      if (!pins[userId]) { await keysFor([userId], true); pins = (await store.get('pins')) || {}; }
+      return pins[userId] ? safetyCode(pins[userId]) : null;
+    },
     safetyCodeFor: async (userId) => { const k = (await keysFor([userId]))[userId]; return k.master ? safetyCode(k.master) : null; },
     forgetCaches: () => { keyCache.clear(); },
   };
