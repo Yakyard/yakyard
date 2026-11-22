@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Marked } from "marked";
-import { icon } from "./src/icons.mjs";
+import { icon, yakMark } from "./src/icons.mjs";
 import { homePage, pressPage, docsHubPage, notFoundPage } from "./src/pages.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -70,8 +70,9 @@ const NAV = [
 
 let CSS_HREF = "/site.css";
 let JS_HREF = "/site.js";
+let MOTION_HREF = "/motion.js";
 
-export function layout({ title, description, urlPath, og = "home", body, current = "", jsonld = null }) {
+export function layout({ title, description, urlPath, og = "home", body, current = "", jsonld = null, home = false }) {
   const canonical = SITE_URL + (urlPath === "/" ? "/" : urlPath);
   const fullTitle = urlPath === "/" ? title : `${title} · Yakyard`;
   const ogUrl = `${SITE_URL}/og/${og}.png`;
@@ -107,18 +108,18 @@ export function layout({ title, description, urlPath, og = "home", body, current
 <link rel="preload" href="/fonts/WixMadeforText-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${CSS_HREF}">${jsonld ? `\n<script type="application/ld+json">${JSON.stringify({ ...jsonld, url: SITE_URL + "/" })}</script>` : ""}
 <script>document.documentElement.classList.add("js")</script>
-<script src="${JS_HREF}" defer></script>
+<script src="${JS_HREF}" defer${home ? ` data-motion="${MOTION_HREF}"` : ""}></script>
 </head>
-<body>
+<body${home ? ' class="home"' : ""}>
 <a class="skip" href="#main">Skip to content</a>
 <header class="nav" id="top">
   <div class="wrap">
-    <a class="nav__logo" href="/" aria-label="Yakyard home">
-      <img class="on-light" src="/brand/yakyard-lockup.svg" alt="" width="191" height="34">
-      <span class="on-dark lockup-dark"><img src="/brand/yakyard-app-icon.svg" alt="" width="34" height="34"><img src="/brand/yakyard-wordmark-reverse.svg" alt="" width="119" height="26"></span>
+    <a class="nav__logo" href="/" aria-label="Yakyard home"${home ? " data-yak-logo" : ""}>
+      <span class="lockup">${yakMark({ tile: true, cls: "yak__svg lockup__icon" })}<img class="on-light" src="/brand/yakyard-wordmark.svg" alt="" width="119" height="26"><img class="on-dark" src="/brand/yakyard-wordmark-reverse.svg" alt="" width="119" height="26"></span>
     </a>
     <nav aria-label="Main"><ul>${nav}</ul></nav>
     <div class="nav__end">
+      ${home ? `<button class="snd" type="button" aria-pressed="true" title="Yak sound">${icon("speaker-high", "ic ic-on")}${icon("speaker-slash", "ic ic-off")}<span class="sr">Yak sound</span></button>` : ""}
       <a class="nav__gh" href="${REPO}">${icon("github-logo")}<span>GitHub</span></a>
       <a class="btn btn--primary" href="${DEPLOY_URL}">Deploy to Cloudflare</a>
     </div>
@@ -166,8 +167,8 @@ const DOCS = {
     description: "Straight answers about Yakyard: what it costs, who can read your messages, phone apps, Slack history, the license and support.",
     lede: "What it costs, who can read your messages, and what happens when something breaks." },
   "PROS-AND-CONS.md": { out: "/pros-and-cons", og: "pros-and-cons", title: "Pros and cons", nav: "/why",
-    description: "The honest list. What Yakyard does well, and the cons to read before you move your team.",
-    lede: "What Yakyard does well, and what it doesn't." },
+    description: "The honest list. What Yakyard does well, what's worth knowing, and the fine print to read before you move your team.",
+    lede: "What Yakyard does well, and what's worth knowing." },
   "SETUP.md": { out: "/docs/setup", og: "setup", title: "Set up Yakyard, free", nav: "/docs", toc: true, crumb: true,
     description: "Put Yakyard on your own Cloudflare account in about 30 minutes, without coding. Step by step.",
     lede: "From a new Cloudflare account to your team signing in. No coding." },
@@ -292,7 +293,7 @@ async function main() {
   await mkdir(DIST, { recursive: true });
 
   // hashed css and js, so they can be cached for a long time
-  for (const [name, setter] of [["site.css", (h) => (CSS_HREF = h)], ["site.js", (h) => (JS_HREF = h)]]) {
+  for (const [name, setter] of [["site.css", (h) => (CSS_HREF = h)], ["site.js", (h) => (JS_HREF = h)], ["motion.js", (h) => (MOTION_HREF = h)]]) {
     const src = await readFile(path.join(HERE, "src", name));
     const hash = createHash("sha256").update(src).digest("hex").slice(0, 10);
     const outName = name.replace(".", `.${hash}.`);
@@ -333,7 +334,7 @@ ${urls.map((u) => `  <url><loc>${SITE_URL}${u}</loc><lastmod>${today}</lastmod><
 </urlset>
 `);
   await writeFile(path.join(DIST, "robots.txt"), `User-agent: *\nAllow: /\n\nSitemap: ${SITE_URL}/sitemap.xml\n`);
-  await writeFile(path.join(DIST, "_headers"), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/fonts/*\n  Cache-Control: public, max-age=31536000, immutable\n/img/*\n  Cache-Control: public, max-age=604800\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: interest-cohort=()\n`);
+  await writeFile(path.join(DIST, "_headers"), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/fonts/*\n  Cache-Control: public, max-age=31536000, immutable\n/img/*\n  Cache-Control: public, max-age=604800\n/vendor/*\n  Cache-Control: public, max-age=31536000, immutable\n/audio/*\n  Cache-Control: public, max-age=604800\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: interest-cohort=()\n`);
   console.log(`Built ${pages.length} pages into site/dist for ${SITE_URL}`);
 }
 

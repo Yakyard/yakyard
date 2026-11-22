@@ -1,5 +1,9 @@
-// Yakyard website: sticky nav edge, cost calculator, copy buttons, docs table of contents.
+// Yakyard website: sticky nav edge, cost calculator, copy buttons, docs table of contents,
+// and on the home page the yak (voice, captions, easter egg), the voice note player and the motion loader.
 (() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const me = document.currentScript;
+
   const nav = document.querySelector(".nav");
   if (nav && "IntersectionObserver" in window) {
     const s = document.createElement("div");
@@ -8,31 +12,271 @@
     new IntersectionObserver(([e]) => nav.classList.toggle("is-stuck", !e.isIntersecting)).observe(s);
   }
 
-  // Cost calculator. Prices: docs/sources.md, checked 21 November 2026.
+  // ---------- sound: only ever after a click, and a toggle that remembers ----------
+  const KEY = "yakyard-sound";
+  let soundOn = true;
+  try { soundOn = localStorage.getItem(KEY) !== "off"; } catch {}
+  const snd = document.querySelector(".snd");
+  const paintSnd = () => snd && snd.setAttribute("aria-pressed", String(soundOn));
+  paintSnd();
+  snd?.addEventListener("click", () => {
+    soundOn = !soundOn;
+    try { localStorage.setItem(KEY, soundOn ? "on" : "off"); } catch {}
+    paintSnd();
+    if (player) player.muted = !soundOn;
+  });
+
+  const ext = (() => { try { return new Audio().canPlayType('audio/webm; codecs="opus"') ? "webm" : "mp3"; } catch { return "mp3"; } })();
+  let player = null; // one audio element for everything, so two clips never talk over each other
+  let stopCurrent = null;
+  function play(name, onEnd) {
+    stopCurrent?.();
+    if (!player) { player = new Audio(); player.preload = "auto"; }
+    player.muted = !soundOn;
+    player.src = `/audio/${name}.${ext}`;
+    let done = false;
+    const finish = () => { if (done) return; done = true; player.onended = null; player.pause(); stopCurrent = null; onEnd?.(); };
+    stopCurrent = finish;
+    player.onended = finish;
+    const p = player.play();
+    if (p && p.catch) p.catch(() => {}); // muted or blocked: the captions and timing still run
+    return player;
+  }
+  const warm = (name) => { const l = document.createElement("link"); l.rel = "prefetch"; l.as = "audio"; l.href = `/audio/${name}.${ext}`; document.head.append(l); };
+
+  // ---------- the yak ----------
+  const LINES = [
+    ["hi-1", "Yak all you want. Pay nobody.", 2.4],
+    ["hi-2", "Quiet in here. Say something.", 2.3],
+    ["hi-3", "Zero dollars a seat. I checked.", 2.4],
+    ["hi-4", "Your chat lives on your account. Not mine.", 2.9],
+  ];
+  const EGG = ["egg", "Okay, okay. I'm a yak, not a doorbell.", 2.7];
+  let lineIx = 0, clicks = 0, clickT = 0;
+
+  function retrigger(el, cls, ms) {
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+    clearTimeout(el["_" + cls]);
+    el["_" + cls] = setTimeout(() => el.classList.remove(cls), ms);
+  }
+
+  function talk(yak, line) {
+    const say = yak.parentElement.querySelector(".say");
+    const [file, text, dur] = line;
+    document.querySelectorAll(".yak.is-talking").forEach((y) => y.classList.remove("is-talking"));
+    yak.classList.add("is-talking");
+    if (!reduce) retrigger(yak, "is-wiggle", 700);
+    if (say) { say.textContent = text; say.classList.add("is-on"); }
+    const end = () => {
+      yak.classList.remove("is-talking");
+      clearTimeout(yak._hide);
+      yak._hide = setTimeout(() => say && say.classList.remove("is-on"), 1400);
+    };
+    play(file, end);
+    const mine = stopCurrent;
+    clearTimeout(yak._safety);
+    yak._safety = setTimeout(() => { if (stopCurrent === mine && player.paused) mine(); }, (dur + 1) * 1000);
+  }
+
+  function egg(origin) {
+    const targets = [origin, ...document.querySelectorAll("[data-yak-logo]")];
+    if (!reduce) {
+      targets.forEach((t) => retrigger(t, "is-spin", 800));
+      confetti(origin);
+    }
+  }
+
+  function confetti(from) {
+    const r = from.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const colors = ["#ffd93b", "#2b1bd6", "#ff4b2b"];
+    for (let i = 0; i < 26; i++) {
+      const b = document.createElement("span");
+      b.className = "bub-bit";
+      b.style.background = colors[i % colors.length];
+      document.body.append(b);
+      const a = (Math.PI * 2 * i) / 26 + Math.random() * 0.4;
+      const d = 70 + Math.random() * 90;
+      const dx = Math.cos(a) * d, dy = Math.sin(a) * d - 40;
+      const rot = (Math.random() - 0.5) * 300;
+      const s = 0.7 + Math.random() * 0.6;
+      b.animate([
+        { transform: `translate(${cx}px, ${cy}px) scale(.4)`, opacity: 1 },
+        { transform: `translate(${cx + dx}px, ${cy + dy}px) rotate(${rot / 2}deg) scale(${s})`, opacity: 1, offset: 0.45 },
+        { transform: `translate(${cx + dx * 1.25}px, ${cy + dy + 140}px) rotate(${rot}deg) scale(${s * 0.8})`, opacity: 0 },
+      ], { duration: 950 + Math.random() * 350, easing: "cubic-bezier(.23, 1, .32, 1)" }).onfinish = () => b.remove();
+    }
+  }
+
+  function countClick(el) {
+    const now = performance.now();
+    clicks = now - clickT < 1800 ? clicks + 1 : 1;
+    clickT = now;
+    if (clicks >= 5) { clicks = 0; egg(el); return true; }
+    return false;
+  }
+
+  document.querySelectorAll("[data-yak]").forEach((yak) => {
+    yak.addEventListener("pointerenter", () => warm(LINES[lineIx % LINES.length][0]), { once: true });
+    yak.addEventListener("click", () => {
+      if (countClick(yak)) { talk(yak, EGG); return; }
+      talk(yak, LINES[lineIx++ % LINES.length]);
+    });
+  });
+  const hero = document.querySelector(".yak--hero");
+  if (hero) setTimeout(() => hero.classList.remove("is-intro"), 3600);
+
+  // nav logo on the home page: you're already home, so it types back instead of reloading
+  const logo = document.querySelector("[data-yak-logo]");
+  if (logo) {
+    logo.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (scrollY > 40) scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+      if (countClick(logo)) { const h = document.querySelector(".yak--hero"); talk(h || logo, EGG); egg(logo); return; }
+      if (!reduce) retrigger(logo, "is-typing", 1900);
+    });
+    if (!reduce) {
+      // now and then the logo types, like someone is about to say something. Three times, then it rests.
+      let n = 0;
+      const id = setInterval(() => {
+        if (document.hidden) return;
+        retrigger(logo, "is-typing", 1900);
+        if (++n >= 3) clearInterval(id);
+      }, 11000);
+    }
+  }
+
+  // ---------- voice note player: waveform and transcript follow the audio ----------
+  const chat = document.getElementById("chat");
+  if (chat) {
+    const btn = chat.querySelector(".vn__play");
+    const bars = [...chat.querySelectorAll(".vn__wave i")];
+    const words = [...chat.querySelectorAll(".vn__tx .wd")];
+    const tx = chat.querySelector(".vn__tx");
+    const time = chat.querySelector(".vn__time");
+    const yakAv = chat.querySelector(".msg--yak .av");
+    const dur = +chat.dataset.dur;
+    const total = Math.round(dur - 0.4);
+    let raf = 0, start = 0, audio = null;
+    const fmt = (s) => "0:" + String(Math.max(0, Math.floor(s))).padStart(2, "0");
+    const paint = (t) => {
+      const p = t / dur;
+      bars.forEach((b, i) => b.classList.toggle("on", i / bars.length < p));
+      let cur = -1;
+      words.forEach((w, i) => { const said = +w.dataset.t <= t; w.classList.toggle("said", said); if (said) cur = i; });
+      words.forEach((w, i) => w.classList.toggle("now", i === cur && t < dur - 0.3));
+      time.textContent = fmt(t);
+    };
+    const reset = () => {
+      cancelAnimationFrame(raf);
+      btn.setAttribute("aria-pressed", "false");
+      btn.setAttribute("aria-label", `Play the yak's voice note, ${total} seconds`);
+      tx.classList.remove("is-playing");
+      bars.forEach((b) => b.classList.remove("on"));
+      words.forEach((w) => w.classList.remove("said", "now"));
+      time.textContent = fmt(total);
+    };
+    const tick = () => {
+      // the audio clock when it's really playing, a plain clock when sound is off or blocked
+      const t = audio && !audio.paused && !audio.muted && audio.currentTime > 0 ? audio.currentTime : (performance.now() - start) / 1000;
+      paint(Math.min(t, dur));
+      if (t >= dur) { stopCurrent?.(); return; }
+      raf = requestAnimationFrame(tick);
+    };
+    btn.addEventListener("pointerenter", () => warm("note"), { once: true });
+    btn.addEventListener("click", () => {
+      if (btn.getAttribute("aria-pressed") === "true") { stopCurrent?.(); return; }
+      audio = play("note", reset);
+      start = performance.now();
+      btn.classList.remove("is-invite");
+      btn.setAttribute("aria-pressed", "true");
+      btn.setAttribute("aria-label", "Pause the yak's voice note");
+      tx.classList.add("is-playing");
+      if (!reduce && yakAv) retrigger(yakAv, "is-wiggle", 700);
+      raf = requestAnimationFrame(tick);
+    });
+  }
+
+  // ---------- cost calculator. Prices: docs/sources.md, checked 21 November 2026. ----------
   const calc = document.getElementById("calc");
   if (calc) {
     const range = calc.querySelector("#people");
     const out = calc.querySelector("#people-out");
     const bill = document.getElementById("bill");
-    const set = (k, v) => { const el = bill.querySelector(`[data-k="${k}"]`); if (el.textContent !== v) el.textContent = v; };
+    const say = document.getElementById("bill-say");
+    const el = (k) => bill.querySelector(`[data-k="${k}"]`);
+    const setText = (k, v) => { const e = el(k); if (e.textContent !== v) e.textContent = v; };
     const usd = (n) => "$" + Math.round(n).toLocaleString("en-US");
-    const update = () => {
+    const shown = { slack: 0, google: 0, teams: 0, us: 0 };
+    const want = { ...shown };
+    let anim = 0, seen = reduce || !("IntersectionObserver" in window);
+    const draw = () => {
+      for (const k of Object.keys(shown)) {
+        if (k === "teams" && want.teams == null) { setText("teams", "Not listed"); continue; }
+        setText(k, usd(shown[k]));
+      }
+    };
+    const tween = (ms) => {
+      cancelAnimationFrame(anim);
+      const from = { ...shown }, t0 = performance.now();
+      const step = (now) => {
+        const p = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+        for (const k of Object.keys(shown)) shown[k] = want[k] == null ? 0 : from[k] + (want[k] - from[k]) * e;
+        draw();
+        if (p < 1) anim = requestAnimationFrame(step);
+      };
+      anim = requestAnimationFrame(step);
+    };
+    const bars = () => {
+      const max = Math.max(...Object.values(want).filter((v) => v != null), 1);
+      for (const k of Object.keys(want)) {
+        const i = el(k).parentElement.querySelector(".bar i");
+        if (i) i.style.transform = `scaleX(${seen ? (want[k] || 0) / max : 0})`;
+      }
+    };
+    let sayT = 0;
+    const update = (instant) => {
       const n = +range.value;
       const yearly = calc.querySelector('input[name="billing"]:checked').value === "y";
       out.textContent = n;
       range.style.setProperty("--fill", ((n - range.min) / (range.max - range.min)) * 100 + "%");
-      set("slack", usd(n * (yearly ? 7.25 : 8.75) * 12));
-      set("slack-note", yearly ? "$7.25 per person a month, paid yearly" : "$8.75 per person a month, paid monthly");
-      set("google", usd(n * (yearly ? 7 : 8.4) * 12));
-      set("google-note", yearly ? "$7 per person a month, annual plan" : "$8.40 per person a month, flexible plan");
-      const teams = bill.querySelector('[data-k="teams"]');
-      if (yearly) { teams.classList.remove("na"); set("teams", usd(n * 4 * 12)); set("teams-note", "$4 per person a month, paid yearly"); }
-      else { teams.classList.add("na"); set("teams", "Not listed"); set("teams-note", "Microsoft's page shows yearly prices only"); }
-      if (n <= 50) { set("us", "$0"); set("us-note", "Cloudflare's free plan, up to about 50 people"); }
-      else { set("us", "$60"); set("us-note", "Cloudflare Workers Paid, $5 a month for the whole account"); }
+      want.slack = n * (yearly ? 7.25 : 8.75) * 12;
+      setText("slack-note", yearly ? "$7.25 per person a month, paid yearly" : "$8.75 per person a month, paid monthly");
+      want.google = n * (yearly ? 7 : 8.4) * 12;
+      setText("google-note", yearly ? "$7 per person a month, annual plan" : "$8.40 per person a month, flexible plan");
+      const teams = el("teams");
+      if (yearly) { teams.classList.remove("na"); want.teams = n * 4 * 12; setText("teams-note", "$4 per person a month, paid yearly"); }
+      else { teams.classList.add("na"); want.teams = null; setText("teams-note", "Microsoft's page shows yearly prices only"); }
+      if (n <= 50) { want.us = 0; setText("us-note", "Cloudflare's free plan, up to about 50 people"); }
+      else { want.us = 60; setText("us-note", "Cloudflare Workers Paid, $5 a month for the whole account"); }
+      if (instant || reduce || !seen) { Object.assign(shown, Object.fromEntries(Object.entries(want).map(([k, v]) => [k, v ?? 0]))); if (seen) draw(); }
+      else tween(380);
+      bars();
+      // one calm announcement after the slider settles, not one per frame
+      clearTimeout(sayT);
+      sayT = setTimeout(() => {
+        say.textContent = `${n} people: Slack Pro ${usd(want.slack)}, Google Workspace ${usd(want.google)}, Microsoft Teams ${want.teams == null ? "not listed" : usd(want.teams)}, Yakyard ${usd(want.us)} a year.`;
+      }, 700);
     };
-    calc.addEventListener("input", update);
-    update();
+    calc.addEventListener("input", () => update(false));
+    update(true);
+    if (!seen) {
+      // first time the bill scrolls into view, the numbers count up and the bars grow
+      const io = new IntersectionObserver(([e]) => {
+        if (!e.isIntersecting) return;
+        io.disconnect();
+        seen = true;
+        for (const k of Object.keys(shown)) shown[k] = 0;
+        draw();
+        requestAnimationFrame(() => { bars(); tween(1100); });
+      }, { rootMargin: "0px 0px -20% 0px" });
+      // if it's already on screen at load, leave it as it is
+      const r = bill.getBoundingClientRect();
+      if (r.top < innerHeight && r.bottom > 0) { seen = true; draw(); bars(); }
+      else io.observe(bill);
+    }
   }
 
   // Copy buttons
@@ -61,5 +305,15 @@
       if (first) links.forEach((a, id) => a.classList.toggle("on", id === first));
     }, { rootMargin: "-90px 0px -60% 0px" });
     links.forEach((_, id) => { const h = document.getElementById(id); if (h) io.observe(h); });
+  }
+
+  // ---------- home page motion: GSAP and ScrollTrigger load after the page, never when motion is reduced ----------
+  const motionSrc = me && me.dataset.motion;
+  if (motionSrc && !reduce) {
+    const load = (src) => new Promise((ok, no) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = no; document.head.append(s); });
+    const go = () => load("/vendor/gsap-3.15.1.min.js").then(() => load("/vendor/ScrollTrigger-3.15.1.min.js")).then(() => load(motionSrc)).catch(() => {});
+    const idle = window.requestIdleCallback || ((f) => setTimeout(f, 200));
+    if (document.readyState === "complete") idle(go, { timeout: 1500 });
+    else addEventListener("load", () => idle(go, { timeout: 1500 }), { once: true });
   }
 })();

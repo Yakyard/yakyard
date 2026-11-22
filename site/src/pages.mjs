@@ -1,28 +1,34 @@
 // Page bodies for the hand-built pages. Copy comes from README.md and docs/*.md;
 // prices and limits from docs/sources.md (checked 21 November 2026).
 
+import { readFileSync } from "node:fs";
+import { yakMark } from "./icons.mjs";
+
 const SLACK = { y: 7.25, m: 8.75 };
+// The yak's voice clips (site/static/audio) and their word timings, made by site/tools/yak_voice.py with Kokoro-82M.
+const VOICE = JSON.parse(readFileSync(new URL("./voice.json", import.meta.url), "utf8"));
 
 export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
   const pro = [
-    ["$0 for most teams under about 50 people.", "$5 a month above that, for the whole account. No price per seat."],
-    ["Your messages and files sit in your own Cloudflare account.", "You back them up, and you can delete all of it."],
-    ["No server to look after.", "No VPS, no Docker, no database to patch. Cloudflare runs it."],
-    ["Voice notes with searchable transcripts,", "built in."],
-    ["Familiar if you come from Slack,", "and it brings your Slack DMs and private channels with you."],
+    ["$0 for most teams under about 50 people.", "No price per seat, ever. Above that, $5 a month for the whole account."],
+    ["Your messages and files live in your own Cloudflare account.", "You back them up, and you can delete all of it."],
+    ["Voice notes with transcripts,", "written automatically and searchable."],
+    ["Calls built in.", "Pop in to any channel or DM, with screen share."],
+    ["Your Slack history comes with you:", "DMs, private channels and files."],
+    ["Installs on phone and desktop,", "with push notifications."],
+    ["Private channels stay private,", "even from admins."],
+    ["One click to deploy.", "No server or Docker to look after."],
+    ["Backups are one command,", "to a file you keep."],
+    ["Three themes,", "including Yaky, the loud one we made for fun."],
     ["You can read and change every line of code.", ""],
   ];
   const con = [
-    ["You're the admin.", "Updates, backups and settings are your job. Each is one command."],
-    ["Tied to Cloudflare.", "It doesn't run on your own server or another cloud."],
-    ["No native phone apps.", "The installable web app does notifications, but it isn't in an app store."],
-    ["Not end-to-end encrypted.", "Whoever controls your Cloudflare account can read the database."],
-    ["One transcript language", "for the whole team, English unless you change it."],
-    ["Calls connect every browser to every other,", "so they suit small groups, not all-hands."],
-    ["Slack import has a gap.", "Public channel history stays in Slack."],
-    ["No company selling support,", "and no compliance certifications."],
-    ["Source-available, not open source.", "Free to use and change under PolyForm Shield, not to resell."],
+    ["Someone on your team runs it.", "Updates and backups are one command each."],
+    ["Cloudflare only.", "It doesn't run on your own server or another cloud."],
+    ["No app store app.", "It's an installable web app, with notifications."],
+    ["Not end-to-end encrypted.", "Whoever controls your Cloudflare account can read the data."],
   ];
+  const MQ = ["Channels", "Threads", "DMs", "Voice notes", "Transcripts", "Calls", "Search", "Yak yak yak", "$0 a seat", "Your data, your account"];
   const li = ([b, t]) => `<li><b>${b}</b>${t ? ` ${t}` : ""}</li>`;
 
   const rows = [
@@ -56,7 +62,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
   const body = `
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
-    <h1 class="d-xl" id="hero-title"><span class="l">Yak all you want.</span> <span class="l hot">Pay nobody.</span></h1>
+    <h1 class="d-xl" id="hero-title"><span class="l">${"Yak all you want.".split(" ").map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(" ")}</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
     <div class="hero__grid">
       <div class="hero__copy">
         <p class="lede">Channels, threads, calls and voice notes with transcripts, running on your own Cloudflare account. Nobody pays per seat.</p>
@@ -67,6 +73,10 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
       </div>
       <div class="stage">
         <span class="sticker" aria-hidden="true">$0 a seat</span>
+        <div class="yak-spot">
+          <p class="say" role="status" aria-live="polite"></p>
+          <button class="yak yak--hero is-intro" type="button" data-yak aria-label="Hear the yak">${yakMark()}</button>
+        </div>
         <figure class="browser" style="margin:0">
           <div class="browser__bar" aria-hidden="true"><span class="browser__dots"><i></i><i></i><i></i></span><span class="browser__url"><b>yakyard</b>.fernhill.workers.dev</span></div>
           <picture>
@@ -79,6 +89,8 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
     </div>
   </div>
 </section>
+
+<div class="mq" aria-hidden="true"><div class="mq__track">${[0, 1].map(() => `<ul>${MQ.map((w) => `<li>${w}</li>`).join("")}</ul>`).join("")}</div></div>
 
 <section class="sec" id="features" aria-labelledby="features-title">
   <div class="wrap">
@@ -129,8 +141,8 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
       </dl>
     </div>
     <div class="voice__shots">
-      <div class="voice__note">${shot("voice-note-transcript", { alt: "A voice note from Lena Brandt with a play button, a 24-second waveform and its full transcript", sz: "(min-width: 960px) 640px, 100vw" })}</div>
-      <figure class="voice__search" style="margin:0">${shot("search-voice", { alt: "Search for has:voice, showing two voice notes matched by their transcripts", sz: "(min-width: 960px) 460px, 72vw" })}<figcaption>Search for has:voice, matched by transcript</figcaption></figure>
+      ${chat(icon)}
+      <figure class="voice__search">${shot("search-voice", { alt: "Search for has:voice, showing two voice notes matched by their transcripts", sz: "(min-width: 960px) 460px, 72vw" })}<figcaption>Search for has:voice, matched by transcript</figcaption></figure>
     </div>
   </div>
 </section>
@@ -158,11 +170,12 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
       </form>
     </div>
     <div>
-      <ul class="bill" aria-live="polite" id="bill">
-        <li><b>Slack Pro</b><small data-k="slack-note">$7.25 per person a month, paid yearly</small><span class="amt" data-k="slack">$2,175</span></li>
-        <li><b>Google Workspace Business Starter</b><small data-k="google-note">$7 per person a month, annual plan</small><span class="amt" data-k="google">$2,100</span></li>
-        <li><b>Microsoft Teams Essentials</b><small data-k="teams-note">$4 per person a month, paid yearly</small><span class="amt" data-k="teams">$1,200</span></li>
-        <li class="us"><b>Yakyard</b><small data-k="us-note">Cloudflare's free plan, up to about 50 people</small><span class="amt" data-k="us">$0</span></li>
+      <p class="sr" aria-live="polite" id="bill-say"></p>
+      <ul class="bill" id="bill">
+        <li><b>Slack Pro</b><small data-k="slack-note">$7.25 per person a month, paid yearly</small><span class="amt" data-k="slack">$2,175</span><span class="bar" aria-hidden="true"><i style="transform:scaleX(1)"></i></span></li>
+        <li><b>Google Workspace Business Starter</b><small data-k="google-note">$7 per person a month, annual plan</small><span class="amt" data-k="google">$2,100</span><span class="bar" aria-hidden="true"><i style="transform:scaleX(.966)"></i></span></li>
+        <li><b>Microsoft Teams Essentials</b><small data-k="teams-note">$4 per person a month, paid yearly</small><span class="amt" data-k="teams">$1,200</span><span class="bar" aria-hidden="true"><i style="transform:scaleX(.552)"></i></span></li>
+        <li class="us"><b>Yakyard</b><small data-k="us-note">Cloudflare's free plan, up to about 50 people</small><span class="amt" data-k="us">$0</span><span class="bar" aria-hidden="true"><i style="transform:scaleX(0)"></i></span></li>
       </ul>
       <p class="fine">US dollars before tax, from each vendor's own page on 21 November 2026 (<a href="/sources">sources</a>). "About 50 people" is our estimate for a busy team. The real limits are Cloudflare's daily allowances, not a seat count. Above them, Workers Paid is $5 a month for the whole account.</p>
     </div>
@@ -183,12 +196,12 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
 <section class="sec" id="pros" aria-labelledby="pros-title" style="padding-top:0">
   <div class="wrap">
     <div class="sec__head">
-      <h2 class="d-l" id="pros-title">Read the cons before you move your team.</h2>
-      <p>If one of them is a deal-breaker, you want to know now. The <a href="/pros-and-cons">longer version</a> has the details.</p>
+      <h2 class="d-l" id="pros-title">The good, and what's worth knowing.</h2>
+      <p>This is the short version of both sides. The <a href="/pros-and-cons">longer version</a> has the fine print on calls, transcript languages, the Slack import and the license.</p>
     </div>
     <div class="pc">
       <div class="pc__col pros"><h3 class="sticker">Good</h3><ul>${pro.map(li).join("")}</ul></div>
-      <div class="pc__col cons"><h3 class="sticker">Not so good</h3><ul>${con.map(li).join("")}</ul></div>
+      <div class="pc__col cons"><h3>Worth knowing</h3><ul>${con.map(li).join("")}</ul></div>
     </div>
   </div>
 </section>
@@ -200,12 +213,12 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
         <h2 class="d-l" id="install-title">Live in about 30 minutes.</h2>
         <p>No server, no Docker, no database to patch. One button, or four commands.</p>
       </div>
-      <ol class="steps">
+      <div class="steps-wrap"><span class="rail" aria-hidden="true"><i></i></span><ol class="steps">
         <li><div><h3>Make a free Cloudflare account</h3><p>Then turn on R2, the file storage, in the dashboard. Cloudflare asks for a payment card first. Nothing is charged under 10 GB.</p></div></li>
         <li><div><h3>Click Deploy to Cloudflare</h3><p>It copies Yakyard to your GitHub, creates the database, file storage and background jobs, and deploys. When it asks for <code>SETUP_TOKEN</code>, type a long random code and keep it.</p></div></li>
         <li><div><h3>Claim it</h3><p>Open the address it gives you, paste the setup code and create the owner account.</p></div></li>
         <li><div><h3>Invite your team</h3><p>Click <b>Invite people</b> and send the links.</p></div></li>
-      </ol>
+      </ol></div>
     </div>
     <div class="install__side">
       <div class="btn-row">
@@ -214,10 +227,10 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
       </div>
       <div class="term">
         <div class="term__bar"><span>No GitHub account? Use the terminal.</span><button class="copy" type="button" data-copy="git clone https://github.com/yakyard/yakyard.git&#10;cd yakyard&#10;npx wrangler login&#10;npm run deploy">${icon("copy")}<span>Copy</span></button></div>
-<pre tabindex="0" aria-label="Terminal commands" translate="no"><code><span class="p">$ </span>git clone https://github.com/yakyard/yakyard.git
-<span class="p">$ </span>cd yakyard
-<span class="p">$ </span>npx wrangler login
-<span class="p">$ </span>npm run deploy   <span class="c"># prints your address and a one-time setup code</span></code></pre>
+<pre tabindex="0" aria-label="Terminal commands" translate="no"><code><span class="tl"><span class="p">$ </span>git clone https://github.com/yakyard/yakyard.git</span>
+<span class="tl"><span class="p">$ </span>cd yakyard</span>
+<span class="tl"><span class="p">$ </span>npx wrangler login</span>
+<span class="tl"><span class="p">$ </span>npm run deploy   <span class="c"># prints your address and a one-time setup code</span></span></code></pre>
       </div>
       <p class="side-note">Updates and backups are one command each: <code>npm run update</code> and <code>npm run backup</code>. Notifications, Google sign-in and the Slack import are in the <a href="/docs/setup">setup guide</a>.</p>
     </div>
@@ -238,7 +251,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
 
 <section class="close" aria-labelledby="close-title">
   <div class="wrap">
-    <img src="/brand/yakyard-app-icon.svg" alt="" width="168" height="168" loading="lazy">
+    <div class="close__mark"><button class="yak yak--close" type="button" data-yak aria-label="Hear the yak">${yakMark({ tile: true })}</button><p class="say" role="status" aria-live="polite"></p></div>
     <div>
       <h2 class="d-l" id="close-title">Your team's chat belongs to your team.</h2>
       <p class="lede close__p">One command backs it all up to a file you keep. Nothing phones home.</p>
@@ -264,6 +277,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO }) {
     urlPath: "/",
     og: "home",
     body,
+    home: true,
   });
 }
 
@@ -392,4 +406,26 @@ export function notFoundPage({ layout }) {
   </div>
 </section>`;
   return layout({ title: "Page not found", description: "This page isn't here.", urlPath: "/404", og: "home", body });
+}
+
+// A short #launch conversation that plays in when it scrolls into view. Fully readable without JavaScript.
+function chat(icon) {
+  const note = VOICE.note;
+  const toks = note.text.split(" ");
+  const words = toks.map((t, i) => `<span class="wd" data-t="${note.words[i] ? note.words[i][1] : note.dur}">${t}</span>`).join(" ");
+  const secs = Math.round(note.dur - 0.4);
+  const bars = note.bars.map((h) => `<i style="transform:scaleY(${h})"></i>`).join("");
+  const msg = (who, init, cls, time, text) => `<li class="msg"><span class="av ${cls}" aria-hidden="true">${init}</span><div class="msg__body"><p class="msg__who"><b>${who}</b> <time>${time}</time></p><p class="msg__text">${text}</p></div></li>`;
+  return `<div class="chat" id="chat" data-dur="${note.dur}">
+        <div class="chat__bar"><b># launch</b><span>Lena, Marco and the yak</span></div>
+        <ol class="chat__log" aria-label="Sample conversation in the #launch channel">
+          ${msg("Lena Brandt", "L", "av--l", "9:41", "Homepage draft is up. Thoughts before lunch?")}
+          ${msg("Marco Ruiz", "M", "av--m", "9:42", "Love it. Can the $0 be bigger?")}
+          <li class="msg msg--yak"><span class="av av--yak" aria-hidden="true">${yakMark({ cls: "yak__svg yak-av" })}</span><div class="msg__body"><p class="msg__who"><b>The yak</b> <time>9:43</time></p>
+            <div class="vn"><button class="vn__play" type="button" aria-label="Play the yak's voice note, ${secs} seconds" aria-pressed="false">${icon("play", "ic ic-play")}${icon("pause", "ic ic-pause")}</button><span class="vn__wave" aria-hidden="true">${bars}</span><span class="vn__time">0:0${secs}</span></div>
+            <p class="vn__tx"><span class="vn__label">Transcript</span> ${words}</p></div></li>
+          ${msg("Lena Brandt", "L", "av--l", "9:44", "Listened on the train. Ship it.")}
+        </ol>
+        <p class="chat__typing" aria-hidden="true"><span class="tdots"><i></i><i></i><i></i></span><span class="chat__who">Marco is typing</span></p>
+      </div>`;
 }

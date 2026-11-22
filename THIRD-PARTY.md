@@ -10,7 +10,9 @@ Yakyard ships with these, each under its own license:
 | Wix Madefor Text | `public/fonts/WixMadeforText-Variable.woff2` | SIL Open Font License 1.1, Copyright 2021 The Wix Madefor Project Authors |
 | Martian Mono | `public/fonts/MartianMono-Variable.woff2` | SIL Open Font License 1.1, Copyright 2020 The Martian Mono Project Authors |
 | Link preview parser | `src/unfurl.js` (adapted from tldraw/cloudflare-workers-unfurl) | MIT, Copyright 2024 tldraw GB Ltd. |
-| Phosphor Icons (bold), path data for 9 icons | `site/src/icons.mjs` (website only) | MIT, Copyright (c) 2023 Phosphor Icons |
+| Phosphor Icons (bold and fill), path data for 13 icons | `site/src/icons.mjs` (website only) | MIT, Copyright (c) 2023 Phosphor Icons |
+| GSAP 3.15.1 and ScrollTrigger | `site/static/vendor/` (website home page only, loaded after the page) | GSAP Standard "No Charge" License, https://gsap.com/standard-license, Copyright GreenSock / Webflow |
+| Kokoro-82M (stock voice am_puck) | Made the yak's voice clips in `site/static/audio/` with `site/tools/yak_voice.py` (website only) | Apache License 2.0, Copyright hexgrad |
 | marked | npm dev dependency, turns the docs into website pages at build time | MIT, Copyright (c) 2018+ MarkedJS |
 
 ## Vendored files
