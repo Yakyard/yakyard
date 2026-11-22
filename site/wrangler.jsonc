@@ -1,0 +1,13 @@
+// The Yakyard website, served as static files from Cloudflare.
+// Build first (npm run site:build), then: npx wrangler deploy --config site/wrangler.jsonc
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "yakyard-site",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash"
+  }
+}

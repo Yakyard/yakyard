@@ -9,3 +9,4 @@ wrangler.cpu-check.jsonc
 .cpu-check-secrets.json
 cpu-check-report.json
 wrangler.toml.old
+site/dist/

@@ -10,6 +10,8 @@ Yakyard ships with these, each under its own license:
 | Wix Madefor Text | `public/fonts/WixMadeforText-Variable.woff2` | SIL Open Font License 1.1, Copyright 2021 The Wix Madefor Project Authors |
 | Martian Mono | `public/fonts/MartianMono-Variable.woff2` | SIL Open Font License 1.1, Copyright 2020 The Martian Mono Project Authors |
 | Link preview parser | `src/unfurl.js` (adapted from tldraw/cloudflare-workers-unfurl) | MIT, Copyright 2024 tldraw GB Ltd. |
+| Phosphor Icons (bold), path data for 9 icons | `site/src/icons.mjs` (website only) | MIT, Copyright (c) 2023 Phosphor Icons |
+| marked | npm dev dependency, turns the docs into website pages at build time | MIT, Copyright (c) 2018+ MarkedJS |
 
 ## Vendored files
 

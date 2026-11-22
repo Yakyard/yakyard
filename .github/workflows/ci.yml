@@ -42,6 +42,9 @@ jobs:
       - name: Unit tests
         run: node --test test/*.test.mjs
 
+      - name: Website builds
+        run: npm run site:build
+
       - name: Start a local Yakyard
         run: |
           # Test-only setup code; the security suite uses the same value.

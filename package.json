@@ -16,9 +16,12 @@
     "vapid": "node scripts/vapid.mjs",
     "cpu-check": "node scripts/cpu-check.mjs",
     "test": "node --test test/*.test.mjs && python3 test/security.py",
-    "cpu-bench": "node scripts/cpu-bench.mjs"
+    "cpu-bench": "node scripts/cpu-bench.mjs",
+    "site:build": "node site/build.mjs",
+    "site:deploy": "npm run site:build && wrangler deploy --config site/wrangler.jsonc"
   },
   "devDependencies": {
+    "marked": "^18.2.1",
     "wrangler": "^4.0.0"
   },
   "engines": {
