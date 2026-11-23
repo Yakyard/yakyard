@@ -231,8 +231,8 @@ codes = []
 for i in range(10):
     r = requests.post(B + '/auth/login', data={'email': 'carol@example.com', 'password': 'wrong-' + str(i)})
     codes.append('Too many' in r.text)
-# carol already used 1 attempt (the sign-in above), so tries 1-7 pass and the 8th (9th attempt overall) is blocked
-check('M6 9th attempt for one account in 15 min is throttled', codes[:7] == [False] * 7 and all(codes[7:]), codes)
+# carol's earlier sign-in worked, so it gave its try back: wrong passwords 1-8 pass and the 9th is blocked
+check('M6 9th wrong password for one account in 15 min is throttled', codes[:8] == [False] * 8 and all(codes[8:]), codes)
 r = requests.post(B + '/auth/login', data={'email': 'carol@example.com', 'password': 'memberpassword1'})
 check('M6 even the right password is held back while throttled', 'Too many' in r.text)
 dk = 'A' * 43 + '='

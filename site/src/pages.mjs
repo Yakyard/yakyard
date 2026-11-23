@@ -18,8 +18,8 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     ["Calls built in.", "Pop in to any channel or DM, with screen share."],
     ["Your Slack history comes with you:", "DMs, private channels and files."],
     ["Installs on phone and desktop,", "with push notifications."],
-    ["Private channels stay private,", "even from admins."],
-    ["Lock what's private.", "Lock a DM or private channel and only the people in it can read it. Not even the admin."],
+    ["Private channels stay private,", "even from admins in the app."],
+    ["Lock what's private.", "Lock a DM or private channel and only the people in it can read it. Not even the admin. Preview: our code around the audited library is not audited yet."],
     ["One click to deploy on Cloudflare,", "with no server to look after. Or run it on yours with Docker."],
     ["Backups are one command,", "to a file you keep."],
     ["Three themes,", "including Yaky, the loud one we made for fun."],
@@ -42,7 +42,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     ["Mattermost", "Paid plans by quote", "Free Entry edition shows 10,000 messages of history", "Yes, Linux server and PostgreSQL", "MIT (Team Edition) or commercial"],
     ["Zulip", "Cloud Standard $6.67 yearly, $8 monthly", "Cloud Free: 10,000 messages of search history", "Yes, free self-hosted", "Apache 2.0"],
     ["Campfire", "Free", "No calls listed", "Yes, your server", "MIT"],
-    ["Element (Matrix)", "Enterprise per seat, by quote", "Community is for non-professional use", "Yes, your server", "AGPL-3.0 or commercial"],
+    ["Element (Matrix)", "Enterprise per seat, by quote", "ESS Community is for non-professional use (Synapse itself is AGPL)", "Yes, your server", "AGPL-3.0 or commercial"],
   ];
   const heads = ["Price per person a month", "Free plan catch", "Run it yourself", "License"];
   const table = `<div class="ctable-wrap"><table class="ctable">
@@ -55,7 +55,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     ["Is it really free?", "The software is free. It runs on Cloudflare's free plan for up to about 50 people. Above that, Cloudflare charges $5 a month for the whole account, not per person."],
     ["Can I use it at work?", "Yes. Any company can run it for its own team, for free. You can also change it, host it for clients or sell it, under the Apache 2.0 terms."],
     ["Who can read our messages?", "People in your workspace, and whoever has access to your Cloudflare account, or to your server and its backups if you run it with Docker. Nobody at Yakyard can see them."],
-    ["Is it end-to-end encrypted?", `Yes, if you lock the conversation. Locked DMs and private channels are scrambled on each person's device, so only the people in them can read them, not the admin and not us. In there, search only covers your device and voice notes have no transcript. If you lose every device and your recovery key, those messages are gone. <a href="/docs/locked">How it works</a>.`],
+    ["Is it end-to-end encrypted?", `Yes, if you lock the conversation. It's a preview: the encryption library is audited, our code around it is not yet. Locked DMs and private channels are scrambled on each person's device, so only the people in them can read them, not the admin and not us. In there, search only covers your device and voice notes have no transcript. If you lose every device and your recovery key, those messages are gone. <a href="/docs/locked">How it works</a>.`],
     ["Is there a phone app?", "Yakyard installs from the browser on iPhone and Android, with its own icon and notifications. There's no App Store or Play Store app."],
     ["What happens to our Slack history?", "Each person copies their own Slack DMs, group messages and private channels, with files. Public channel history stays in Slack."],
     ["What if Yakyard stops being developed?", "Your copy keeps running on your account or server. You have the code, the database and a backup command. Nothing phones home."],
@@ -239,7 +239,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
     <div>
       <div class="sec__head">
         <h2 class="d-l" id="install-title">Live in about 30 minutes.</h2>
-        <p>No server, no Docker, no database to patch. One button, or four commands. Rather use your own server? <a href="/docs/docker">Run it with Docker</a>.</p>
+        <p>On Cloudflare: no server, no Docker, no database to patch. One button, or four commands. Rather use your own server? <a href="/docs/docker">Run it with Docker</a>.</p>
       </div>
       <div class="steps-wrap"><span class="rail" aria-hidden="true"><i></i></span><ol class="steps">
         <li><div><h3>Make a free Cloudflare account</h3><p>Then turn on R2, the file storage, in the dashboard. Cloudflare asks for a payment card first. Nothing is charged under 10 GB.</p></div></li>

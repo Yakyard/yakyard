@@ -21,7 +21,7 @@ We say where others are better. Several are.
 | Rocket.Chat | Commercial plans by quote | Starter: up to 50 people; Community: 100 at once | Yes | Yes | MIT (Community), commercial | Not compared | Not compared |
 | Zulip | Cloud Standard $6.67 yearly / $8 monthly | Cloud Free: 10,000 messages searchable, 5 GB files; self-hosted free | Yes | Yes | Apache 2.0 | Not compared | Not compared |
 | Campfire | Free | Yes | Yes | Yes | MIT | Not listed | Not compared |
-| Element (Matrix) | Enterprise per seat, by quote | Community, for non-professional use | Yes | Yes | AGPL-3.0, commercial | Not compared | Yes, the main pitch ("end-to-end encrypted messaging and calls") |
+| Element (Matrix) | Enterprise per seat, by quote | ESS Community is for non-professional use (Synapse itself is AGPL) | Yes | Yes | AGPL-3.0, commercial | Not compared | Yes, the main pitch ("end-to-end encrypted messaging and calls") |
 
 "Not compared" means we didn't check that feature for that app, so we make no claim.
 

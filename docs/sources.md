@@ -22,7 +22,7 @@ Yakyard's own measurements (CPU per request, people per free plan) are in the [R
 
 | Fact | Source |
 |---|---|
-| Pro $7.25 per user a month paid yearly, $8.75 paid monthly. Business+ $15 yearly, $18 monthly. Enterprise+ by quote. Free plan: 90 days of message history, up to 10 apps, huddles 1:1 only. Over 2,600 apps in the App Directory. Pro: Slack Connect with up to 250 outside organizations; group huddles with audio, video and screen sharing. | [slack.com/pricing](https://slack.com/intl/en-us/pricing) |
+| Pro $7.25 per user a month paid yearly, $8.75 paid monthly. Business+ $15 yearly, $18 monthly. Enterprise+ $45 per user a month, paid yearly. Free plan: 90 days of message history, up to 10 apps, huddles 1:1 only. Over 2,600 apps in the App Directory. Pro: Slack Connect with up to 250 outside organizations; group huddles with audio, video and screen sharing. | [slack.com/pricing](https://slack.com/intl/en-us/pricing) |
 | "Messages and files on the Free plan will only be stored for one year. Any content in your workspace more than a year old will be permanently deleted." | [Slack Pro plan pricing changes](https://slack.com/help/articles/7050776459923-Pricing-changes-for-the-Pro-plan-and-updates-to-our-Fair-Billing-Policy) |
 | Deletion of messages and files older than one year on free workspaces started on 26 August 2024, on a rolling basis, and can't be undone. | [Updates to message and file history on free workspaces](https://slack.com/help/articles/29414264463635-Updates-to-message-and-file-history-on-free-workspaces) |
 

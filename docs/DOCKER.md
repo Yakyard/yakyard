@@ -14,6 +14,8 @@ Read [What's different from Cloudflare](#whats-different-from-cloudflare) before
 
 HTTPS isn't optional: installing the app on phones and push notifications only work over HTTPS.
 
+Just trying it on your own computer? Set `DOMAIN=localhost`. Caddy makes its own certificate, so your browser warns you once. Ports 80 and 443 must be free.
+
 ## Set it up
 
 ### 1. Get the files
@@ -96,7 +98,7 @@ They work the same as on Cloudflare. Use your own address wherever [Optional fea
 
 ## Backups
 
-One command backs up everything: messages, files, voice notes and settings.
+One command backs up everything: messages, files, voice notes and the settings made in the app. Keep a copy of `.env` too: it holds your keys (VAPID_PRIVATE, TOKEN_KEY). A damaged backup file is refused before anything is touched.
 
 ```bash
 sh docker/backup.sh

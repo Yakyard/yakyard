@@ -4,6 +4,18 @@ What changed in each Yakyard release, newest first.
 
 ## Unreleased
 
+### Fixes from launch testing
+- Deploy to Cloudflare asks only for `SETUP_TOKEN`. The other secrets in `.dev.vars.example` are commented out, since a made-up value there broke phone notifications and calls.
+- Signing in correctly no longer counts toward the lockout. Only wrong passwords do.
+- Docker: `restore.sh` checks the backup file first and refuses a damaged one before touching anything. `backup.sh` writes to a temporary file, so a full disk can't leave a half backup, and backups are readable only by you.
+- Docker guide: how to try it on your own computer with `DOMAIN=localhost`, and a reminder to keep a copy of `.env`.
+- Website: links to headings with an apostrophe work again.
+- Docs say plainly that locked conversations are a preview on the home page too, and that the 2022 audit was of an earlier version of vodozemac.
+
+### Public demo
+- Visitors can't change channel topics, pin, create channels, add people or rename themselves.
+- @here in a demo channel no longer notifies every visitor.
+- Typing signals and call actions over the live connection have their own small limit.
 ### Public demo
 - The demo opens like a team that's been working for a while: two more channels (#design and #wholesale), a few days of messages, a pinned price list, and files (a packaging diagram, a PDF price list and a CSV order sheet).
 - Each visitor gets a first name and their own DMs from the team, including a group DM, with unread counts and an @mention, so Home, DMs and Activity aren't empty.

@@ -21,6 +21,10 @@ const BLOCKED = [
   [(p) => p.startsWith('/api/push/'), 'Phone notifications are'],
   [(p) => p.startsWith('/api/e2ee/') || /^\/api\/channels\/[^/]+\/lock\//.test(p), 'Locked conversations are'],
   [(p) => p === '/api/me/password', 'Passwords are'],
+  [(p, m) => m === 'PATCH' && /^\/api\/channels\/[^/]+$/.test(p), 'Changing channel topics is'],
+  [(p) => /\/pin$/.test(p), 'Pinning is'],
+  [(p, m) => p === '/api/channels' && m === 'POST', 'New channels are'],
+  [(p, m) => m === 'POST' && /^\/api\/channels\/[^/]+\/members$/.test(p), 'Adding people is'],
 ];
 const WRITES_PER_15_MIN = 120, POSTS_PER_15_MIN = 30;
 const isPost = (p, m) => m === 'POST' && (/^\/api\/channels\/[^/]+\/messages$/.test(p) || p === '/api/scheduled' || p === '/api/dm');

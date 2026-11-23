@@ -263,6 +263,11 @@ async function saltFor(req, env) {
   return json({ salt, iter: KDF_ITER, legacy, ...(legacy ? { note: OLD_PASSWORD } : {}) });
 }
 // Counters for sign-in limits, one row per key per 15-minute window (cleared hourly by the cron).
+// A sign-in that worked gives its tries back, so only wrong passwords count toward the lockout.
+async function unbump(env, keys) {
+  const w = '|' + Math.floor(now() / (15 * 60e3));
+  await env.DB.batch(keys.map((k) => env.DB.prepare('UPDATE login_attempts SET n=MAX(n-1,0) WHERE k=?').bind(k + w)));
+}
 async function bump(env, k) {
   return (await env.DB.prepare('INSERT INTO login_attempts (k,n) VALUES (?,1) ON CONFLICT(k) DO UPDATE SET n=n+1 RETURNING n').bind(k + '|' + Math.floor(now() / (15 * 60e3))).first()).n;
 }
@@ -308,6 +313,7 @@ async function passwordLogin(req, env) {
   const ok = await checkKey(row, key);
   if (legacy) return loginPage(env, OLD_PASSWORD, email);
   if (!ok) return loginPage(env, 'Wrong email or password.', email);
+  await unbump(env, ['ip:' + ip, 'em:' + email, 'em:' + email + '|' + ip]).catch(() => {});
   return signedIn(req, await createSession(env, row.id));
 }
 const googleOn = (env) => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_ENABLED === '1');
@@ -536,7 +542,8 @@ async function postMessage(env, ctx, user, ch, body) {
   const said = encd ? (Array.isArray(body.mentions) ? body.mentions.map(String).slice(0, 50) : []) : mentionedIds(text);
   let mentioned = said.filter((u) => members.includes(u));
   if (encd && body.mention_all) mentioned = members.filter((u) => u !== user.id);
-  if (/<!(channel|here|everyone)>/.test(text)) mentioned = members.filter((u) => u !== user.id);
+  // In the public demo, @here in a channel would write a row for every visitor, so it only notifies in DMs.
+  if (/<!(channel|here|everyone)>/.test(text) && !(demoOn(env) && ch.kind !== 'dm')) mentioned = members.filter((u) => u !== user.id);
   if (ch.kind === 'dm') mentioned = members.filter((u) => u !== user.id);
   for (const u of mentioned) {
     stmts.push(env.DB.prepare('INSERT OR IGNORE INTO mentions (message_id,user_id,channel_id,ts) VALUES (?,?,?,?)').bind(msg.id, u, ch.id, msg.ts));
@@ -917,8 +924,10 @@ async function api_activity_reactions_GET(c, m) {
 // ----- profile
 async function api_me_PATCH(c, m) {
   const { req, env, user, path, ctx, method, body } = c;
-  const name = body.name != null ? String(body.name).slice(0, 80) : user.name;
-  const title = body.title != null ? String(body.title).slice(0, 80) : user.title;
+  // Demo visitors keep the name they were given, so nobody can pose as the team.
+  const fixed = demoOn(env);
+  const name = body.name != null && !fixed ? String(body.name).slice(0, 80) : user.name;
+  const title = body.title != null && !fixed ? String(body.title).slice(0, 80) : user.title;
   const pick = (k, f) => (k in body ? f(body[k]) : user[k]);
   const upd = {
     name, title,
@@ -1604,7 +1613,7 @@ export class Hub extends DurableObject {
       this.broadcastHuddles();
       await this.huddleCard(msg.channel_id, a.userId, false);
     } else if (msg.type === 'huddle_leave') {
-      ws.serializeAttachment({ userId: a.userId, sid: a.sid, guest: a.guest });
+      ws.serializeAttachment({ userId: a.userId, sid: a.sid, guest: a.guest, hAt: a.hAt, tAt: a.tAt });
       this.broadcastHuddles();
       await this.afterLeave(a.huddle);
     } else if (msg.type === 'huddle_media' && a.huddle) {
@@ -1634,10 +1643,17 @@ export class Hub extends DurableObject {
     const from = ws.deserializeAttachment()?.userId;
     if (msg.type === 'ping') { ws.send('{"type":"pong"}'); return; }
     if (msg.type === 'vis') { const a = ws.deserializeAttachment() || {}; a.vis = !!msg.visible; a.visAt = Date.now(); ws.serializeAttachment(a); return; }
-    if (String(msg.type).startsWith('huddle_')) return this.handleHuddle(ws, msg);
+    // Socket messages skip the HTTP rate limits, so each socket gets a small budget: typing every 3 s,
+    // and in the public demo a call action every 10 s.
+    const gap = (k, ms) => { const a = ws.deserializeAttachment() || {}; const t = Date.now(); if (t - (a[k] || 0) < ms) return false; a[k] = t; ws.serializeAttachment(a); return true; };
+    if (String(msg.type).startsWith('huddle_')) { if (demoOn(this.env) && !gap('hAt', 10e3)) return; return this.handleHuddle(ws, msg); }
     if (msg.type === 'typing' && msg.channel_id) {
+      if (!gap('tAt', 3e3)) return;
       // Only members hear it, and only from a member, so nobody can fake "X is typing" elsewhere.
-      const mem = (await this.env.DB.prepare('SELECT user_id FROM members WHERE channel_id=?').bind(String(msg.channel_id)).all()).results.map((r) => r.user_id);
+      // Members are kept for 10 s so a burst of typing doesn't read the database every time.
+      const cid = String(msg.channel_id), hit = (this.memCache ||= new Map()).get(cid);
+      let mem = hit && Date.now() - hit.at < 10e3 ? hit.mem : null;
+      if (!mem) { mem = (await this.env.DB.prepare('SELECT user_id FROM members WHERE channel_id=?').bind(cid).all()).results.map((r) => r.user_id); this.memCache.set(cid, { at: Date.now(), mem }); if (this.memCache.size > 500) this.memCache.clear(); }
       if (!mem.includes(from)) return;
       const data = JSON.stringify({ type: 'typing', channel_id: msg.channel_id, thread_id: msg.thread_id || null, user_id: from });
       for (const u of mem) {

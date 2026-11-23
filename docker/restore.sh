@@ -8,6 +8,7 @@ if [ "${2:-}" != "--yes" ]; then
   read -r answer
   [ "$answer" = "yes" ] || { echo "Nothing changed."; exit 0; }
 fi
+gzip -t "$1" 2>/dev/null && tar tzf "$1" >/dev/null 2>&1 || { echo "That backup file is damaged. Nothing changed."; exit 1; }
 dir=$(cd "$(dirname "$1")" && pwd)
 docker compose stop yakyard
 trap 'docker compose start yakyard' EXIT

@@ -51,7 +51,7 @@ About 1,550 lines of our own code. vodozemac itself is out of scope (audited by 
 
 ## Prior reviews
 
-None of Yakyard's own code. vodozemac: Least Authority, 2022, no significant findings. We pin vodozemac 0.11.2, which includes the 2026 fixes (non-contributory Diffie-Hellman rejected, strict Ed25519, decoding panic, zeroization).
+None of Yakyard's own code. vodozemac: an earlier version was audited by Least Authority in 2022. We pin vodozemac 0.11.2, which includes the 2026 fixes (non-contributory Diffie-Hellman rejected, strict Ed25519, decoding panic, zeroization).
 
 ## What we'd do with the results
 

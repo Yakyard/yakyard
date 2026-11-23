@@ -23,7 +23,7 @@ No customer panel was run for this. The positioning comes from the competitor re
 1. Team chat that costs $0 for 50 people, because it fits Cloudflare's free plan.
 2. Your team's chat history shouldn't expire after 90 days.
 3. Self-hosted chat, without the server.
-4. Every request finishes in under 10 ms of CPU, so it fits Cloudflare's free plan.
+4. Built so every request stays under 10 ms of CPU, so it fits Cloudflare's free plan.
 5. Voice notes your team can search, because each one gets a transcript.
 6. Stop paying per seat to talk to your own team.
 7. Slack Pro for 25 people: $2,175 a year. This: $0.

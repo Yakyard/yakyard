@@ -216,7 +216,7 @@ const README_ANCHORS = { "what-it-costs": "/#cost", license: "/faq#is-it-open-so
 function slugger() {
   const seen = new Map();
   return (text) => {
-    let s = text.toLowerCase().trim().replace(/<[^>]+>/g, "").replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-");
+    let s = text.toLowerCase().trim().replace(/<[^>]+>/g, "").replace(/&#39;|&#x27;|&apos;/g, "").replace(/&quot;|&amp;|&lt;|&gt;/g, "").replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s/g, "-");
     const n = seen.get(s) || 0;
     seen.set(s, n + 1);
     return n ? `${s}-${n}` : s;

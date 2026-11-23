@@ -225,7 +225,7 @@ Nobody outside the project has audited it. Here's what it does:
 
 - Passwords are stretched in your browser (PBKDF2, 600,000 rounds), and the server stores only a hash of the result.
 - Sign-in is rate-limited.
-- Private channels stay private, even from admins.
+- Private channels stay private, even from admins in the app. Only locked ones are hidden from someone with access to your Cloudflare account or server.
 - Guests only see what they're given.
 - Outside pictures load through a proxy.
 - A security test suite runs on every change.

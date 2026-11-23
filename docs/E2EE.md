@@ -52,7 +52,7 @@ We needed something battle-tested, browser-ready, small enough for phones, and u
 
 | Option | License (checked in each repo, 22 Nov 2026) | Track record | In the browser | Verdict |
 |---|---|---|---|---|
-| **vodozemac** (Olm + Megolm), Matrix.org | Apache-2.0 | Runs end-to-end encryption in Element and every matrix-rust-sdk client. Audited by Least Authority (2022, no significant findings). Security fixes through 0.11.2 (Nov 2026). | Rust, compiles to WebAssembly. Our own 250-line binding: 333 KB, 131 KB gzipped. | **Chosen** |
+| **vodozemac** (Olm + Megolm), Matrix.org | Apache-2.0 | Runs end-to-end encryption in Element and every matrix-rust-sdk client. An earlier version was audited by Least Authority in 2022. We pin 0.11.2, which includes later security fixes. | Rust, compiles to WebAssembly. Our own 250-line binding: 333 KB, 131 KB gzipped. | **Chosen** |
 | **mls-rs** (MLS, RFC 9420), AWS | Apache-2.0 OR MIT | Production at AWS. MLS scales better for large groups. | Has a WebCrypto provider, but no JavaScript bindings: we'd write and maintain the whole group-state binding ourselves, plus a delivery service that orders commits, which our relay doesn't do today. | Next candidate when groups grow |
 | **ts-mls** (MLS), pure TypeScript | MIT | Its README says it "has not undergone a formal security audit". | Easy to ship | Not for now |
 | **matrix-sdk-crypto-wasm** (vodozemac inside the full Matrix crypto machine) | Apache-2.0 | Element Web's crypto | 9.1 MB unpacked, and it expects a Matrix homeserver API | Too heavy, wrong shape |

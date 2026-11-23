@@ -14,15 +14,14 @@
 <p align="center"><a href="https://yakyard-demo.qvinta.workers.dev"><b>Try the live demo</b></a>. One click, no signup. It resets every night.</p>
 
 <p align="center">
-  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/yakyard/yakyard"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32"></a>
+  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/Yakyard/yakyard"><img src="https://deploy.workers.cloudflare.com/button" alt="Deploy to Cloudflare" height="32"></a>
   <br><sub>Rather use your own server? <a href="#run-it-on-your-own-server">Run it with Docker</a>.</sub>
 </p>
 
 <p align="center">
-  <a href="https://github.com/yakyard/yakyard/actions/workflows/ci.yml"><img src="https://github.com/yakyard/yakyard/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/Yakyard/yakyard/actions/workflows/ci.yml"><img src="https://github.com/Yakyard/yakyard/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-2B1BD6" alt="License: Apache 2.0"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/yakyard/yakyard"><img src="https://api.scorecard.dev/projects/github.com/yakyard/yakyard/badge" alt="OpenSSF Scorecard"></a>
-</p>
+  </p>
 
 <p align="center">
   <a href="https://yakyard.pages.dev/"><b>Website</b></a> ·
@@ -95,7 +94,7 @@ The full tour, with pictures, is in [How to use Yakyard](docs/GUIDE.md).
 
 Slack Pro is $7.25 per person a month paid yearly, $8.75 paid monthly ([source](docs/sources.md#slack)).
 
-Yakyard fits Cloudflare's free plan because every request finishes in under 10 ms of CPU. On a real Cloudflare account, normal requests took 1 to 7 ms. Two things run out first on a busy day:
+Yakyard fits Cloudflare's free plan because it's built so every request stays under 10 ms of CPU. On a real Cloudflare account, normal requests took 1 to 7 ms. Two things run out first on a busy day:
 
 - **Voice transcripts:** about 214 minutes a day for the whole team. After that, notes still send and play, and their transcripts arrive after midnight UTC.
 - **Photo previews:** 5,000 a month. After that, photos show at full size.
@@ -113,7 +112,7 @@ The per-person math is in [TECHNICAL.md](docs/TECHNICAL.md#free-plan-math).
 - Calls built in: pop in to any channel or DM, with screen share.
 - Your Slack DMs, private channels and files come with you.
 - Installs on phone and desktop, with push notifications.
-- Private channels stay private, even from admins.
+- Private channels stay private, even from admins in the app. Only locked ones are hidden from someone with access to your Cloudflare account or server.
 - One click to deploy on Cloudflare, with no server to look after. Or run it on your own server with Docker.
 - Backups to a file you keep, with one command or every night by themselves.
 - Three themes, including Yaky, the loud one we made for fun.
@@ -141,7 +140,7 @@ The fine print (calls, transcript languages, the Slack import, support) is in [P
 | Rocket.Chat | Commercial plans by quote | Starter: up to 50 people | Yes, your server | MIT (Community) / commercial |
 | Zulip | Cloud Standard $6.67 yearly / $8 monthly | Cloud Free: 10,000 messages of search history | Yes, free self-hosted | Apache 2.0 |
 | Campfire | Free | No calls listed | Yes, your server | MIT |
-| Element (Matrix) | Enterprise per seat, by quote | Community is for non-professional use | Yes, your server | AGPL-3.0 / commercial |
+| Element (Matrix) | Enterprise per seat, by quote | ESS Community is for non-professional use (Synapse itself is AGPL) | Yes, your server | AGPL-3.0 / commercial |
 
 Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of these beat Yakyard at things that might matter to you. Want a chat with years of self-hosting behind it? Zulip, Mattermost or Campfire. Need end-to-end encryption on every conversation, with an audited client? Element. The app-by-app version is in [COMPARE.md](docs/COMPARE.md).
 
@@ -155,7 +154,7 @@ Prices checked on 21 November 2026, links in [sources](docs/sources.md). Some of
 No GitHub account? Use the terminal instead:
 
 ```bash
-git clone https://github.com/yakyard/yakyard.git
+git clone https://github.com/Yakyard/yakyard.git
 cd yakyard
 npx wrangler login
 npm run deploy        # prints your address and a one-time setup code
@@ -170,7 +169,7 @@ Phone notifications, Slack import, Google sign-in, team clocks and every other s
 Yakyard also runs on any Linux server with Docker, with HTTPS from Caddy and all your data in one volume:
 
 ```bash
-git clone https://github.com/yakyard/yakyard.git
+git clone https://github.com/Yakyard/yakyard.git
 cd yakyard
 cp .env.example .env      # set DOMAIN and SETUP_TOKEN
 docker compose up -d
@@ -194,7 +193,7 @@ Then open `https://your-domain/setup`. Backups and updates are one command each.
 
 **What if Yakyard stops being developed?** Your copy keeps running on your account or server. You have the code, the database and a backup command. Nothing phones home.
 
-**Who do I call when it breaks?** Nobody sells support. There's the [setup guide](docs/SETUP.md#when-something-fails), [GitHub issues](https://github.com/yakyard/yakyard/issues) and the people who use it.
+**Who do I call when it breaks?** Nobody sells support. There's the [setup guide](docs/SETUP.md#when-something-fails), [GitHub issues](https://github.com/Yakyard/yakyard/issues) and the people who use it.
 
 **Is it open source?** Yes. Yakyard is under the Apache License 2.0, an OSI-approved open source license. Use it, change it, host it or sell it. Keep the copyright and license notices, and say what you changed.
 
@@ -204,7 +203,7 @@ More answers in the [full FAQ](docs/FAQ.md).
 
 QVINTA Ltd, a Hong Kong company, makes and maintains Yakyard. It started as the in-house chat of a design and wholesale team that left Slack in 2026, and that team still uses it every day. The public history starts in November 2026 because the code was cleaned up from that private app before it went public.
 
-Report problems in [GitHub issues](https://github.com/yakyard/yakyard/issues). Report security holes privately, as [SECURITY.md](SECURITY.md) explains.
+Report problems in [GitHub issues](https://github.com/Yakyard/yakyard/issues). Report security holes privately, as [SECURITY.md](SECURITY.md) explains.
 
 ## License
 
