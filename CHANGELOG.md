@@ -16,6 +16,7 @@ What changed in each Yakyard release, newest first.
 - Visitors can't change channel topics, pin, create channels, add people or rename themselves.
 - @here in a demo channel no longer notifies every visitor.
 - Typing signals and call actions over the live connection have their own small limit.
+- The demo lets in up to 300 new visitors every 15 minutes (was 60).
 ### Public demo
 - The demo opens like a team that's been working for a while: two more channels (#design and #wholesale), a few days of messages, a pinned price list, and files (a packaging diagram, a PDF price list and a CSV order sheet).
 - Each visitor gets a first name and their own DMs from the team, including a group DM, with unread counts and an @mention, so Home, DMs and Activity aren't empty.

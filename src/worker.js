@@ -416,7 +416,7 @@ ${message ? `<p class="login-error" role="alert">${escH(message)}</p>` : ''}
 async function demoSignIn(req, env) {
   await ensureSeeded(env);   // first: seeding clears the sign-in counters
   const ip = clientIp(req);
-  if ((await bump(env, 'demo:' + ip)) > 5 || (await bump(env, 'demo:all')) > 60) return loginPage(env, 'The demo is busy right now. Try again in 15 minutes.');
+  if ((await bump(env, 'demo:' + ip)) > 5 || (await bump(env, 'demo:all')) > 300) return loginPage(env, 'The demo is busy right now. Try again in 15 minutes.');
   const id = uid('U'), sid = uid('sess_') + uid(), t = now(), name = visitorName();
   const u = { id, email: `visitor-${id.slice(1).toLowerCase()}@demo.invalid`, name, title: 'Demo visitor', avatar: '', color: colorFor(id), role: 'member', active: 1 };
   await env.DB.batch([
