@@ -160,7 +160,7 @@ function footer() {
       </div>
       ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"]])}
       ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/docker", "Your own server"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
-      ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE`, "License"], ["/press", "Press kit"], ["/releases/2.2.0", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
+      ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE`, "License"], ["/press", "Press kit"], ["/releases/2.2.1", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
     </div>
     <div class="foot__base">
       <p><strong>Free forever. Made by QVINTA Ltd.</strong></p>
@@ -408,7 +408,7 @@ Key facts:
 - [Pros and cons](${SITE_URL}/pros-and-cons/)
 - [FAQ](${SITE_URL}/faq/)
 - [Sources](${SITE_URL}/sources/): every price and limit, with the page it came from
-- [Release notes](${SITE_URL}/releases/2.2.0/)
+- [Release notes](${SITE_URL}/releases/2.2.1/)
 
 ## Code
 - [GitHub repository](${REPO})

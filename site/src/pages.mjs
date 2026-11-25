@@ -64,7 +64,7 @@ export function homePage({ layout, shot, icon, DEPLOY_URL, REPO, SITE_URL, VERSI
   ];
 
   const body = `
-<aside class="v2band" aria-label="Yakyard 2.2"><div class="wrap"><p><span class="v2band__tag">2.2</span> <strong>Run it on your own server.</strong> <span class="v2band__long">Docker and Caddy on any Linux server, with all your data in one volume.</span><span class="v2band__short">Docker, on any Linux server.</span> <a href="/releases/2.2.0/">What's new</a></p></div></aside>
+<aside class="v2band" aria-label="Yakyard 2.2.1"><div class="wrap"><p><span class="v2band__tag">2.2.1</span> <strong>Voice notes play on iPhone and Mac.</strong> <span class="v2band__long">Every note is sent as MP3 now, wherever it was recorded.</span><span class="v2band__short">Every note is sent as MP3.</span> <a href="/releases/2.2.1/">What's new</a></p></div></aside>
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap">
     <h1 class="d-xl" id="hero-title"><span class="l">${"Yak all you want.".split(" ").map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(" ")}</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
@@ -478,8 +478,79 @@ function chat(icon) {
 // Release notes pages, in the home page's design. Same words as docs/releases/*.md.
 export function releasePages({ layout, shot, DEPLOY_URL, REPO }) {
   const deployBtn = `<a class="btn btn--primary" href="${DEPLOY_URL}">Deploy to Cloudflare</a>`;
+  const v221 = `
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.2.1</span> <strong>The latest release.</strong> <a href="/releases/2.2.0">See 2.2.0</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<section class="hero rel-hero" aria-labelledby="rel-title">
+  <div class="wrap">
+    <h1 class="d-xl" id="rel-title"><span class="l">Voice notes play</span> <span class="l hot"><span class="stamp">everywhere.</span></span></h1>
+    <div class="rel-hero__grid">
+      <div>
+        <p class="lede">Voice notes now play on iPhone and Mac, wherever they were recorded. Every note is sent as MP3, and MP3 plays in every browser.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="#update">Update to 2.2.1</a><a class="btn btn--ghost" href="${REPO}/blob/main/CHANGELOG.md">Read the changelog</a></div>
+      </div>
+      <div class="rel-shot">${shot("voice-note-transcript", { alt: "A voice note in Yakyard with its play button, length and transcript", sz: "(min-width: 960px) 720px, 100vw", eager: true })}</div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="mp3-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="mp3-title">Sent as MP3.</h2><p>A voice note recorded on Android or in Chrome was saved as WebM or fragmented MP4. Safari on iPhone and Mac can't play those files, so the person on the iPhone pressed play and heard nothing.</p></div>
+    <ul class="rel-list">
+      <li>Your phone or computer now turns every voice note into an MP3 before it's sent. It plays in every browser, Safari included.</li>
+      <li>Notes are mono, about 1 MB for 3 minutes. Plenty for a voice.</li>
+      <li>If the conversion fails, Yakyard sends the original recording, so your note still goes out.</li>
+      <li>In locked conversations the MP3 is made on your device before anything is encrypted, so locked notes play everywhere too.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec band" aria-labelledby="also-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="also-title">Also in this release.</h2><p>Fixes from launch testing, and a livelier demo.</p></div>
+    <ul class="rel-list">
+      <li>Deploy to Cloudflare asks only for <code>SETUP_TOKEN</code>. A made-up value in the other secrets broke phone notifications and calls.</li>
+      <li>Signing in correctly no longer counts toward the lockout. Only wrong passwords do.</li>
+      <li>Docker: <code>restore.sh</code> refuses a damaged backup before it touches anything. <code>backup.sh</code> can't leave a half backup when the disk is full, and only you can read the backups.</li>
+      <li>The Docker guide shows how to try Yakyard on your own computer with <code>DOMAIN=localhost</code>, and reminds you to keep a copy of <code>.env</code>.</li>
+      <li>On phones, Home and DMs have one full-width search box. Search lists matching channels and DMs above messages.</li>
+      <li>The live demo opens like a team that's been working for a while, each visitor gets their own DMs, and it lets in up to 300 new visitors every 15 minutes.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec" aria-labelledby="know-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="know-title">Worth knowing.</h2></div>
+    <ul class="rel-list">
+      <li>Voice notes sent before 2.2.1 stay as they were. An old note from Android still won't play on an iPhone. Record it again and it will.</li>
+      <li>The MP3 is made by the person sending, so their app needs 2.2.1. After you update, each person sees "New version of Yakyard". Tapping Update now is enough.</li>
+      <li>The database doesn't change in this release.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="sec install band" id="update" aria-labelledby="update-title">
+  <div class="wrap rel-two">
+    <div class="sec__head"><h2 class="d-l" id="update-title">Update.</h2><p>Back up first, then update. Nothing to turn on afterwards.</p></div>
+    <div>
+      <p class="rel-new">On Cloudflare:</p>
+      <pre class="rel-code"><code>npm run backup
+npm run update</code></pre>
+      <p class="rel-new">On your own server:</p>
+      <pre class="rel-code"><code>sh docker/backup.sh
+git pull
+docker compose pull
+docker compose up -d</code></pre>
+      <p class="rel-new">If you pinned a version in <code>.env</code>, set <code>YAKYARD_VERSION=2.2.1</code> first.</p>
+      <p class="rel-new">New to Yakyard? Setup on Cloudflare takes about 30 minutes, no coding.</p>
+      <div class="btn-row">${deployBtn}<a class="btn btn--ghost" href="/docs/docker">Run it on your own server</a></div>
+    </div>
+  </div>
+</section>`;
+
   const v22 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.2.0</span> <strong>The latest release.</strong> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.2.0</span> <strong>Your own server.</strong> <a href="/releases/2.2.1">See 2.2.1, the latest</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Your server,</span> <span class="l hot"><span class="stamp">your chat.</span></span></h1>
@@ -589,7 +660,7 @@ docker compose up -d</code></pre>
 </section>`;
 
   const v21 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.1.0</span> <strong>Now open source.</strong> <a href="/releases/2.2.0">See 2.2.0, the latest</a> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.1.0</span> <strong>Now open source.</strong> <a href="/releases/2.2.1">See 2.2.1, the latest</a> <a href="/releases/2.2.0">See 2.2.0</a> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Now open</span> <span class="l hot"><span class="stamp">source.</span></span></h1>
@@ -683,7 +754,7 @@ npm run update</code></pre>
 </section>`;
 
   const v2 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.0.0</span> <strong>Locked conversations.</strong> <a href="/releases/2.2.0">See 2.2.0, the latest</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">2.0.0</span> <strong>Locked conversations.</strong> <a href="/releases/2.2.1">See 2.2.1, the latest</a> <a href="/releases/2.2.0">See 2.2.0</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/1.0.0">See 1.0.0</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Lock what's</span> <span class="l hot"><span class="stamp">private.</span></span></h1>
@@ -765,7 +836,7 @@ npm run update</code></pre>
 </section>`;
 
   const v1 = `
-<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/2.2.0">See 2.2.0, the latest</a></p></div></aside>
+<aside class="v2band" aria-label="Release"><div class="wrap"><p><span class="v2band__tag">1.0.0</span> <strong>The first release.</strong> <a href="/releases/2.0.0">See 2.0.0</a> <a href="/releases/2.1.0">See 2.1.0</a> <a href="/releases/2.2.0">See 2.2.0</a> <a href="/releases/2.2.1">See 2.2.1, the latest</a></p></div></aside>
 <section class="hero rel-hero" aria-labelledby="rel-title">
   <div class="wrap">
     <h1 class="d-xl" id="rel-title"><span class="l">Yakyard 1.0.0.</span> <span class="l hot"><span class="stamp">Pay nobody.</span></span></h1>
@@ -819,6 +890,7 @@ npm run update</code></pre>
   </div>
 </section>`;
   return [
+    ["/releases/2.2.1", layout({ title: "Yakyard 2.2.1: voice notes play on iPhone and Mac", description: "Yakyard 2.2.1 sends every voice note as MP3, so notes recorded on Android or in Chrome play in Safari on iPhone and Mac. Plus fixes from launch testing.", urlPath: "/releases/2.2.1", og: "home", ogType: "article", body: v221 })],
     ["/releases/2.2.0", layout({ title: "Yakyard 2.2.0: run it on your own server", description: "Yakyard 2.2.0 runs on your own Linux server with Docker, with HTTPS from Caddy, one-command backups and updates, and the limits stated plainly.", urlPath: "/releases/2.2.0", og: "home", ogType: "article", body: v22 })],
     ["/releases/2.1.0", layout({ title: "Yakyard 2.1.0: now open source", description: "Yakyard 2.1.0 is open source under Apache 2.0, with a live demo and optional updates and backups that run by themselves.", urlPath: "/releases/2.1.0", og: "home", ogType: "article", body: v21 })],
     ["/releases/2.0.0", layout({ title: "Yakyard 2.0.0: locked conversations", description: "Yakyard 2.0.0 lets you lock a DM or private channel so only the people in it can read it.", urlPath: "/releases/2.0.0", og: "home", ogType: "article", body: v2 })],

@@ -2,9 +2,12 @@
 
 What changed in each Yakyard release, newest first.
 
-## Unreleased
+## 2.2.1 (25 November 2026)
 
-- Voice notes now play on every device. Each note is converted to MP3 on the phone or computer before it's sent, because Safari on iPhone and Mac can't play the WebM or fragmented MP4 files that Chrome and Android record. If the conversion fails, the original recording is sent.
+Voice notes now play on iPhone and Mac: every note is sent as MP3. Plus the fixes from launch testing. The database doesn't change.
+
+### Voice notes
+- Voice notes now play on every device. Each note is converted to MP3 on the phone or computer before it's sent, because Safari on iPhone and Mac can't play the WebM or fragmented MP4 files that Chrome and Android record. If the conversion fails, the original recording is sent. Notes are mono, about 1 MB for 3 minutes. Notes sent before 2.2.1 are not converted; record them again to fix them.
 
 ### Fixes from launch testing
 - Deploy to Cloudflare asks only for `SETUP_TOKEN`. The other secrets in `.dev.vars.example` are commented out, since a made-up value there broke phone notifications and calls.
@@ -19,7 +22,6 @@ What changed in each Yakyard release, newest first.
 - @here in a demo channel no longer notifies every visitor.
 - Typing signals and call actions over the live connection have their own small limit.
 - The demo lets in up to 300 new visitors every 15 minutes (was 60).
-### Public demo
 - The demo opens like a team that's been working for a while: two more channels (#design and #wholesale), a few days of messages, a pinned price list, and files (a packaging diagram, a PDF price list and a CSV order sheet).
 - Each visitor gets a first name and their own DMs from the team, including a group DM, with unread counts and an @mention, so Home, DMs and Activity aren't empty.
 - Team clocks and weather are on in the demo, with the made-up team spread over five cities.

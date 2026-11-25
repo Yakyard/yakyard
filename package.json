@@ -1,6 +1,6 @@
 {
   "name": "yakyard",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "license": "Apache-2.0",
   "description": "Free, open source team chat you run on your own Cloudflare account or your own server with Docker: channels, threads, DMs, calls, voice notes with transcripts.",

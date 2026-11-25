@@ -39,7 +39,7 @@ On Cloudflare's free plan, a team of up to about 50 people pays $0. Yakyard is f
 | Runs on | Cloudflare Workers, Durable Objects, D1, R2, Workers AI. Since 2.2.0, also any Linux server with Docker (workerd and Caddy), where transcripts need a Cloudflare token |
 | Apps | Installable web app (PWA) for iPhone, Android, Mac and Windows |
 | License | Apache License 2.0 (OSI-approved open source). Versions 1.0.0 and 2.0.0 were released under PolyForm Shield 1.0.0. |
-| Version | 2.2.0 (22 November 2026) |
+| Version | 2.2.1 (25 November 2026) |
 | Demo | [yakyard-demo.qvinta.workers.dev](https://yakyard-demo.qvinta.workers.dev): one click, no signup, resets every night. An [84-second tour](https://yakyard.pages.dev/media/yakyard-demo.mp4) with voiceover |
 | Support | No paid support. GitHub issues and the docs |
 | Maker | QVINTA Ltd (Hong Kong) |

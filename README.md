@@ -9,7 +9,7 @@
 
 <p align="center"><b>Yakyard</b> is a free, open source Slack alternative you run on your own Cloudflare account or your own server.<br>Channels, threads, DMs, calls and voice notes with transcripts. Locked conversations when it's private. No per-seat bill.</p>
 
-<p align="center"><b>New in 2.2:</b> Yakyard runs on your own Linux server too, with Docker and Caddy. <a href="docs/releases/2.2.0.md">What changed</a></p>
+<p align="center"><b>New in 2.2.1:</b> Voice notes now play on iPhone and Mac, wherever they were recorded. <a href="docs/releases/2.2.1.md">What changed</a></p>
 
 <p align="center"><a href="https://yakyard-demo.qvinta.workers.dev"><b>Try the live demo</b></a>. One click, no signup. It resets every night.</p>
 
