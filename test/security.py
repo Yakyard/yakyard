@@ -358,7 +358,11 @@ l2 = invite(owner, 'legacy2@example.com', name='Lou'); join(l2.json()['link'], '
 d1(f"UPDATE credentials SET hash='{lhash}', salt='{lsalt}' WHERE user_id='{l2.json()['id']}'")
 def tl(e):
     t0 = time.time(); requests.post(B + '/auth/login', data={'email': e, 'key': dk, '_raw': 1}); return time.time() - t0
-la = sorted(tl('legacy2@example.com') for _ in range(3))[1]; lb = sorted(tl('ghost-legacy@example.com') for _ in range(3))[1]
+# Interleave the samples and keep the fastest of each: a slow hash makes every sample slow, while
+# shared CI runners add random stalls to single requests. Same 3 attempts per account as before.
+la, lb = 9e9, 9e9
+for i in range(3):
+    la = min(la, tl('legacy2@example.com')); lb = min(lb, tl('ghost-legacy%d@example.com' % i))
 print(f'  old-account timing: existing {la*1000:.0f} ms, unknown {lb*1000:.0f} ms')
 check('KDF old account and unknown email take the same time (within 3x, no slow hash anywhere)', lb > la / 3 and la > lb / 3, (la, lb))
 ads_salt = requests.post(B + '/auth/salt', json={'email': 'adm@example.com'}).json()['salt']
