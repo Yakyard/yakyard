@@ -718,10 +718,39 @@ function makePlayer(f) {
   return p;
 }
 
+// Every voice note is sent as MP3: it plays everywhere, including Safari on iPhone and Mac, which
+// can't play the WebM or fragmented MP4 files that Chrome and Android record. Mono, 22 kHz, 48 kbps
+// (about 1 MB for 3 minutes). If anything fails, the original recording is sent instead.
+async function toMp3(blob) {
+  const { Mp3Encoder } = await import('/vendor/lamejs.js');
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ac = new AC();
+  const bytes = await blob.arrayBuffer();
+  const buf = await new Promise((ok, no) => { const p = ac.decodeAudioData(bytes, ok, no); if (p?.then) p.then(ok, no); }).finally(() => ac.close?.());
+  const RATE = 22050, len = Math.max(1, Math.ceil(buf.duration * RATE));
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const off = new OAC(1, len, RATE);
+  const node = off.createBufferSource(); node.buffer = buf; node.connect(off.destination); node.start();
+  const pcm = (await off.startRendering()).getChannelData(0);
+  const enc = new Mp3Encoder(1, RATE, 48), out = [], CH = 1152 * 20, s16 = new Int16Array(CH);
+  for (let i = 0; i < pcm.length; i += CH) {
+    const n = Math.min(CH, pcm.length - i);
+    for (let j = 0; j < n; j++) { const v = Math.max(-1, Math.min(1, pcm[i + j])); s16[j] = v < 0 ? v * 0x8000 : v * 0x7fff; }
+    const mp3 = enc.encodeBuffer(n === CH ? s16 : s16.subarray(0, n));
+    if (mp3.length) out.push(new Uint8Array(mp3));
+    if ((i / CH) % 40 === 39) await new Promise((r) => setTimeout(r)); // keep the page responsive
+  }
+  const end = enc.flush(); if (end.length) out.push(new Uint8Array(end));
+  const mp3 = new Blob(out, { type: 'audio/mpeg' });
+  if (mp3.size < 200) throw new Error('empty mp3');
+  return mp3;
+}
+
 // Recorder: one at a time. Transcript happens on the server after upload.
 const REC_MAX = 15 * 60;
 function pickMime() {
-  for (const t of ['audio/webm;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/webm', 'audio/ogg;codecs=opus']) if (window.MediaRecorder?.isTypeSupported?.(t)) return t;
+  // AAC in MP4 first, WebM only where AAC isn't offered (Firefox). Every note is converted to MP3 before it's sent anyway.
+  for (const t of ['audio/mp4;codecs=mp4a.40.2', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/webm', 'audio/mp4']) if (window.MediaRecorder?.isTypeSupported?.(t)) return t;
   return '';
 }
 async function startRecorder(onTick) {
@@ -1158,7 +1187,8 @@ function composer({ channelId, threadId }) {
       if (vrec.secs < 0.7) { vrec.cancel(); done(); return toast('Too short. Tap the mic and talk.'); }
       bar.classList.add('sending'); sendBtn.disabled = pauseBtn.disabled = cancelBtn.disabled = true;
       const r = await vrec.stop();
-      const ext = r.type.includes('mp4') ? 'm4a' : r.type.includes('ogg') ? 'ogg' : 'webm';
+      try { r.blob = await toMp3(r.blob); r.type = 'audio/mpeg'; } catch (e) { console.warn('mp3 conversion skipped', e); }
+      const ext = r.type === 'audio/mpeg' ? 'mp3' : r.type.includes('mp4') ? 'm4a' : r.type.includes('ogg') ? 'ogg' : 'webm';
       const stamp = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).replace(/[/:,]/g, ' ').replace(/\s+/g, ' ');
       const file = new File([r.blob], `Voice note ${stamp}.${ext}`, { type: r.type });
       const alsoOn = !!also?.querySelector('input').checked;

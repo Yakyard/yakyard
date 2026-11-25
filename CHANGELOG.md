@@ -4,6 +4,8 @@ What changed in each Yakyard release, newest first.
 
 ## Unreleased
 
+- Voice notes now play on every device. Each note is converted to MP3 on the phone or computer before it's sent, because Safari on iPhone and Mac can't play the WebM or fragmented MP4 files that Chrome and Android record. If the conversion fails, the original recording is sent.
+
 ### Fixes from launch testing
 - Deploy to Cloudflare asks only for `SETUP_TOKEN`. The other secrets in `.dev.vars.example` are commented out, since a made-up value there broke phone notifications and calls.
 - Signing in correctly no longer counts toward the lockout. Only wrong passwords do.
