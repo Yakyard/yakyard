@@ -119,6 +119,7 @@ ${noindex ? `<meta name="robots" content="noindex">` : `<link rel="canonical" hr
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/brand/app-icon-180.png">
 <link rel="manifest" href="/site.webmanifest">
+<link rel="alternate" type="application/rss+xml" title="Yakyard blog" href="/blog/feed.xml">
 <link rel="preload" href="/fonts/RammettoOne-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/WixMadeforText-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${CSS_HREF}">${ld}
@@ -158,7 +159,7 @@ function footer() {
         <img src="/brand/yakyard-wordmark-reverse.svg" alt="Yakyard" width="190" height="42" loading="lazy">
         <p>Free, open source team chat you run on your own Cloudflare account or your own server.</p>
       </div>
-      ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"]])}
+      ${col("Yakyard", [["/why", "Why Yakyard"], ["/compare", "Compare"], ["/pros-and-cons", "Pros and cons"], ["/faq", "FAQ"], ["/blog", "Blog"]])}
       ${col("Docs", [["/docs/setup", "Set it up"], ["/docs/guide", "How to use it"], ["/docs/technical", "Technical notes"], ["/docs/docker", "Your own server"], ["/docs/locked", "Locked conversations"], ["/sources", "Sources"]])}
       ${col("Project", [[REPO, "GitHub"], [`${REPO}/blob/main/LICENSE`, "License"], ["/press", "Press kit"], ["/releases/2.2.1", "Releases"], [`${REPO}/blob/main/SECURITY.md`, "Security"]])}
     </div>
@@ -224,7 +225,7 @@ function slugger() {
 }
 
 function resolveLink(href, fromDir = "docs") {
-  if (/^(https?:|mailto:|#)/.test(href)) return href;
+  if (/^(https?:|mailto:|#|\/)/.test(href)) return href;
   const [p, hash] = href.split("#");
   const full = path.posix.normalize(path.posix.join(fromDir, p));
   const base = path.posix.basename(full);
@@ -321,6 +322,100 @@ async function buildDoc(file, meta) {
   return layout({ title: meta.title, seoTitle: meta.seo, description: meta.description, urlPath: meta.out, og: meta.og, body, current: meta.nav, jsonld });
 }
 
+// ---------- blog ----------
+// Articles are Markdown files in site/content/blog. The file name is the URL: my-post.md -> /blog/my-post/.
+// Each starts with a small front matter block: title, seo, description, lede, date (YYYY-MM-DD), target.
+// Screenshots use the docs paths (screens/x.png or guide/x.png) and become the same WebP sets as the docs.
+const BLOG_DIR = path.join(HERE, "content/blog");
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const longDate = (d) => { const [y, m, day] = d.split("-").map(Number); return `${day} ${MONTHS[m - 1]} ${y}`; };
+const rssDate = (d) => new Date(`${d}T12:00:00Z`).toUTCString();
+
+function frontMatter(src, file) {
+  const m = src.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!m) throw new Error(`${file}: missing front matter`);
+  const meta = {};
+  for (const line of m[1].split("\n")) {
+    const kv = line.match(/^(\w+):\s*(.*)$/);
+    if (kv) meta[kv[1]] = kv[2].replace(/^"(.*)"$/, "$1");
+  }
+  for (const k of ["title", "description", "lede", "date"]) if (!meta[k]) throw new Error(`${file}: front matter needs ${k}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(meta.date)) throw new Error(`${file}: date must be YYYY-MM-DD`);
+  return { meta, body: src.slice(m[0].length) };
+}
+
+async function loadPosts() {
+  let files = [];
+  try { files = (await readdir(BLOG_DIR)).filter((f) => f.endsWith(".md")); } catch { return []; }
+  const posts = [];
+  for (const f of files) {
+    const { meta, body } = frontMatter(await readFile(path.join(BLOG_DIR, f), "utf8"), f);
+    const slug = f.replace(/\.md$/, "");
+    const words = body.replace(/```[\s\S]*?```/g, "").split(/\s+/).filter(Boolean).length;
+    posts.push({ ...meta, slug, url: `/blog/${slug}`, body, words, minutes: Math.max(1, Math.round(words / 230)), src: `site/content/blog/${f}` });
+  }
+  return posts.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.slug.localeCompare(b.slug)));
+}
+
+function blogPostPage(post, modified) {
+  // keep "90-day" and friends on one line in the big display headings
+  const keep = (h) => h.replace(/(\d+-[a-z]+)/g, '<span class="nowrap">$1</span>');
+  const md = renderMarkdown(post.body);
+  const html = md.html.replace(/(<h2 id="[^"]*">)([\s\S]*?)(<\/h2>)/g, (m, o, t, c) => o + keep(t) + c);
+  const { headings } = md;
+  const url = SITE_URL + slashed(post.url);
+  const jsonld = [
+    { "@context": "https://schema.org", "@type": "Article", headline: post.title, description: post.description,
+      datePublished: post.date, dateModified: modified || post.date, inLanguage: "en",
+      mainEntityOfPage: { "@type": "WebPage", "@id": url }, url, image: [`${SITE_URL}/og/home.png`],
+      author: { "@type": "Organization", name: "Yakyard", url: `${SITE_URL}/` },
+      publisher: { "@type": "Organization", name: "QVINTA Ltd", logo: { "@type": "ImageObject", url: `${SITE_URL}/brand/app-icon-512.png` } } },
+    { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+      { "@type": "ListItem", position: 2, name: "Blog", item: `${SITE_URL}/blog/` },
+      { "@type": "ListItem", position: 3, name: post.title, item: url },
+    ] },
+  ];
+  const toc = headings.length > 2
+    ? `<aside class="toc" aria-label="On this page"><h2>On this page</h2><ol>${headings.map((h) => `<li><a href="#${h.id}">${h.text}</a></li>`).join("")}</ol></aside>`
+    : "";
+  const body = `<header class="phead phead--post"><div class="wrap"><nav class="crumbs" aria-label="Breadcrumb"><a href="/blog">Blog</a><span aria-hidden="true">/</span><span>Article</span></nav><h1>${keep(esc(post.title))}</h1><p class="lede">${esc(post.lede)}</p><p class="post-meta"><time datetime="${post.date}">${longDate(post.date)}</time><span aria-hidden="true">·</span><span>${post.minutes} minute read</span></p></div></header>
+<div class="wrap"><div class="doc post${toc ? "" : " doc--wide"}"><article class="prose">${html}</article>${toc}</div></div>`;
+  return layout({ title: post.title, seoTitle: post.seo || post.title, description: post.description, urlPath: post.url, og: "home", body, current: "", jsonld, ogType: "article" });
+}
+
+function blogIndexPage(posts) {
+  const list = posts.map((p) => `<li><a class="post-card" href="${p.url}"><p class="post-meta"><time datetime="${p.date}">${longDate(p.date)}</time><span aria-hidden="true">·</span><span>${p.minutes} minute read</span></p><h2>${esc(p.title)}</h2><p>${esc(p.description)}</p><span class="post-card__go">Read the article</span></a></li>`).join("");
+  const body = `<header class="phead"><div class="wrap"><h1>Blog</h1><p class="lede">Practical notes on team chat you run yourself: leaving Slack, hosting it, and keeping your history.</p><p class="post-feed"><a href="/blog/feed.xml">RSS feed</a></p></div></header>
+<div class="wrap"><ol class="posts">${list || "<li><p>Quiet in here. The first article is on its way.</p></li>"}</ol></div>`;
+  const jsonld = { "@context": "https://schema.org", "@type": "Blog", name: "Yakyard blog", url: `${SITE_URL}/blog/`,
+    blogPost: posts.map((p) => ({ "@type": "BlogPosting", headline: p.title, url: SITE_URL + slashed(p.url), datePublished: p.date })) };
+  return layout({ title: "Blog", seoTitle: "Yakyard blog: running your own team chat", description: "Practical articles on team chat you run yourself: leaving Slack, keeping your message history, and hosting on Cloudflare or your own server.", urlPath: "/blog", og: "home", body, current: "", jsonld });
+}
+
+function blogFeed(posts) {
+  const x = (s) => esc(s).replace(/'/g, "&apos;");
+  const items = posts.map((p) => `  <item>
+    <title>${x(p.title)}</title>
+    <link>${SITE_URL}${slashed(p.url)}</link>
+    <guid isPermaLink="true">${SITE_URL}${slashed(p.url)}</guid>
+    <pubDate>${rssDate(p.date)}</pubDate>
+    <description>${x(p.description)}</description>
+  </item>`).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>Yakyard blog</title>
+  <link>${SITE_URL}/blog/</link>
+  <atom:link href="${SITE_URL}/blog/feed.xml" rel="self" type="application/rss+xml"/>
+  <description>Practical notes on team chat you run yourself.</description>
+  <language>en</language>${posts[0] ? `\n  <lastBuildDate>${rssDate(posts[0].date)}</lastBuildDate>` : ""}
+${items}
+</channel>
+</rss>
+`;
+}
+
 // ---------- write ----------
 async function write(urlPath, html) {
   const file = urlPath === "/" ? "index.html" : urlPath === "/404" ? "404.html" : `${urlPath.replace(/^\//, "")}/index.html`;
@@ -364,6 +459,16 @@ async function main() {
   const ctx = { layout, shot, esc, icon, DEPLOY_URL, REPO, SITE_URL, VERSION };
   const pages = [["/", homePage(ctx)], ["/docs", docsHubPage(ctx)], ["/press", pressPage(ctx)], ["/404", notFoundPage(ctx)], ...releasePages(ctx)];
   for (const [file, meta] of Object.entries(DOCS)) pages.push([meta.out, await buildDoc(file, meta)]);
+  const posts = await loadPosts();
+  const postDate = {};
+  for (const p of posts) {
+    let mod = null;
+    try { mod = execFileSync("git", ["log", "-1", "--format=%cs", "--", p.src], { cwd: ROOT }).toString().trim() || null; } catch {}
+    postDate[p.url] = mod && mod > p.date ? mod : p.date;
+    pages.push([p.url, blogPostPage(p, postDate[p.url])]);
+  }
+  pages.push(["/blog", blogIndexPage(posts)]);
+  postDate["/blog"] = posts[0]?.date;
   for (const [p, html] of pages) {
     if (/[—–]/.test(html.replace(/<pre[\s\S]*?<\/pre>/g, ""))) console.warn(`  note: ${p} contains an em or en dash`);
     await write(p, html);
@@ -374,7 +479,7 @@ async function main() {
   // lastmod moves only when the page's own source moves
   const gitDate = (f) => { try { return execFileSync("git", ["log", "-1", "--format=%cs", "--", f], { cwd: ROOT }).toString().trim() || null; } catch { return null; } };
   const handBuilt = gitDate("site/src/pages.mjs");
-  const lastmod = Object.fromEntries(Object.entries(DOCS).map(([f, d]) => [d.out, gitDate(`docs/${f}`)]));
+  const lastmod = { ...Object.fromEntries(Object.entries(DOCS).map(([f, d]) => [d.out, gitDate(`docs/${f}`)])), ...postDate };
   await writeFile(path.join(DIST, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map((u) => `  <url><loc>${SITE_URL}${slashed(u)}</loc><lastmod>${lastmod[u] ?? handBuilt ?? today}</lastmod></url>`).join("\n")}
@@ -410,9 +515,15 @@ Key facts:
 - [Sources](${SITE_URL}/sources/): every price and limit, with the page it came from
 - [Release notes](${SITE_URL}/releases/2.2.1/)
 
+## Blog
+- [All articles](${SITE_URL}/blog/) ([RSS](${SITE_URL}/blog/feed.xml))
+${posts.map((p) => `- [${p.title}](${SITE_URL}${slashed(p.url)}): ${p.description}`).join("\n")}
+
 ## Code
 - [GitHub repository](${REPO})
 `);
+  await mkdir(path.join(DIST, "blog"), { recursive: true });
+  await writeFile(path.join(DIST, "blog/feed.xml"), blogFeed(posts));
   await writeFile(path.join(DIST, "robots.txt"), `User-agent: *\nAllow: /\n\nSitemap: ${SITE_URL}/sitemap.xml\n`);
   await writeFile(path.join(DIST, "_headers"), `/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n/fonts/*\n  Cache-Control: public, max-age=31536000, immutable\n/img/*\n  Cache-Control: public, max-age=604800\n/vendor/*\n  Cache-Control: public, max-age=31536000, immutable\n/audio/*\n  Cache-Control: public, max-age=604800\n/media/*\n  Cache-Control: public, max-age=604800\n/*\n  X-Content-Type-Options: nosniff\n  Referrer-Policy: strict-origin-when-cross-origin\n  Permissions-Policy: interest-cohort=()\n`);
   console.log(`Built ${pages.length} pages into site/dist for ${SITE_URL}`);
